@@ -11,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jdelic/artifactsd/internal/api"
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/auth"
+	"github.com/jdelic/artifactsd/internal/blob"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/ratelimit"
 	"github.com/jdelic/artifactsd/internal/session"
@@ -28,6 +30,10 @@ type Options struct {
 	Logger *slog.Logger
 	Access *audit.AccessLogger
 	DB     *store.DB
+	// Store and Blob enable the management API. When Store is nil the API route
+	// group remains a stub (used by lightweight server tests).
+	Store *store.Store
+	Blob  blob.Store
 	// Handler overrides the default route mux (mainly for tests). When nil, the
 	// default handler (health endpoints + route-group stubs) wrapped in the
 	// middleware stack is used.
@@ -45,6 +51,7 @@ type Server struct {
 	db      *store.DB
 	limiter *ratelimit.Limiter
 	http    *http.Server
+	api     *api.Handler
 
 	oidcCache *auth.OIDCProviderCache
 	session   *session.Manager
@@ -59,7 +66,7 @@ type Server struct {
 
 // New builds a Server. The HTTP handler is the provided Handler, or the default
 // mux wrapped in the middleware stack.
-func New(opts Options) *Server {
+func New(opts Options) *Server { //nolint:gocritic // Options is built once at construction
 	s := &Server{
 		cfg:       opts.Config,
 		log:       opts.Logger,
@@ -72,6 +79,17 @@ func New(opts Options) *Server {
 		s.oidcCache = auth.NewOIDCProviderCache(nil)
 	}
 	s.initAdminAuth()
+	if opts.Store != nil {
+		s.api = api.New(api.Deps{
+			Store:   opts.Store,
+			Blob:    opts.Blob,
+			Config:  opts.Config,
+			Audit:   audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
+			Authn:   auth.NewAuthenticator(opts.Store.AuthTokenSource()),
+			Logger:  opts.Logger,
+			BaseURL: opts.Config.Server.BaseURL,
+		})
+	}
 	handler := opts.Handler
 	if handler == nil {
 		handler = s.Middleware(s.routes())

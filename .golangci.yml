@@ -24,6 +24,7 @@ linters-settings:
     enable-all: true
     disable:
       - fieldalignment # not worth the churn; readability over packing
+      - shadow # opt-in, noisy (esp. err/rec in tests); low real-bug yield
   gocritic:
     enabled-tags:
       - diagnostic

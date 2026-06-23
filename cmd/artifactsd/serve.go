@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/blob"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/server"
 	"github.com/jdelic/artifactsd/internal/store"
@@ -37,11 +38,19 @@ func runServe(parent context.Context, cfg *config.Config, stderr io.Writer) erro
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	blobStore, err := blob.NewFSStore(cfg.Server.DataDir)
+	if err != nil {
+		_ = db.Close()
+		return err
+	}
+
 	srv := server.New(server.Options{
 		Config: cfg,
 		Logger: log,
 		Access: access,
 		DB:     db,
+		Store:  store.New(db),
+		Blob:   blobStore,
 	})
 	return srv.Run(ctx)
 }
