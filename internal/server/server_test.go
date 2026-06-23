@@ -82,7 +82,8 @@ func TestReadyz_ClosedDB(t *testing.T) {
 
 func TestRouteStubs_NotImplemented(t *testing.T) {
 	s := newTestServer(t)
-	for _, path := range []string{"/c/demo/x", "/s/abc", "/api/v1/collections", "/admin/"} {
+	// /admin/ is gated (covered in admin_test); the public stubs are open 501s.
+	for _, path := range []string{"/c/demo/x", "/s/abc", "/api/v1/collections"} {
 		rec := do(t, s.routes(), http.MethodGet, path)
 		if rec.Code != http.StatusNotImplemented {
 			t.Errorf("%s status = %d, want 501", path, rec.Code)

@@ -8,11 +8,14 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/ratelimit"
+	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -29,6 +32,9 @@ type Options struct {
 	// default handler (health endpoints + route-group stubs) wrapped in the
 	// middleware stack is used.
 	Handler http.Handler
+	// OIDCCache overrides the OIDC provider cache (tests inject one with a mock
+	// issuer's HTTP client). When nil a default cache is created.
+	OIDCCache *auth.OIDCProviderCache
 }
 
 // Server is the artifactsd HTTP server.
@@ -39,18 +45,33 @@ type Server struct {
 	db      *store.DB
 	limiter *ratelimit.Limiter
 	http    *http.Server
+
+	oidcCache *auth.OIDCProviderCache
+	session   *session.Manager
+	// adminBasicHash is the argon2id hash for the basic admin fallback (hashed
+	// from a cleartext password at startup if only the cleartext was provided).
+	adminBasicHash string
+
+	oidcLoginOnce sync.Once
+	oidcLogin     *auth.OIDCLogin
+	oidcLoginErr  error
 }
 
 // New builds a Server. The HTTP handler is the provided Handler, or the default
 // mux wrapped in the middleware stack.
 func New(opts Options) *Server {
 	s := &Server{
-		cfg:     opts.Config,
-		log:     opts.Logger,
-		access:  opts.Access,
-		db:      opts.DB,
-		limiter: ratelimit.New(opts.Config.Limits.AuthFailMax, opts.Config.Limits.AuthFailWindow),
+		cfg:       opts.Config,
+		log:       opts.Logger,
+		access:    opts.Access,
+		db:        opts.DB,
+		limiter:   ratelimit.New(opts.Config.Limits.AuthFailMax, opts.Config.Limits.AuthFailWindow),
+		oidcCache: opts.OIDCCache,
 	}
+	if s.oidcCache == nil {
+		s.oidcCache = auth.NewOIDCProviderCache(nil)
+	}
+	s.initAdminAuth()
 	handler := opts.Handler
 	if handler == nil {
 		handler = s.Middleware(s.routes())
