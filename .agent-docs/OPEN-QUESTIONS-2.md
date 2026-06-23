@@ -21,7 +21,8 @@ system."* So I'll commit to a single MCP transport rather than stdio-now/HTTP-la
 - **Recommendation:** **Streamable HTTP**, because the whole point is publishing
   artifacts to possibly-remote agents over the network, and it avoids shipping a
   separate local-process integration.
-- **Decision:**
+- **Decision:** Streamable HTTP because the whole point is to make it internet-
+  accessible.
 
 ## N2. OIDC admin gating specifics ⭐
 
@@ -36,7 +37,7 @@ From A1/D1 I designed admin as OIDC-gated on a group claim, configured by env
   redirect makes no sense for non-browsers).
 - Single admin issuer (per-object OIDC entries may use other issuers).
 - **Recommendation:** as above.
-- **Decision:**
+- **Decision:** as above
 
 ## N3. `any_authenticated` semantics
 
@@ -45,7 +46,7 @@ non-expired token from the configured `issuer` with the right `audience` is
 allowed (no subject/group whitelist).
 - **Recommendation:** as above (issuer + audience still enforced; only the
   subject/group whitelist is waived).
-- **Decision:**
+- **Decision:** as above
 
 ## N4. CLI binary name after the rename
 
@@ -53,7 +54,7 @@ You made `artifactsd` canonical (A2). The CLI in the SPEC is `artifactctl`.
 - Options: keep **`artifactctl`** (reads well, SPEC-aligned) vs **`artifactsctl`**
   (matches the `artifactsd` spelling, but clumsier).
 - **Recommendation:** keep **`artifactctl`**.
-- **Decision:**
+- **Decision:** keep
 
 ## N5. Config file — confirming "none" ⭐
 
@@ -65,7 +66,7 @@ is still set through the API/CLI, not server config.
   env (e.g. `ARTIFACTSD_DEFAULT_VISIBILITY=public`).
 - **Recommendation:** no config file; rely on the orchestrator/dotenv for env
   injection.
-- **Decision:**
+- **Decision:** no config file
 
 ## N6. Access-log view dropped from admin UI
 
@@ -74,7 +75,9 @@ show a served-requests view (nothing is stored). SPEC §14 listed "view access
 logs". The admin UI keeps the **audit/deletion log** (DB-backed, SPEC §11/§17);
 operational access logs are consumed from stdout by your log aggregation.
 - **Recommendation:** drop the in-UI access-log view; keep audit/deletion log.
-- **Decision:**
+- **Decision:** the audit log should record access to protected files by users
+  for audit purposes.
+
 
 ## N7. Self-contained vs strict 12factor (state)
 
@@ -86,7 +89,11 @@ backing store (portable per B1) and applying 12factor to **config and logs**
 only.
 - **Recommendation:** self-containment wins; 12factor applies to config/logs,
   not to externalizing storage.
-- **Decision:**
+- **Decision:** Correct. Self-contained, easy to configure, easy to deploy
+  is the goal. Horizontally scalable is not a design goal here. It's easy
+  storage for agents with an audience of "up to 50". If an agent artifact
+  must be made available to hundreds, thousands, or millions of users, the
+  user or agent can use S3 or similar solutions.
 
 ---
 
