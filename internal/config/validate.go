@@ -166,7 +166,6 @@ func checkWritableDir(dir string) error {
 	probe := filepath.Join(dir, ".artifactsd-write-probe")
 	// G304: path is our own data dir plus a fixed probe filename, not user input.
 	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec
-
 	if err != nil {
 		return fmt.Errorf("not writable: %w", err)
 	}
