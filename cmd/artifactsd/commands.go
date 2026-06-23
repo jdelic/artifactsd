@@ -59,17 +59,7 @@ func newServeCmd() *cobra.Command {
 			if err != nil || cfg == nil {
 				return err
 			}
-			log := audit.NewAppLogger(cmd.ErrOrStderr(), cfg.Server.LogLevel)
-			// The HTTP server runtime is implemented in artifactsd-gmu; for now
-			// serve doubles as a configuration check.
-			log.Warn(
-				"server runtime not yet implemented; configuration validated",
-				"listen", cfg.Server.Listen,
-				"base_url", cfg.Server.BaseURL,
-				"data_dir", cfg.Server.DataDir,
-				"tls", string(cfg.TLS.Mode),
-			)
-			return nil
+			return runServe(cmd.Context(), cfg, cmd.ErrOrStderr())
 		},
 	}
 }
