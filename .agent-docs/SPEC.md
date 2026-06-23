@@ -1,4 +1,31 @@
 # artifactd: Self-Contained Artifact Publishing Server
+
+> **Status: original specification (requirements anchor).**
+> This is the source-of-truth for *intent* — the object/URL model, use cases
+> (§20), and security requirements. The detailed **design** lives in
+> [`design/`](design/README.md) and the plan in [`ROADMAP.md`](ROADMAP.md);
+> where they differ, **they are authoritative**. Section numbers here are kept
+> stable because the design docs cite them as `SPEC §X`.
+>
+> **Amendments adopted during planning** (see
+> [`design/README.md`](design/README.md) decision table and the answered QA):
+> - **Name:** the product/daemon is **`artifactsd`** (canonical), not
+>   `artifactd`. Env prefix `ARTIFACTSD_`, db `artifactsd.db`, data dir
+>   `artifactsd-data`, header `Artifactsd-Metadata`. CLI stays `artifactctl`.
+> - **OIDC and ACME/automatic TLS are in the MVP** (not deferred); OIDC also
+>   gates the admin UI. See [`design/14-access-control.md`](design/14-access-control.md).
+> - **Default visibility is `public`** (no auth unless configured; listing/
+>   crawl/index off by default), overriding the `private` default in §19.
+> - **Configuration is flags + environment only** (12factor); there is **no
+>   config file**. The YAML in §19 illustrates the logical settings only — see
+>   [`design/12-config.md`](design/12-config.md).
+> - **Logging:** access logs → stdout, app/errors → stderr, audit → DB + stderr.
+>   There is no `access_logs` table or admin access-log view.
+> - **Expiry:** earliest-in-tree always wins (no inheritance override; a
+>   container's deletion cascades to its children).
+> - **Upload URLs are unguessable capabilities** needing no extra auth.
+> - **License:** BSD 3-Clause © Jonas Maurus.
+
 ## 1. Goal
 `artifactd` is a self-contained Go server for storing, managing, and publishing artifacts created by AI agents, automation systems, CI jobs, and humans.
 Artifacts may be HTML pages, PDFs, images, audio files, videos, JSON files, logs, archives, or any other file type. Uploaded artifacts are made available over HTTP with correct content types, configurable access control, optional directory browsing, expiry-based cleanup, and crawler/indexing policy.
