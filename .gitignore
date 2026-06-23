@@ -1,3 +1,12 @@
+# Build artifacts
+/dist/
+/artifactsd
+/artifactctl
+*.out
+coverage.*
+
+# Runtime data directory (default --data location)
+/artifactsd-data/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
