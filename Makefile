@@ -68,7 +68,7 @@ tidy-check: ## Fail if go.mod/go.sum are not tidy
 .PHONY: tools
 tools: ## Install the developer tools used by `make check`
 	$(GO) install mvdan.cc/gofumpt@latest
-	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.2
+	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
 
 .PHONY: clean
