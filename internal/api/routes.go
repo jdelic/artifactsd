@@ -24,5 +24,11 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("PATCH /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFile))
 	mux.Handle("DELETE /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteFile))
 
+	// Folders & tree (design/04 §4).
+	mux.Handle("GET /api/v1/collections/{c}/tree", h.requireScope(auth.ScopeCollectionsRead, h.tree))
+	mux.Handle("GET /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsRead, h.getFolder))
+	mux.Handle("PATCH /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFolder))
+	mux.Handle("DELETE /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteFolder))
+
 	return mux
 }
