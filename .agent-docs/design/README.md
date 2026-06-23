@@ -32,7 +32,7 @@ Both QA rounds are answered and folded in below; there are no open questions.
 
 | Area | Decision | Source |
 |------|----------|--------|
-| Language / runtime | Go 1.23+, single binary | SPEC |
+| Language / runtime | Go (current stable release), single binary | SPEC |
 | Name | `artifactsd` is canonical (daemon, db, env prefix, data dir); CLI `artifactctl` | A2 |
 | License | BSD 3-clause, © Jonas Maurus | A4 |
 | SQLite driver | `modernc.org/sqlite` default (pure Go); **CGO permitted** | B2 |

@@ -1,0 +1,54 @@
+# golangci-lint configuration for artifactsd (design/13 §1).
+# Curated linter set; run via `make lint` or `make check`.
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - gosec
+    - revive
+    - gocritic
+    - ineffassign
+    - misspell
+    - bodyclose
+    - sqlclosecheck
+    - unused
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment # not worth the churn; readability over packing
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+    disabled-checks:
+      - whyNoLint
+  misspell:
+    locale: US
+  gosec:
+    excludes:
+      - G115 # integer overflow conversions; noisy, handled case-by-case
+  revive:
+    rules:
+      - name: exported
+        disabled: true # doc.go comments cover packages; per-symbol enforced via go doc conventions
+
+issues:
+  exclude-rules:
+    # Test files: relax security/error checks that don't matter in tests.
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+        - bodyclose
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
