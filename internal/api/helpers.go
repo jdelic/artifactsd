@@ -48,7 +48,7 @@ func actor(r *http.Request) string {
 }
 
 // internal logs an unexpected error and returns a 500 envelope.
-func (h *Handler) internal(w http.ResponseWriter, what string, err error) {
+func (h *Handler) internalServerError(w http.ResponseWriter, what string, err error) {
 	if h.log != nil {
 		h.log.Error("api: "+what, "error", err)
 	}
@@ -68,12 +68,12 @@ func (h *Handler) prepareMetadata(w http.ResponseWriter, raw json.RawMessage) (j
 		return nil, false
 	}
 	if err = doc.HashSecrets(); err != nil {
-		h.internal(w, "hash secrets", err)
+		h.internalServerError(w, "hash secrets", err)
 		return nil, false
 	}
 	out, err := doc.JSON()
 	if err != nil {
-		h.internal(w, "encode metadata", err)
+		h.internalServerError(w, "encode metadata", err)
 		return nil, false
 	}
 	return out, true
@@ -96,19 +96,19 @@ func (h *Handler) mergeMetadata(w http.ResponseWriter, r *http.Request, existing
 		return nil, false
 	}
 	if err = patch.HashSecrets(); err != nil {
-		h.internal(w, "hash secrets", err)
+		h.internalServerError(w, "hash secrets", err)
 		return nil, false
 	}
 
 	base, err := meta.FromJSON(existing)
 	if err != nil {
-		h.internal(w, "parse existing metadata", err)
+		h.internalServerError(w, "parse existing metadata", err)
 		return nil, false
 	}
 	base.Merge(patch)
 	out, err := base.JSON()
 	if err != nil {
-		h.internal(w, "encode metadata", err)
+		h.internalServerError(w, "encode metadata", err)
 		return nil, false
 	}
 	return out, true

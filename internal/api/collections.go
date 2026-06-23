@@ -74,17 +74,17 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, CodeConflict, "collection already exists")
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
-		h.internal(w, "lookup collection", err)
+		h.internalServerError(w, "lookup collection", err)
 		return
 	}
 
 	c := &store.Collection{Name: req.Name, Metadata: metaJSON}
 	if err := h.store.CreateCollection(ctx, c); err != nil {
-		h.internal(w, "create collection", err)
+		h.internalServerError(w, "create collection", err)
 		return
 	}
 	if err := h.store.RecomputeCollectionDenormalized(ctx, c.ID, string(h.cfg.Policy.Visibility)); err != nil {
-		h.internal(w, "recompute collection", err)
+		h.internalServerError(w, "recompute collection", err)
 		return
 	}
 	c, _ = h.store.GetCollection(ctx, c.ID)
@@ -97,7 +97,7 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 	cols, err := h.store.ListCollections(r.Context())
 	if err != nil {
-		h.internal(w, "list collections", err)
+		h.internalServerError(w, "list collections", err)
 		return
 	}
 	cursor := r.URL.Query().Get("cursor")
@@ -137,11 +137,11 @@ func (h *Handler) patchCollectionMeta(w http.ResponseWriter, r *http.Request) {
 	}
 	c.Metadata = merged
 	if err := h.store.UpdateCollectionMetadata(r.Context(), c); err != nil {
-		h.internal(w, "update collection", err)
+		h.internalServerError(w, "update collection", err)
 		return
 	}
 	if err := h.store.RecomputeCollectionDenormalized(r.Context(), c.ID, string(h.cfg.Policy.Visibility)); err != nil {
-		h.internal(w, "recompute collection", err)
+		h.internalServerError(w, "recompute collection", err)
 		return
 	}
 	c, _ = h.store.GetCollection(r.Context(), c.ID)
@@ -154,7 +154,7 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.DeleteCollection(r.Context(), c.ID); err != nil {
-		h.internal(w, "delete collection", err)
+		h.internalServerError(w, "delete collection", err)
 		return
 	}
 	_ = h.audit.Record(r.Context(), &audit.Entry{
@@ -172,7 +172,7 @@ func (h *Handler) lookupCollection(w http.ResponseWriter, r *http.Request) (*sto
 		return nil, false
 	}
 	if err != nil {
-		h.internal(w, "lookup collection", err)
+		h.internalServerError(w, "lookup collection", err)
 		return nil, false
 	}
 	return c, true

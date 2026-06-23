@@ -48,7 +48,7 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	contentType := uploadContentType(doc, r)
 	metaJSON, err := doc.JSON()
 	if err != nil {
-		h.internal(w, "encode metadata", err)
+		h.internalServerError(w, "encode metadata", err)
 		return
 	}
 
@@ -59,13 +59,13 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusRequestEntityTooLarge, CodeTooLarge, "upload exceeds the size limit")
 			return
 		}
-		h.internal(w, "store blob", err)
+		h.internalServerError(w, "store blob", err)
 		return
 	}
 
 	parentID, err := h.ensureParents(r.Context(), c.ID, p)
 	if err != nil {
-		h.internal(w, "materialize folders", err)
+		h.internalServerError(w, "materialize folders", err)
 		return
 	}
 
@@ -80,11 +80,11 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	if err := h.store.UpsertNode(r.Context(), node); err != nil {
-		h.internal(w, "upsert node", err)
+		h.internalServerError(w, "upsert node", err)
 		return
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), node.ID); err != nil {
-		h.internal(w, "recompute node", err)
+		h.internalServerError(w, "recompute node", err)
 		return
 	}
 	node, _ = h.store.GetNodeByID(r.Context(), node.ID)
@@ -114,7 +114,7 @@ func (h *Handler) downloadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, err := h.blob.Open(r.Context(), blob.Ref(*node.BlobID))
 	if err != nil {
-		h.internal(w, "open blob", err)
+		h.internalServerError(w, "open blob", err)
 		return
 	}
 	defer func() { _ = rc.Close() }()
@@ -134,7 +134,7 @@ func (h *Handler) deleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.DeleteNode(r.Context(), node.ID); err != nil {
-		h.internal(w, "delete node", err)
+		h.internalServerError(w, "delete node", err)
 		return
 	}
 	_ = h.audit.Record(r.Context(), &audit.Entry{Action: audit.ActionFileDelete, Actor: actor(r), Target: c.Name + "/" + node.Path})
@@ -168,11 +168,11 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 	}
 	node.Metadata = merged
 	if err := h.store.UpsertNode(r.Context(), node); err != nil {
-		h.internal(w, "update node", err)
+		h.internalServerError(w, "update node", err)
 		return
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), node.ID); err != nil {
-		h.internal(w, "recompute node", err)
+		h.internalServerError(w, "recompute node", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": node.Path, "own": redactMetadata(merged)})
@@ -206,7 +206,7 @@ func (h *Handler) resolveFile(w http.ResponseWriter, r *http.Request, rawPath st
 		return nil, nil, false
 	}
 	if err != nil {
-		h.internal(w, "lookup node", err)
+		h.internalServerError(w, "lookup node", err)
 		return nil, nil, false
 	}
 	return node, c, true
@@ -234,7 +234,7 @@ func (h *Handler) uploadMetadata(w http.ResponseWriter, r *http.Request) (*meta.
 		return nil, false
 	}
 	if err := doc.HashSecrets(); err != nil {
-		h.internal(w, "hash secrets", err)
+		h.internalServerError(w, "hash secrets", err)
 		return nil, false
 	}
 	return doc, true

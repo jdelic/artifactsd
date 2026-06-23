@@ -31,7 +31,7 @@ func (h *Handler) getFolder(w http.ResponseWriter, r *http.Request) {
 	if node, err := h.store.GetNode(r.Context(), c.ID, p); err == nil {
 		own = redactMetadata(node.Metadata)
 	} else if !errors.Is(err, store.ErrNotFound) {
-		h.internal(w, "lookup folder", err)
+		h.internalServerError(w, "lookup folder", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -65,7 +65,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 		}
 		existingMeta = node.Metadata
 	case !errors.Is(err, store.ErrNotFound):
-		h.internal(w, "lookup folder", err)
+		h.internalServerError(w, "lookup folder", err)
 		return
 	}
 
@@ -75,7 +75,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	parentID, err := h.ensureParents(r.Context(), c.ID, p)
 	if err != nil {
-		h.internal(w, "materialize folders", err)
+		h.internalServerError(w, "materialize folders", err)
 		return
 	}
 	folder := &store.Node{
@@ -83,11 +83,11 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 		Kind: store.KindFolder, Metadata: merged,
 	}
 	if err := h.store.UpsertNode(r.Context(), folder); err != nil {
-		h.internal(w, "upsert folder", err)
+		h.internalServerError(w, "upsert folder", err)
 		return
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), folder.ID); err != nil {
-		h.internal(w, "recompute folder", err)
+		h.internalServerError(w, "recompute folder", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": p, "own": redactMetadata(merged)})
@@ -109,7 +109,7 @@ func (h *Handler) deleteFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.internal(w, "lookup folder", err)
+		h.internalServerError(w, "lookup folder", err)
 		return
 	}
 	if node.Kind != store.KindFolder {
@@ -117,7 +117,7 @@ func (h *Handler) deleteFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.DeleteNode(r.Context(), node.ID); err != nil {
-		h.internal(w, "delete folder", err)
+		h.internalServerError(w, "delete folder", err)
 		return
 	}
 	_ = h.audit.Record(r.Context(), &audit.Entry{Action: audit.ActionFileDelete, Actor: actor(r), Target: c.Name + "/" + p})
@@ -144,7 +144,7 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 
 	nodes, err := h.store.ListCollectionNodes(r.Context(), c.ID)
 	if err != nil {
-		h.internal(w, "list nodes", err)
+		h.internalServerError(w, "list nodes", err)
 		return
 	}
 	items := make([]treeNode, 0, len(nodes))
