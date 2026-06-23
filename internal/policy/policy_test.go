@@ -156,3 +156,21 @@ func TestDecide_UnlistedServesByURL(t *testing.T) {
 		t.Errorf("unlisted outcome = %v, want Serve", d.Outcome)
 	}
 }
+
+func TestDecide_OIDCWithCacheFailsClosedOnBadToken(t *testing.T) {
+	entries := []meta.AuthEntry{{Type: meta.AuthOIDC, Issuer: "https://idp.invalid", AnyAuthenticated: true}}
+	cache := auth.NewOIDCProviderCache(nil)
+	// A bogus bearer JWT against an unreachable issuer must not authenticate;
+	// the request is challenged (API client → 401 Bearer), never served.
+	d := Decide(Input{
+		Effective: effective(meta.VisibilityProtected, entries),
+		Request:   req(map[string]string{"Authorization": "Bearer not.a.jwt", "Accept": "application/json"}),
+		OIDC:      cache,
+	})
+	if d.Outcome == Serve {
+		t.Fatal("invalid OIDC token must not be served")
+	}
+	if d.Outcome != Unauthorized || d.Challenge != "Bearer" {
+		t.Errorf("oidc bad-token = %v / %q, want 401 Bearer", d.Outcome, d.Challenge)
+	}
+}

@@ -54,6 +54,10 @@ type Input struct {
 	IsDirectory bool
 	// Request is the incoming HTTP request (for auth + Accept negotiation).
 	Request *http.Request
+	// OIDC, when set, enables verification of OIDC auth entries (issuer
+	// discovery + JWKS). When nil, OIDC entries cannot authenticate and only
+	// drive the challenge (redirect/401).
+	OIDC *auth.OIDCProviderCache
 }
 
 // Decide evaluates the access policy for a public serve route.
@@ -72,7 +76,7 @@ func Decide(in Input) Decision {
 
 	// 3. Auth-required → verify any-of, else challenge by type.
 	if eff.RequiresAuth() {
-		verifiers := compileVerifiers(eff.Auth)
+		verifiers := compileVerifiers(eff.Auth, in.OIDC)
 		if ok, subject, scheme := auth.Authenticate(verifiers, in.Request); ok {
 			return decideDirectory(in, Decision{Outcome: Serve, Subject: subject, Scheme: scheme})
 		}
@@ -127,10 +131,10 @@ func challenge(entries []meta.AuthEntry, r *http.Request) Decision {
 }
 
 // compileVerifiers turns effective auth entries into request verifiers. OIDC
-// verification is implemented separately (artifactsd-s8y); until then OIDC
-// entries do not produce a verifier, so OIDC-protected objects challenge but
-// cannot yet authenticate.
-func compileVerifiers(entries []meta.AuthEntry) []auth.Verifier {
+// entries compile to a verifier only when an OIDCProviderCache is supplied
+// (issuer discovery requires network); without one they still drive the
+// challenge but cannot authenticate.
+func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCache) []auth.Verifier {
 	verifiers := make([]auth.Verifier, 0, len(entries))
 	for i := range entries {
 		e := &entries[i]
@@ -142,6 +146,17 @@ func compileVerifiers(entries []meta.AuthEntry) []auth.Verifier {
 		case meta.AuthBasic:
 			if e.Username != "" && e.PasswordHash != "" {
 				verifiers = append(verifiers, auth.NewBasicVerifier(e.Username, e.PasswordHash, ""))
+			}
+		case meta.AuthOIDC:
+			if oidcCache != nil && e.Issuer != "" {
+				verifiers = append(verifiers, auth.NewOIDCVerifier(&auth.OIDCConfig{
+					Issuer:           e.Issuer,
+					Audience:         e.Audience,
+					AllowedSubjects:  e.AllowedSubjects,
+					AllowedGroups:    e.AllowedGroups,
+					GroupClaim:       e.GroupClaim,
+					AnyAuthenticated: e.AnyAuthenticated,
+				}, oidcCache))
 			}
 		}
 	}
