@@ -15,7 +15,7 @@ func (s *Server) listenAndServe() error {
 	case config.TLSFiles:
 		return s.http.ListenAndServeTLS(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
 	case config.TLSACME:
-		return fmt.Errorf("server: tls=acme not yet implemented (artifactsd-4dd)")
+		return s.listenAndServeACME()
 	default:
 		return fmt.Errorf("server: unknown tls mode %q", s.cfg.TLS.Mode)
 	}
