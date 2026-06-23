@@ -15,6 +15,12 @@ func (d *Document) Validate() error {
 	var probs []string
 	add := func(format string, args ...any) { probs = append(probs, fmt.Sprintf(format, args...)) }
 
+	if d.Content != nil {
+		for _, name := range RejectedHeaders(d.Content.Headers) {
+			add("content.headers %q is not allowed (hop-by-hop/unsafe)", name)
+		}
+	}
+
 	if d.Access != nil {
 		if d.Access.Visibility != nil && !validVisibility(*d.Access.Visibility) {
 			add("access.visibility %q is invalid", *d.Access.Visibility)
