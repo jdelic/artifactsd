@@ -5,13 +5,17 @@ API. **MCP is an adapter, not the canonical storage layer** (SPEC §3, §16).
 
 ## 1. Shape
 
-- A subcommand `artifactd mcp` (and/or a standalone build) runs an MCP server
-  over stdio (default) or HTTP/SSE.
-- Tools call the artifactd HTTP API via `pkg/apiclient` — the same client the
+- A subcommand `artifactsd mcp` runs an MCP server over a **single, committed
+  transport** — we do not ship one transport and migrate later (decision E4).
+  Recommended: **Streamable HTTP**, since artifactsd is itself a network server
+  and agents are typically remote; this keeps one deployment model. Final
+  transport choice is confirmed in [QA round 2](../OPEN-QUESTIONS-2.md) (N1).
+- Tools call the artifactsd HTTP API via `pkg/apiclient` — the same client the
   CLI uses. The adapter holds a configured `base_url` + API token (from env/
-  config), so agents don't handle artifactd auth directly.
-- SDK: official `github.com/modelcontextprotocol/go-sdk` (pending confirmation
-  in OPEN-QUESTIONS; fallback `mark3labs/mcp-go`).
+  config), so agents don't handle artifactsd auth directly.
+- SDK: no operator preference (decision E3); use official
+  `github.com/modelcontextprotocol/go-sdk` if stable at build time, else
+  `mark3labs/mcp-go`.
 
 ## 2. Tools (SPEC §16)
 
@@ -51,12 +55,12 @@ API. **MCP is an adapter, not the canonical storage layer** (SPEC §3, §16).
 
 - Inputs/outputs are JSON with explicit schemas (MCP tool schemas) so agents get
   validation and discoverability.
-- Errors map artifactd API error codes → MCP tool errors with actionable
+- Errors map artifactsd API error codes → MCP tool errors with actionable
   messages.
 - Each tool documents required scopes; the adapter's token must carry them.
 - URLs returned are absolute (using server `base_url`).
 
 ## 6. Scope
 
-Minimal MCP adapter is in MVP (SPEC §21): the ten tools above over stdio. SSE/
-HTTP transport and richer tools (folder upload, bulk ops) are post-MVP.
+Minimal MCP adapter is in MVP (SPEC §21): the ten tools above over the single
+chosen transport (N1). Richer tools (folder upload, bulk ops) are post-MVP.

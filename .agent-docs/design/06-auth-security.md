@@ -24,11 +24,14 @@ plus management-API tokens and admin auth.
   (constant-time, includes a dummy verify on username miss to avoid timing
   oracles). Admin UI default auth is basic (SPEC §19).
 
-### 1.3 OIDC (M2, deferred)
-- `{type:oidc, issuer, audience, allowed_subjects}`. Validate a presented
-  `Authorization: Bearer <jwt>` against the issuer's JWKS via `coreos/go-oidc`;
-  check `aud` and `sub ∈ allowed_subjects`. Deferred to milestone M2 (SPEC §21);
-  the auth interface is designed now so it slots in without refactoring.
+### 1.3 OIDC (in MVP — operator decision A1)
+- `{type:oidc, issuer, audience, allowed_subjects, allowed_groups, group_claim,
+  any_authenticated}`. Validate a presented `Authorization: Bearer <jwt>` (API)
+  or run the Authorization-Code+PKCE browser flow against the issuer's JWKS via
+  `coreos/go-oidc`; check signature/`exp`/`aud`, then grant on `sub ∈
+  allowed_subjects` **or** a group in `group_claim` ∈ `allowed_groups` **or**
+  `any_authenticated`. Full model in [14 — Access control](14-access-control.md).
+  OIDC is part of the MVP (moved up from the original M2 default).
 
 ### 1.4 Auth abstraction
 ```go
@@ -40,7 +43,7 @@ type Verifier interface {
 ```
 Effective `access.auth` compiles to a slice of `Verifier`; policy accepts if any
 verifies. `WWW-Authenticate` on 401 reflects the configured schemes (e.g.
-`Bearer`, `Basic realm="artifactd"`).
+`Bearer`, `Basic realm="artifactsd"`).
 
 ## 2. Hashing & secret handling
 
@@ -50,7 +53,8 @@ verifies. `WWW-Authenticate` on 401 reflects the configured schemes (e.g.
 | API/management token | SHA-256 | `api_tokens.token_hash` |
 | Share token (`share_id`) | none (it *is* a capability URL) | stored plaintext id, unguessable |
 | Basic-auth password | argon2id | `password_hash` in metadata |
-| Admin password | argon2id | config / DB |
+| Admin (OIDC) | n/a (token from issuer) | group-claim gated, env-configured |
+| Admin (basic fallback) | argon2id | from env (`ARTIFACTSD_ADMIN_BASIC_PASSWORD[_HASH]`) |
 
 - Argon2id parameters: tunable, default `time=2, memory=64MiB, threads=4`,
   16-byte salt, 32-byte key, encoded `$argon2id$v=19$m=...,t=...,p=...$salt$hash`.
@@ -72,14 +76,16 @@ All collection-relative paths pass `cleanPath`:
   validated for the DB key and URL.
 - Collection names validated against the slug regex ([02 §2](02-data-model.md)).
 
-## 4. Existence non-disclosure (SPEC §17)
+## 4. Existence non-disclosure (SPEC §17, decision C4)
 
-- `private` and expired objects return **404** on public routes, never 403,
-  so their existence is not revealed.
-- `protected` returns 401 (no creds) / 403 (bad creds) — existence is implied
-  only to those already challenged, consistent with HTTP auth; acceptable since
-  `protected` is meant to be discoverable-but-gated. Operators wanting full
-  concealment use `private` + share URLs.
+- `private` and expired objects return **404** on public routes, never 403.
+- For `protected`/auth-configured objects the challenge depends on the auth
+  type (precedence oidc → basic → bearer):
+  - **bearer only** → **404** to unauthenticated/invalid callers (capability;
+    existence hidden).
+  - **basic** → **401 `WWW-Authenticate: Basic`** (browser login dialog).
+  - **oidc** → **302** to issuer for browsers, **401 Bearer** for API clients.
+- Full matrix and rationale in [14 §3](14-access-control.md).
 
 ## 5. Rate limiting (SPEC §17)
 
@@ -92,26 +98,31 @@ All collection-relative paths pass `cleanPath`:
 - **Per-collection file count**: `limits.max_file_count_per_collection`
   enforced on upload → `409`/`403`.
 
-## 6. Transport security (SPEC §17)
+## 6. Transport security (SPEC §17, decision D4)
 
-- Direct TLS via `server.tls.cert_file`/`key_file`. Optional ACME/autocert in a
-  later iteration (flagged in OPEN-QUESTIONS).
+- Direct TLS via cert/key files **or** automatic TLS via **ACME/autocert
+  (Let's Encrypt) from the first release** (`golang.org/x/crypto/acme/autocert`),
+  selected by env/flags ([12](12-config.md)).
 - Operable behind a reverse proxy without TLS (plain HTTP listener). Honor
-  `X-Forwarded-For`/`X-Forwarded-Proto` only when `server.trust_proxy` is set,
-  to avoid IP spoofing of the rate limiter and access logs.
+  `X-Forwarded-For`/`X-Forwarded-Proto` only when `trust_proxy` is set, to avoid
+  IP spoofing of the rate limiter and access logs.
 - Secure cookies for the admin session (HttpOnly, Secure when TLS, SameSite).
 
-## 7. Audit & logging (SPEC §17)
+## 7. Audit & logging (SPEC §17, decision F5 / 12factor)
 
-- Admin actions and all deletions (manual + janitor) write `audit_logs` rows and
-  slog lines: actor, action, target, request id, details.
-- Access logs capture served requests (configurable retention/sampling).
+- **Access logs → stdout** (structured, one event per served request). They are
+  treated as an event stream, not stored in the DB.
+- **Application logs and errors → stderr** (slog).
+- **Audit log** (admin actions + all deletions, manual + janitor) is **persisted
+  in the `audit_logs` table** (needed for the SPEC §11/§17 audit trail and the
+  admin "deletion log" view) **and** mirrored to stderr: actor, action, target,
+  request id, details.
 - No secrets, tokens, or password material ever logged.
 
 ## 8. Other hardening
 
 - Reject unsafe response headers at write & serve time ([03 §6](03-metadata-policy.md)).
 - Request body limits on all JSON endpoints.
-- `Artifactd-Metadata` header size-capped and schema-validated.
+- `Artifactsd-Metadata` header size-capped and schema-validated.
 - Panics recovered by middleware → 500 without stack leakage to clients.
 - Admin UI: CSRF tokens on state-changing forms; same-origin checks.

@@ -18,8 +18,10 @@ A manual trigger (`POST /api/v1/maintenance/cleanup`, admin UI button, and
 Each node/collection/share carries a denormalized `expires_at`
 ([02 §3](02-data-model.md)) computed at write time from the resolved expiry rules
 ([03 §4](03-metadata-policy.md)):
-`min(expires_at, created_at+delete_after_creation, last_access_at+delete_after_last_access)`
-across the object and inherited levels (subject to `expiry.inherit`).
+`min(expires_at, created_at+delete_after_creation, last_access_at+delete_after_last_access,`
+` parent.effective_expires_at)` — the **earliest expiry in the tree always wins**
+(decision C3); there is no inheritance override, so a child can never outlive its
+container.
 
 So the hot path is a single indexed query:
 ```sql
@@ -40,8 +42,8 @@ This makes expiry a moving target. Approach:
   bounded so an object lives at most `window` longer than its strict deadline —
   acceptable for a cleanup system.
 
-Flagged in OPEN-QUESTIONS: exact throttle window and whether access updates are
-acceptable write load for the expected scale.
+Confirmed by decision F1: a 60s throttle window (configurable) is acceptable;
+an object may outlive its strict deadline by at most that window.
 
 ## 4. Deletion procedure (per object)
 
@@ -74,10 +76,12 @@ unlink failure is logged and retried next pass.
   checks effective expiry live, so deletion latency never exposes expired
   content. The janitor reclaims storage and writes audit trails.
 - Deletion removes both blob data and metadata.
-- Earliest effective expiry wins; `expiry.inherit:false` overrides
-  ([03 §4](03-metadata-policy.md)).
+- **Earliest effective expiry in the tree always wins** — no override; a
+  container's deletion takes its children with it ([03 §4](03-metadata-policy.md)).
 
 ## 7. Configuration
+
+Set via flags/env ([12](12-config.md)); shown here as logical keys:
 
 ```yaml
 janitor:

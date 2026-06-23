@@ -52,7 +52,7 @@ DELETE /api/v1/collections/{c}/files/{path...}        delete file
 Upload:
 - Body is the raw file bytes; `Content-Type` header sets `content.content_type`
   unless overridden by metadata.
-- Optional `Artifactd-Metadata: <base64url(JSON)>` header carries a metadata
+- Optional `Artifactsd-Metadata: <base64url(JSON)>` header carries a metadata
   document alongside a binary body (SPEC §12.2).
 - Enforces `limits.max_upload_size`; `413` if exceeded.
 - `path` is normalized & traversal-checked; parent folders are implied.
@@ -94,7 +94,7 @@ which is policy-filtered.
 
 ```
 POST   /api/v1/collections/{c}/uploads     begin session → upload_url
-PUT    /api/v1/uploads/{upload_id}         stream bytes (auth: session token in URL/secret)
+PUT    /api/v1/uploads/{upload_id}         stream bytes (no auth: upload_id is the capability)
 GET    /api/v1/uploads/{upload_id}         session status
 DELETE /api/v1/uploads/{upload_id}         abort session
 ```
@@ -110,10 +110,12 @@ Response:
 { "upload_url":"https://.../api/v1/uploads/upl_8f31c2",
   "upload_id":"upl_8f31c2","method":"PUT","expires_at":"2026-06-21T11:00:00Z" }
 ```
-The `PUT` streams to a temp blob; on success the node is committed and the
-session marked `completed`. Unfinished sessions expire and are reaped
-([08](08-expiry-janitor.md)). See [07](07-storage-uploads.md) for integrity and
-the upload-token scheme.
+The `upload_url` carries an unguessable `upload_id` and needs **no additional
+auth** — possession is the capability (decision D2), so an agent can be handed
+the URL and PUT directly. The `PUT` streams to a temp blob; on success the node
+is committed and the session marked `completed`. Sessions are single-use with a
+short TTL; unfinished ones expire and are reaped ([08](08-expiry-janitor.md)).
+See [07](07-storage-uploads.md) and [14 §5](14-access-control.md).
 
 ## 6. Shares (SPEC §5.2, §20.2)
 
@@ -151,13 +153,14 @@ Returns the structured, policy-filtered listing in SPEC §10.5. Honors
 GET    /api/v1/tokens                  list API tokens (metadata only)
 POST   /api/v1/tokens                  create token → returns secret ONCE
 DELETE /api/v1/tokens/{id}             revoke token
-GET    /api/v1/audit?since=&action=    audit log
-GET    /api/v1/access-logs?...         access log
+GET    /api/v1/audit?since=&action=    audit log (deletions + admin actions)
 POST   /api/v1/maintenance/cleanup     trigger janitor pass now (SPEC §14)
 GET    /api/v1/stats                   counts, storage usage
 ```
 
-OIDC settings management endpoints are added in M2.
+There is no access-log endpoint: access logs stream to stdout (decision F5).
+OIDC and admin auth are configured via environment ([12](12-config.md),
+[14](14-access-control.md)), not management endpoints.
 
 ## 9. Status codes summary
 

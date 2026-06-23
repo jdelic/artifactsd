@@ -1,13 +1,22 @@
 # 10 — CLI (`artifactctl`)
 
 Implements SPEC §15. `artifactctl` is a thin client over the HTTP API via
-`pkg/apiclient`. Built with `spf13/cobra`.
+`pkg/apiclient`. The CLI must be **a pleasure to use** (operator decision E2):
+command structure with `spf13/cobra`, and polished interactive/visual UX with
+the [charmbracelet](https://github.com/charmbracelet) libraries —
+`lipgloss` (styling), `bubbletea`/`bubbles` (progress bars for `put-tree`,
+spinners), and `huh` (interactive prompts when run without flags, e.g. picking
+a collection or confirming a destructive delete). All such polish degrades
+gracefully to plain output when stdout is not a TTY or `--output json` is set.
+
+> Client-side config (below) is a convenience file for the human-facing CLI and
+> is distinct from the **server**, which is flags+env only ([12](12-config.md)).
 
 ## 1. Configuration & auth
 
 Resolution order (later overrides earlier):
 1. Config file `~/.config/artifactctl/config.yaml` (or `$ARTIFACTCTL_CONFIG`).
-2. Env: `ARTIFACTD_BASE_URL`, `ARTIFACTD_TOKEN`.
+2. Env: `ARTIFACTSD_BASE_URL`, `ARTIFACTSD_TOKEN`.
 3. Flags: `--base-url`, `--token`, `--profile <name>`.
 
 Config supports named profiles (multiple servers):

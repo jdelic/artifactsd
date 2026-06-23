@@ -139,19 +139,7 @@ CREATE TABLE audit_logs (
 );
 CREATE INDEX idx_audit_ts ON audit_logs(ts);
 
--- Access log (served-object views, SPEC §14) ---------------------------
-CREATE TABLE access_logs (
-    id          INTEGER PRIMARY KEY,
-    ts          TEXT NOT NULL,
-    collection  TEXT,
-    path        TEXT,
-    share_id    TEXT,
-    status      INTEGER,
-    bytes       INTEGER,
-    remote_ip   TEXT,
-    user_agent  TEXT
-);
-CREATE INDEX idx_access_ts ON access_logs(ts);
+-- (No access_logs table: access logs are streamed to stdout, decision F5.)
 
 -- Schema versioning ----------------------------------------------------
 CREATE TABLE schema_migrations (
@@ -173,7 +161,7 @@ CREATE TABLE schema_migrations (
 
 - SQL files embedded via `embed.FS` under `internal/store/migrations/`, named
   `NNNN_description.sql`, applied in order, tracked in `schema_migrations`.
-- `artifactd migrate` runs them explicitly; `serve` runs pending migrations on
+- `artifactsd migrate` runs them explicitly; `serve` runs pending migrations on
   startup (configurable `storage.auto_migrate`, default true).
 - Forward-only for v1 (no down migrations); destructive changes get a new
   numbered migration.
@@ -182,7 +170,7 @@ CREATE TABLE schema_migrations (
 
 ```
 data/
-  artifactd.db            # SQLite (+ -wal, -shm)
+  artifactsd.db            # SQLite (+ -wal, -shm)
   blobs/                  # content-addressed or path-mirrored blob store
   tmp/                    # in-progress uploads (temp files for atomic rename)
 ```
@@ -192,7 +180,8 @@ Blob layout is detailed in [07](07-storage-uploads.md). Default decision:
 table mapping logical path → `blob_id`. This dedupes identical content and makes
 atomic writes and integrity checks natural. (SPEC §18 shows a path-mirrored
 layout as illustration; content-addressing is an implementation refinement that
-preserves the same external behavior — flagged in OPEN-QUESTIONS.)
+preserves the same external behavior — confirmed by decision B1, with the data
+dir portable to another server.)
 
 ## 6. Referential behavior
 

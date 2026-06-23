@@ -7,7 +7,7 @@ before/with implementation, never skip quality gates.
 
 | Gate | Tool | Notes |
 |------|------|-------|
-| Build | `go build ./...` | CGO-free; cross-compile linux/darwin amd64/arm64 |
+| Build | `go build ./...` | cross-compile linux/darwin amd64/arm64 (CGO permitted, decision B2; default pure-Go for build simplicity) |
 | Vet | `go vet ./...` | baseline |
 | Lint | `golangci-lint` | curated: govet, staticcheck, errcheck, gosec, revive, gocritic, ineffassign, misspell, bodyclose, sqlclosecheck |
 | Format | `gofumpt` (+ `goimports`) | enforced in CI |
@@ -24,7 +24,8 @@ A `Makefile`/`Taskfile` target `make check` runs the full set; CI runs the same.
   - `meta` resolution/merge (inheritance precedence, header merge, auth replace).
   - `policy` decisions (visibility × auth × expiry → 401/403/404/serve, ancestor
     guard, non-disclosure).
-  - `expiry` computation (earliest-wins, inherit:false, duration parsing).
+  - `expiry` computation (earliest-in-tree always wins, container cascade,
+    duration parsing).
   - path validation / traversal rejection (table-driven, adversarial inputs).
   - argon2id + token hashing round-trips; constant-time behavior.
 - **Store tests** against a real temp SQLite DB (migrations applied): CRUD,

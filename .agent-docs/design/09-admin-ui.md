@@ -16,15 +16,19 @@ Implements SPEC §14. Served at `/admin`, always behind authentication.
 
 Rationale for htmx over a JS framework: the UI is CRUD over collections/files/
 metadata — well served by server rendering; avoids a build step and large
-dependency surface ("don't over-engineer", AGENT_INSTRUCTIONS §8). Flagged in
-OPEN-QUESTIONS in case a richer SPA is desired.
+dependency surface ("don't over-engineer", AGENT_INSTRUCTIONS §8). Confirmed by
+decision E1 ("simple beats complex here").
 
 ## 2. Authentication & session
 
-- Admin auth per config (`admin.auth`, default basic; SPEC §19). On success,
-  issue a secure session cookie (HttpOnly, SameSite=Lax, Secure under TLS).
-- All `/admin` routes require a valid session; `/admin/login` and `/admin/logout`
-  manage it. CSRF tokens on every state-changing form.
+- **Admin is OIDC-gated** (decisions A1/D1): login runs the OIDC browser flow and
+  access is granted only when the token carries the required group claim
+  (`ARTIFACTSD_ADMIN_GROUP` in `ARTIFACTSD_ADMIN_GROUP_CLAIM`). An optional
+  basic/htaccess fallback (env-configured) is also supported. Config is entirely
+  env-based ([12 §2](12-config.md), [14 §7](14-access-control.md)).
+- On success, issue a secure session cookie (HttpOnly, SameSite=Lax, Secure
+  under TLS). `/auth/oidc/login`, `/auth/oidc/callback`, `/admin/logout` manage
+  the session. CSRF tokens on every state-changing form.
 - Admin access always requires authentication (SPEC §14); no anonymous admin.
 
 ## 3. Screens (SPEC §14 checklist)
@@ -41,10 +45,11 @@ OPEN-QUESTIONS in case a richer SPA is desired.
 | Crawl/index policy | toggle crawlable/indexable, robots block editor |
 | Expiry | view/edit expiry rules; show effective absolute expiry |
 | Tokens | list/create/revoke API tokens (secret shown once) |
-| Audit log | filter by action/date; deletion + admin actions |
-| Access log | recent served requests |
-| OIDC settings | (M2) configure issuers/audiences |
+| Audit/deletion log | filter by action/date; deletion + admin actions (DB-backed) |
 | Maintenance | trigger cleanup, view janitor stats |
+
+(No access-log screen: access logs stream to stdout, decision F5. OIDC/admin
+auth is env-configured, not edited in the UI.)
 
 ## 4. Upload UX
 
@@ -63,7 +68,6 @@ OPEN-QUESTIONS in case a richer SPA is desired.
 
 ## 6. Scope staging
 
-MVP admin UI: login, dashboard, collections list/create/delete, tree browse,
-upload/delete file, metadata edit (incl. visibility/expiry/crawl), shares,
-tokens, audit log, run cleanup. OIDC settings and access-log analytics can
-follow in M2.
+MVP admin UI: OIDC login, dashboard, collections list/create/delete, tree
+browse, upload/delete file, metadata edit (incl. visibility/expiry/crawl/auth),
+shares, tokens, audit/deletion log, run cleanup.

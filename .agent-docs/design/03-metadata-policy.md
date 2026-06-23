@@ -15,16 +15,20 @@ content:
 access:
   visibility: public | unlisted | protected | private
   directory_listing: true | false
-  auth:                       # any-of; empty means no auth required
+  auth:                       # any-of; empty/absent means no auth required (default)
     - type: bearer
       token_hash: <sha256-hex>
-    - type: basic
+    - type: basic             # "htaccess"-style; triggers browser login dialog
       username: demo
       password_hash: <argon2id>
     - type: oidc
       issuer: https://accounts.example.com
-      audience: artifactd
-      allowed_subjects: [user@example.com]
+      audience: artifactsd
+      # any of the following grant access (any-of within the entry):
+      allowed_subjects: [user@example.com]   # whitelist by sub / email
+      allowed_groups: [staff]                # whitelist by group claim
+      group_claim: groups                    # claim to read groups from (default: groups)
+      any_authenticated: false               # true => any valid token from issuer
 
 crawl:
   crawlable: true | false
@@ -38,13 +42,18 @@ expiry:
   expires_at: 2026-07-01T00:00:00Z
   delete_after_last_access: 30d
   delete_after_creation: 7d
-  inherit: true | false       # see §4
 ```
+
+Access control is the heart of this system; the full model (the three auth
+mechanisms, OIDC group/subject/any-authenticated whitelisting, and admin
+gating) is consolidated in [14 — Access control](14-access-control.md).
 
 ### Go representation
 `meta.Document` is a struct with pointer/optional fields so "unset" is
 distinguishable from "set to zero". Stored as JSON in the `metadata` columns.
-On the wire (API) it is JSON; in config/CLI it may be YAML and is converted.
+On the wire (API) it is JSON; in the CLI it may be YAML and is converted. (This
+is per-object metadata, distinct from server configuration, which is
+flags+env only — see [12](12-config.md).)
 **Secrets are never stored or returned in cleartext**: the API accepts
 `token`/`password` on write, hashes them, and persists only `token_hash` /
 `password_hash`. Reads return the hash presence, never the secret.
@@ -55,7 +64,7 @@ Effective metadata for a served object is computed by merging, in increasing
 precedence:
 
 ```
-1. server config `defaults`        (SPEC §19)
+1. server defaults                 (from flags/env, see 12)
 2. collection metadata
 3. folder metadata, outermost → innermost along the path
 4. file metadata
@@ -84,12 +93,19 @@ auth intent explicit and auditable.
 |------|---------------------------|------------------------------|-------|
 | `public` | yes | yes (if `crawl.indexable` for sitemap; always eligible for dir listing) | |
 | `unlisted` | yes (if URL known) | no | excluded from generated indexes, robots `Disallow`-friendly |
-| `protected` | only with valid auth | no | 401/403 without auth |
+| `protected` | only with valid auth | no | challenge depends on auth type, see §5 |
 | `private` | never via public routes | no | management API only; public routes return 404 |
 
-Effective visibility is the **most restrictive** encountered? No — visibility is
-an override (last-wins), but a child cannot be *more* public than a `private`
-ancestor when that would leak content: see precedence guard in §5.
+**Default visibility is `public`** (operator decision C5): objects do not require
+auth unless `access.auth` is configured, and are reachable at their URL (which
+may be deliberately hard to guess). `directory_listing`, `crawl.crawlable`, and
+`crawl.indexable` still default to **false**, so a default object is fetchable by
+URL but not listed, crawled, or indexed — i.e. it behaves like `unlisted` until
+the operator opts into listing/indexing. Use `protected`/`private` + auth to
+restrict fetching.
+
+Visibility is an override (last-wins), but a child cannot be *more* public than a
+`private` ancestor when that would leak content: see the ancestor guard in §5.
 
 ## 4. Expiry resolution (SPEC §11)
 
@@ -100,18 +116,23 @@ Three inputs may each appear at any level:
   if never accessed).
 
 Effective absolute expiry for an object =
-`min(` all applicable resolved instants from the object **and inherited
-levels** `)` — "the earliest effective expiry wins" (SPEC §11).
+`min(` all applicable resolved instants from the object **and every ancestor
+level** `)` — **the earliest effective expiry in the tree always wins**
+(operator decision C3). There is **no inheritance override**: a child can never
+outlive its container.
 
-Override: a level may set `expiry.inherit: false` to **stop** inheriting
-ancestor expiry (only its own expiry rules apply). This is the "unless
-explicitly configured otherwise" escape hatch in SPEC §11. Default
-`inherit: true`.
+Concretely, container deletion is authoritative: if a folder expires at T1 and a
+file inside it has `expires_at` T2 > T1, the file is deleted at T1 together with
+the folder. (We deliberately do not make this configurable — an override would
+force a container to linger until its longest-lived child, an edge case we avoid
+entirely.)
 
 Durations parse Go-style plus `d`/`w` (e.g. `30d`, `48h`, `2w`). The computed
 absolute `expires_at` is written to the denormalized column so the janitor can
 query it directly; `delete_after_last_access` makes it a moving target, so it is
 recomputed when `last_access_at` advances (throttled — see [08](08-expiry-janitor.md)).
+A node's effective `expires_at` is `min(own, parent.effective)`, so the
+earliest-wins rule holds transitively without re-walking the whole tree.
 
 ## 5. Policy evaluation
 
@@ -121,15 +142,28 @@ recomputed when `last_access_at` advances (throttled — see [08](08-expiry-jani
 Algorithm for public serve routes:
 1. If object/effective is `private` → **404** (never reveal existence, SPEC §17).
 2. If expired → **404** (SPEC §11, not 403).
-3. If `protected`:
-   - No credentials presented → 401 with appropriate `WWW-Authenticate`.
-   - Credentials presented but none in `access.auth` match → 403.
-   - A match → continue.
-4. If `public`/`unlisted` → continue (no auth).
+3. If there is effective `access.auth` (object is `protected`, or any visibility
+   with auth configured):
+   - If a presented credential satisfies any entry (any-of) → continue.
+   - Otherwise **challenge by auth type** (operator decision C4). When multiple
+     auth types are configured, precedence is **oidc → basic → bearer**:
+     - **oidc**: browser request (`Accept: text/html`) → **302 redirect** to the
+       OIDC authorization endpoint; non-browser/API request → **401**
+       `WWW-Authenticate: Bearer` (so JWT clients can retry). A presented but
+       invalid/expired token → 401.
+     - **basic** ("htaccess"): → **401** `WWW-Authenticate: Basic realm=...` so
+       the browser shows its login dialog. Bad credentials → 401 (re-prompt).
+     - **bearer** (only bearer configured): → **404**, hiding existence from
+       unauthenticated callers; a presented-but-wrong token → 404 as well.
+4. If `public`/`unlisted` and no auth configured → continue.
 5. Directory request (`.../` path):
    - allowed only if `access.directory_listing` is true **and** visibility
      permits; otherwise 404 (listing off) — but a known file under it still
      serves.
+
+The per-type challenge means a bearer-protected object is indistinguishable from
+a missing one (capability-style), while basic/OIDC objects are intentionally
+discoverable so the login flow can run. See [14](14-access-control.md).
 
 **Ancestor guard:** when resolving, if any ancestor is `private`, the object is
 treated as private regardless of a more-public child override on public routes

@@ -2,13 +2,13 @@
 
 ## 1. Component map
 
-`artifactd` is a single Go binary that runs several cooperating subsystems in
+`artifactsd` is a single Go binary that runs several cooperating subsystems in
 one process. The CLI (`artifactctl`) and MCP adapter are clients of the HTTP
 API; the HTTP API is the canonical interface (SPEC §3).
 
 ```
                          ┌──────────────────────────────────────────────┐
-                         │                 artifactd                     │
+                         │                 artifactsd                     │
    public clients ──────▶│  ┌───────────────┐   ┌────────────────────┐  │
    (browsers, agents)    │  │ Public serving │   │ Management API     │  │
                          │  │  /c /s /robots │   │  /api/v1/...        │  │
@@ -38,7 +38,7 @@ API; the HTTP API is the canonical interface (SPEC §3).
 
 ## 2. Process model
 
-A single `artifactd serve` process hosts:
+A single `artifactsd serve` process hosts:
 
 1. **HTTP listener(s)** — one `http.Server` bound to `server.listen`. TLS is
    terminated in-process when `server.tls` is configured; otherwise plain HTTP
@@ -61,7 +61,8 @@ in-flight requests with a timeout, stop the janitor, close the DB.
 | `/sitemap.xml`, `/c/{c}/sitemap.xml` | Sitemaps | public | [05](05-serving-crawl.md) |
 | `/api/v1/...` | Management API | API token / admin | [04](04-http-api.md) |
 | `/api/v1/uploads/{id}` | Direct upload sink | upload-session token | [07](07-storage-uploads.md) |
-| `/admin/...` | Admin web UI | admin auth | [09](09-admin-ui.md) |
+| `/admin/...` | Admin web UI | OIDC group-gated (+ basic fallback) | [09](09-admin-ui.md), [14](14-access-control.md) |
+| `/auth/oidc/...` | OIDC login/callback | public (initiates auth) | [14](14-access-control.md) |
 | `/healthz`, `/readyz` | Liveness/readiness | public | this doc |
 
 Routing uses Go 1.22 `http.ServeMux` method+path patterns
@@ -73,7 +74,7 @@ wildcard tail path where needed.
 ```
 github.com/jdelic/artifactsd
 ├── cmd/
-│   ├── artifactd/        # server entrypoint (serve, migrate, version)
+│   ├── artifactsd/        # server entrypoint (serve, migrate, version)
 │   └── artifactctl/      # CLI entrypoint (cobra)
 ├── internal/
 │   ├── config/           # config load/validate, defaults
@@ -90,7 +91,7 @@ github.com/jdelic/artifactsd
 │   │   └── middleware/   # logging, recovery, ratelimit, auth ctx
 │   ├── janitor/          # expiry + upload reaper
 │   ├── upload/           # upload session lifecycle
-│   ├── audit/            # audit + access logging
+│   ├── audit/            # audit log (DB) + access log (stdout) emitters
 │   └── mcp/              # MCP adapter (server + tools)
 ├── pkg/
 │   └── apiclient/        # Go client for the HTTP API (used by CLI + MCP)
@@ -114,7 +115,7 @@ importable client so the CLI and MCP adapter never duplicate request logic.
 **Direct small upload** `PUT /api/v1/collections/demo/files/index.html`:
 1. API auth middleware authorizes the management caller.
 2. Validate/normalize path; enforce size limit; decode optional
-   `Artifactd-Metadata` header.
+   `Artifactsd-Metadata` header.
 3. blob: write bytes to a temp file, fsync, atomic rename into place.
 4. store: upsert node row + metadata in one transaction.
 5. audit: record the action.
@@ -128,12 +129,13 @@ migrations, no external services), and "don't over-engineer" (→ stdlib HTTP an
 
 ## 7. Observability
 
-- **Structured logs** via `log/slog`. Request logs include method, path,
-  status, bytes, duration, auth outcome, collection.
-- **Audit log** (DB table, also emitted to slog) for admin actions and
-  deletions (SPEC §17).
-- **Access log** for served objects (DB table, optionally sampled) to back the
-  admin "access logs" view (SPEC §14). Volume controls in config.
+- **Access logs → stdout** as structured events (method, path, status, bytes,
+  duration, auth outcome, collection); treated as an event stream, not stored
+  (decision F5, 12factor).
+- **App logs + errors → stderr** via `log/slog` (`--log-level` controls).
+- **Audit log** persisted in the `audit_logs` DB table (admin actions +
+  deletions, SPEC §17) and mirrored to stderr; backs the admin "deletion log"
+  view. There is no DB-backed access-log view.
 - `/healthz` (process up) and `/readyz` (DB reachable, data dir writable).
 
 ## 8. Concurrency & integrity

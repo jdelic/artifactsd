@@ -29,9 +29,9 @@ data/tmp/<random>                    # in-progress writes
 
 > Note: SPEC §18 illustrates a path-mirrored layout
 > (`blobs/collections/<c>/<path>`). Content-addressing yields identical external
-> behavior with dedupe + atomicity benefits. This is flagged in
-> OPEN-QUESTIONS for confirmation; the `Store` interface makes the choice
-> swappable.
+> behavior with dedupe + atomicity benefits. Confirmed (decision B1): the data
+> dir is portable to another server; on-disk layout need not mirror URLs. The
+> `Store` interface keeps the choice swappable.
 
 ### Integrity
 - `checksum` (sha256) stored per node; used for `ETag` and verifiable re-reads.
@@ -50,7 +50,7 @@ data/tmp/<random>                    # in-progress writes
    sweep (safe because unreferenced) — or deleted immediately if not shared.
 6. Audit entry; return summary JSON.
 
-`Artifactd-Metadata` header (base64url JSON) lets binary uploads carry a metadata
+`Artifactsd-Metadata` header (base64url JSON) lets binary uploads carry a metadata
 document without a multipart body (SPEC §12.2).
 
 ## 3. Large uploads (SPEC §12.3)
@@ -61,11 +61,10 @@ Two-step to avoid buffering huge bodies through the JSON API:
    target path, metadata, content-type, an `upload_id`, and `expires_at`
    (default short TTL, e.g. 1h). Returns `upload_url`.
 2. `PUT /api/v1/uploads/{upload_id}` streams bytes:
-   - Authorized by possession of the `upload_id` (capability) **plus** the
-     management token used to create it (the session records the creating token;
-     the PUT must present a token with write scope, or the unguessable id alone
-     if `uploads.url_is_capability` — default require token). Flagged in
-     OPEN-QUESTIONS.
+   - **Authorized purely by possession of the unguessable `upload_id`** — no
+     additional token (decision D2). This lets an agent be handed the URL and
+     upload directly (SPEC §16 flow). Safeguards: ≥95-bit id, short TTL,
+     single-use (consumed on completion), size limit. See [14 §5](14-access-control.md).
    - Streams to a temp blob with size limit + hashing.
    - On success: commit the node (same transaction logic as §2), mark session
      `completed`.
@@ -73,8 +72,8 @@ Two-step to avoid buffering huge bodies through the JSON API:
 
 Abandoned/expired sessions and their temp blobs are reaped by the janitor.
 
-Resumable/multipart chunked uploads are **out of scope for v1** (single PUT
-stream). Noted as a possible post-MVP enhancement.
+Resumable/multipart chunked uploads are **out of scope for the first release**
+(single PUT stream) and scheduled on milestone M2 (decision F2).
 
 ## 4. Folder & tree operations
 
