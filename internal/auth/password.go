@@ -1,6 +1,7 @@
 // Package auth implements artifactsd's authentication primitives: argon2id
-// password hashing for the admin basic fallback, plus (in later tickets)
-// bearer/basic/OIDC verification and API-token hashing (design/06, design/14).
+// password hashing (basic-auth / admin fallback) and sha256 token hashing +
+// generation for bearer and API tokens (design/06 §1-2). Bearer/basic/OIDC
+// request verifiers build on these in later tickets (design/14).
 package auth
 
 import (
@@ -25,11 +26,13 @@ type argon2idParams struct {
 	saltLen uint32
 }
 
-// defaultParams are sane interactive-login defaults (~64 MiB, 1 pass). The
-// admin basic fallback is low-traffic, so we favor memory hardness.
+// defaultParams are the design/06 §2 defaults: memory=64 MiB, time=2 passes,
+// threads=4, 16-byte salt, 32-byte key. Basic-auth verification is low-traffic,
+// so we favor memory hardness; costs are encoded per-hash and can be raised
+// later without invalidating existing hashes.
 var defaultParams = argon2idParams{
 	memory:  64 * 1024,
-	time:    1,
+	time:    2,
 	threads: 4,
 	keyLen:  32,
 	saltLen: 16,
@@ -40,7 +43,7 @@ var ErrInvalidHash = errors.New("auth: invalid argon2id hash")
 
 // HashPassword returns a PHC-formatted argon2id hash of password:
 //
-//	$argon2id$v=19$m=65536,t=1,p=4$<b64salt>$<b64hash>
+//	$argon2id$v=19$m=65536,t=2,p=4$<b64salt>$<b64hash>
 func HashPassword(password string) (string, error) {
 	return hashWithParams(password, defaultParams)
 }
