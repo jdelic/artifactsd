@@ -78,6 +78,23 @@ func TestServe_ValidatesAndReturns(t *testing.T) {
 	}
 }
 
+func TestMigrate_AppliesAndIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	_, stderr, err := execute(t, "", "migrate",
+		"--base-url", "https://x.example.com", "--data", dir)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if !strings.Contains(stderr, "migrations applied") {
+		t.Errorf("expected applied log, got %q", stderr)
+	}
+	// Re-running must not error.
+	if _, _, err := execute(t, "", "migrate",
+		"--base-url", "https://x.example.com", "--data", dir); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+}
+
 func TestUnknownCommandFails(t *testing.T) {
 	if _, _, err := execute(t, "", "frobnicate"); err == nil {
 		t.Error("expected error for unknown command")

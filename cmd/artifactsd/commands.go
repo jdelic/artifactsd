@@ -15,6 +15,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/buildinfo"
 	"github.com/jdelic/artifactsd/internal/config"
+	"github.com/jdelic/artifactsd/internal/store"
 )
 
 func newRootCmd() *cobra.Command {
@@ -84,8 +85,16 @@ func newMigrateCmd() *cobra.Command {
 				return err
 			}
 			log := audit.NewAppLogger(cmd.ErrOrStderr(), cfg.Server.LogLevel)
-			// Migrations are implemented with the store epic (artifactsd-89b).
-			log.Warn("migrations subsystem not yet implemented", "data_dir", cfg.Server.DataDir)
+			db, err := store.OpenInDir(cmd.Context(), cfg.Server.DataDir)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = db.Close() }()
+			version, err := db.Migrate(cmd.Context())
+			if err != nil {
+				return err
+			}
+			log.Info("migrations applied", "schema_version", version, "data_dir", cfg.Server.DataDir)
 			return nil
 		},
 	}
