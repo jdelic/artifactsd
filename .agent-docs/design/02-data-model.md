@@ -132,7 +132,7 @@ CREATE TABLE audit_logs (
     id          INTEGER PRIMARY KEY,
     ts          TEXT NOT NULL,
     actor       TEXT,                          -- token name / admin user / 'janitor'
-    action      TEXT NOT NULL,                 -- e.g. file.delete, collection.create, expiry.delete
+    action      TEXT NOT NULL,                 -- e.g. file.delete, collection.create, expiry.delete, object.access (N6)
     target      TEXT,                          -- collection/path/share id
     details     TEXT,                          -- JSON
     request_id  TEXT

@@ -45,10 +45,11 @@ decision E1 ("simple beats complex here").
 | Crawl/index policy | toggle crawlable/indexable, robots block editor |
 | Expiry | view/edit expiry rules; show effective absolute expiry |
 | Tokens | list/create/revoke API tokens (secret shown once) |
-| Audit/deletion log | filter by action/date; deletion + admin actions (DB-backed) |
+| Audit log | filter by action/date; deletions, admin actions, **and authenticated access to protected objects** (`object.access`, decision N6); DB-backed |
 | Maintenance | trigger cleanup, view janitor stats |
 
-(No access-log screen: access logs stream to stdout, decision F5. OIDC/admin
+(No operational access-log screen: public/served-request logs stream to stdout,
+decision F5 — only restricted-content access is in the DB audit log. OIDC/admin
 auth is env-configured, not edited in the UI.)
 
 ## 4. Upload UX

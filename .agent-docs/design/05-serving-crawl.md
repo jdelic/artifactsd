@@ -25,8 +25,11 @@ Steps:
    - `X-Robots-Tag: noindex` when not indexable (+ configured tags).
    - `ETag` (from checksum), `Last-Modified`, `Accept-Ranges: bytes`,
      conditional/range support via `http.ServeContent`.
-7. **Side effects:** access-log entry; throttled `last_access_at` update (drives
-   `delete_after_last_access`).
+7. **Side effects:** access-log entry to stdout; throttled `last_access_at`
+   update (drives `delete_after_last_access`); **if the object was
+   auth-protected and the caller authenticated successfully, write an
+   `object.access` row to the audit log** (actor = authenticated principal),
+   decision N6 / [06 §7](06-auth-security.md). Public reads are not audited.
 
 `HEAD` runs the same pipeline without the body. Range requests and conditional
 GETs are handled by `http.ServeContent` over an `io.ReadSeeker` from the blob

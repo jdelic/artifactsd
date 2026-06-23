@@ -24,6 +24,12 @@
 > - **Expiry:** earliest-in-tree always wins (no inheritance override; a
 >   container's deletion cascades to its children).
 > - **Upload URLs are unguessable capabilities** needing no extra auth.
+> - **Audit log records authenticated access to protected objects**
+>   (`object.access`), in addition to admin actions and deletions; the admin UI
+>   exposes this instead of a general access-log view.
+> - **Scale & intent:** self-contained, single-node, audience ~up to 50 viewers
+>   per artifact; not horizontally scalable (use S3/CDN for mass distribution).
+> - **MCP** is exposed over **Streamable HTTP** (network-accessible).
 > - **License:** BSD 3-Clause © Jonas Maurus.
 
 ## 1. Goal

@@ -5,11 +5,12 @@ API. **MCP is an adapter, not the canonical storage layer** (SPEC §3, §16).
 
 ## 1. Shape
 
-- A subcommand `artifactsd mcp` runs an MCP server over a **single, committed
-  transport** — we do not ship one transport and migrate later (decision E4).
-  Recommended: **Streamable HTTP**, since artifactsd is itself a network server
-  and agents are typically remote; this keeps one deployment model. Final
-  transport choice is confirmed in [QA round 2](../OPEN-QUESTIONS-2.md) (N1).
+- A subcommand `artifactsd mcp` runs an MCP server over **Streamable HTTP** —
+  the single committed transport (decisions E4/N1). It is reachable over the
+  network so possibly-remote agents can use it (the whole point is
+  internet-accessible artifact publishing); we do **not** ship stdio and migrate
+  later. The MCP endpoint can run inside the main `artifactsd` process or as a
+  sidecar, both over HTTP.
 - Tools call the artifactsd HTTP API via `pkg/apiclient` — the same client the
   CLI uses. The adapter holds a configured `base_url` + API token (from env/
   config), so agents don't handle artifactsd auth directly.
@@ -63,4 +64,4 @@ API. **MCP is an adapter, not the canonical storage layer** (SPEC §3, §16).
 ## 6. Scope
 
 Minimal MCP adapter is in MVP (SPEC §21): the ten tools above over the single
-chosen transport (N1). Richer tools (folder upload, bulk ops) are post-MVP.
+Streamable HTTP transport. Richer tools (folder upload, bulk ops) are post-MVP.

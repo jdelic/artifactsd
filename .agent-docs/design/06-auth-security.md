@@ -108,15 +108,22 @@ All collection-relative paths pass `cleanPath`:
   IP spoofing of the rate limiter and access logs.
 - Secure cookies for the admin session (HttpOnly, Secure when TLS, SameSite).
 
-## 7. Audit & logging (SPEC §17, decision F5 / 12factor)
+## 7. Audit & logging (SPEC §17, decisions F5 / N6 / 12factor)
 
 - **Access logs → stdout** (structured, one event per served request). They are
   treated as an event stream, not stored in the DB.
 - **Application logs and errors → stderr** (slog).
-- **Audit log** (admin actions + all deletions, manual + janitor) is **persisted
-  in the `audit_logs` table** (needed for the SPEC §11/§17 audit trail and the
-  admin "deletion log" view) **and** mirrored to stderr: actor, action, target,
-  request id, details.
+- **Audit log** is **persisted in the `audit_logs` table** (SPEC §11/§17 audit
+  trail + admin audit view) **and** mirrored to stderr: actor, action, target,
+  request id, details. It records:
+  - admin actions and all deletions (manual + janitor); and
+  - **successful authenticated access to protected / auth-required objects**
+    (decision N6): action `object.access`, `target` = collection/path (or share
+    id), `actor` = the authenticated principal — OIDC `sub`/email, basic
+    username, or, for bearer, the token prefix (the token itself is never
+    logged). Public/unauthenticated reads are **not** audited (they go to the
+    stdout access log only); this keeps the audit log a focused
+    "who accessed restricted content" trail.
 - No secrets, tokens, or password material ever logged.
 
 ## 8. Other hardening

@@ -25,12 +25,10 @@ picture, or jump to the area you are working on.
 
 See also:
 - [`../ROADMAP.md`](../ROADMAP.md) — milestones and how the beads epics map to this design.
-- [`../OPEN-QUESTIONS-2.md`](../OPEN-QUESTIONS-2.md) — round-2 questions raised by the round-1 answers.
 
-## Decision summary (after operator round-1 answers)
+## Decision summary (all operator QA rounds resolved)
 
-The round-1 QA answers are folded in below. Items still needing confirmation are
-in `OPEN-QUESTIONS-2.md`.
+Both QA rounds are answered and folded in below; there are no open questions.
 
 | Area | Decision | Source |
 |------|----------|--------|
@@ -56,7 +54,9 @@ in `OPEN-QUESTIONS-2.md`.
 | **TLS** | direct cert/key **or ACME/autocert from first release** | D4 |
 | Blob layout | content-addressed behind `blob.Store` (portable data dir) | B1 |
 | Asset/migration bundling | `embed.FS` | — |
-| MCP SDK / transport | SDK no preference; **single committed transport** (N1, recommend Streamable HTTP) | E3/E4 |
+| MCP SDK / transport | SDK no preference; **Streamable HTTP** (single transport, internet-accessible) | E3/E4/N1 |
+| Protected-access auditing | authenticated access to protected objects recorded in `audit_logs` | N6 |
+| Scale / intent | self-contained, audience **~up to 50**; not horizontally scalable (use S3 for mass distribution) | N7 |
 | Resumable uploads | M2 milestone | F2 |
 
 ## Naming
