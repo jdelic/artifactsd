@@ -6,34 +6,6 @@ import (
 	"time"
 )
 
-func TestParseExtendedDuration(t *testing.T) {
-	cases := map[string]time.Duration{
-		"7d":    7 * 24 * time.Hour,
-		"30d":   30 * 24 * time.Hour,
-		"2w":    2 * 7 * 24 * time.Hour,
-		"1d12h": 36 * time.Hour,
-		"90m":   90 * time.Minute,
-		"1h30m": 90 * time.Minute,
-		"45s":   45 * time.Second,
-	}
-	for in, want := range cases {
-		got, err := parseExtendedDuration(in)
-		if err != nil {
-			t.Errorf("parseExtendedDuration(%q) error: %v", in, err)
-			continue
-		}
-		if got != want {
-			t.Errorf("parseExtendedDuration(%q) = %v, want %v", in, got, want)
-		}
-	}
-
-	for _, bad := range []string{"", "abc", "7", "d7"} {
-		if _, err := parseExtendedDuration(bad); err == nil {
-			t.Errorf("expected error for %q", bad)
-		}
-	}
-}
-
 func TestDeriveDenormalized(t *testing.T) {
 	created := time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC)
 

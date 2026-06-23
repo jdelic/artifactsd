@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jdelic/artifactsd/internal/durations"
 )
 
 // The denormalized `visibility` and `expires_at` columns are a derived cache of
@@ -60,7 +60,7 @@ func DeriveDenormalized(meta json.RawMessage, createdAt time.Time) (visibility s
 		expiresAt = &t
 	}
 	if dac := strings.TrimSpace(doc.Expiry.DeleteAfterCreation); dac != "" {
-		d, perr := parseExtendedDuration(dac)
+		d, perr := durations.Parse(dac)
 		if perr != nil {
 			return "", nil, fmt.Errorf("store: expiry.delete_after_creation: %w", perr)
 		}
@@ -141,35 +141,4 @@ func (s *Store) RecomputeAllDenormalized(ctx context.Context, defaultVisibility 
 		}
 	}
 	return count, nil
-}
-
-// dayWeekToken matches a "<number>d" or "<number>w" component.
-var dayWeekToken = regexp.MustCompile(`(\d+(?:\.\d+)?)([dw])`)
-
-// parseExtendedDuration parses Go durations extended with 'd' (days) and 'w'
-// (weeks), e.g. "7d", "30d", "2w", "1d12h". Bare time.ParseDuration units
-// (h/m/s/ms/us/ns) also work. Day/week tokens are expanded into hours and the
-// result handed to time.ParseDuration.
-func parseExtendedDuration(s string) (time.Duration, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, fmt.Errorf("empty duration")
-	}
-	expanded := dayWeekToken.ReplaceAllStringFunc(s, func(tok string) string {
-		m := dayWeekToken.FindStringSubmatch(tok)
-		v, err := strconv.ParseFloat(m[1], 64)
-		if err != nil {
-			return tok // leave it for ParseDuration to reject
-		}
-		hours := v * 24
-		if m[2] == "w" {
-			hours *= 7
-		}
-		return strconv.FormatFloat(hours, 'f', -1, 64) + "h"
-	})
-	d, err := time.ParseDuration(expanded)
-	if err != nil {
-		return 0, fmt.Errorf("invalid duration %q", s)
-	}
-	return d, nil
 }
