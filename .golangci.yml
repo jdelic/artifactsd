@@ -31,11 +31,13 @@ linters-settings:
       - style
     disabled-checks:
       - whyNoLint
+      - unnamedResult # named multi-returns add shadow churn for little gain
   misspell:
     locale: US
   gosec:
     excludes:
       - G115 # integer overflow conversions; noisy, handled case-by-case
+      - G101 # SQL column lists containing "token_hash" etc. are not credentials
   revive:
     rules:
       - name: exported
