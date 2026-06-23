@@ -99,15 +99,7 @@ func (c *OIDCProviderCache) verifyToken(ctx context.Context, cfg *OIDCConfig, ra
 	if err != nil {
 		return nil, fmt.Errorf("auth: oidc token verify: %w", err)
 	}
-
-	var raw map[string]json.RawMessage
-	if err := idToken.Claims(&raw); err != nil {
-		return nil, fmt.Errorf("auth: oidc claims: %w", err)
-	}
-	cl := &oidcClaims{Subject: idToken.Subject}
-	_ = json.Unmarshal(raw["email"], &cl.Email)
-	cl.Groups = parseGroups(raw[cfg.groupClaim()])
-	return cl, nil
+	return claimsFromToken(idToken, cfg.groupClaim())
 }
 
 // parseGroups reads a group claim that may be a JSON string or array of strings.
