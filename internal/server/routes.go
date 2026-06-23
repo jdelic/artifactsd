@@ -17,8 +17,13 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /auth/oidc/login", s.handleOIDCLogin)
 	mux.HandleFunc("GET /auth/oidc/callback", s.handleOIDCCallback)
 
-	// Route-group placeholders — replaced by their epics.
-	mux.Handle("/c/", notImplemented("public serving"))
+	// Public serving (design/05). /s share serving lands in artifactsd-dxb.
+	if s.serve != nil {
+		mux.HandleFunc("GET /c/{collection}/{path...}", s.serve.ServeCollection)
+		mux.HandleFunc("HEAD /c/{collection}/{path...}", s.serve.ServeCollection)
+	} else {
+		mux.Handle("/c/", notImplemented("public serving"))
+	}
 	mux.Handle("/s/", notImplemented("share serving"))
 	if s.api != nil {
 		mux.Handle("/api/v1/", s.api.Routes())
