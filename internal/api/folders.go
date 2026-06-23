@@ -152,7 +152,7 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 		if !underBase(n.Path, base) {
 			continue
 		}
-		if depth > 0 && relDepth(n.Path, base) > depth {
+		if depth > 0 && relativeDepth(n.Path, base) > depth {
 			continue
 		}
 		items = append(items, toTreeNode(n))
@@ -177,8 +177,8 @@ func underBase(path, base string) bool {
 	return path == base || strings.HasPrefix(path, base+"/")
 }
 
-// relDepth is the number of path segments below base.
-func relDepth(path, base string) int {
+// relativeDepth is the number of path segments below base.
+func relativeDepth(path, base string) int {
 	rest := path
 	if base != "" {
 		rest = strings.TrimPrefix(strings.TrimPrefix(path, base), "/")
