@@ -92,7 +92,7 @@ All collection-relative paths pass `cleanPath`:
 - **Auth-failure limiter**: per-IP (and per-token-prefix) token-bucket on 401/403
   outcomes. After N failures in a window → `429` with `Retry-After`. Defaults
   configurable (`limits.auth_failures`, e.g. 10/min). In-memory with periodic
-  GC; sufficient for single-node (SPEC §2 non-goal: clustering).
+  GC; sufficient for a single-process deployment.
 - **Upload size**: `limits.max_upload_size` enforced by a `http.MaxBytesReader`
   wrapper; streaming uploads are checked incrementally → `413`.
 - **Per-collection file count**: `limits.max_file_count_per_collection`

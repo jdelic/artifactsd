@@ -27,8 +27,8 @@
 > - **Audit log records authenticated access to protected objects**
 >   (`object.access`), in addition to admin actions and deletions; the admin UI
 >   exposes this instead of a general access-log view.
-> - **Scale & intent:** self-contained, single-node, audience ~up to 50 viewers
->   per artifact; not horizontally scalable (use S3/CDN for mass distribution).
+> - **Scale & intent:** self-contained single process, audience ~up to 50
+>   viewers per artifact; use S3/CDN for mass distribution.
 > - **MCP** is exposed over **Streamable HTTP** (network-accessible).
 > - **License:** BSD 3-Clause © Jonas Maurus.
 
@@ -60,7 +60,6 @@ The initial version does not require:
 - Nginx, Caddy, Apache, or any other external web server
 - External databases
 - S3 or cloud object storage
-- Multi-node clustering
 - CDN integration
 - Accelerated internal redirect serving
 - Complex workflow orchestration

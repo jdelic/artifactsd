@@ -2,15 +2,14 @@
 
 ## 0. Scale & intent (decision N7)
 
-artifactsd is **self-contained, easy to configure, and easy to deploy** — that
-is the goal, ahead of scale. The expected audience for any published artifact is
-**up to ~50 viewers**, not mass distribution. It is intentionally **single-node
-and not horizontally scalable** (clustering is a SPEC §2 non-goal); the process
-owns its local state (SQLite + blobs, a portable data dir per B1). If an artifact
-must reach hundreds/thousands/millions of users, the operator/agent should front
-it with S3 or a CDN instead. These assumptions justify several choices below:
-in-process SQLite, an in-memory rate limiter, a single-process janitor, and
-local-filesystem blobs.
+artifactsd is **self-contained, easy to configure, and easy to deploy**. The
+expected audience for any published artifact is **up to ~50 viewers** — this is
+easy artifact storage for agents and humans, not a mass-distribution platform.
+It runs as a **single process** that owns its local state (SQLite + blobs, a
+portable data dir per B1). If an artifact must reach hundreds/thousands/millions
+of users, the operator/agent should front it with S3 or a CDN instead. These
+assumptions justify several choices below: in-process SQLite, an in-memory rate
+limiter, a single-process janitor, and local-filesystem blobs.
 
 ## 1. Component map
 

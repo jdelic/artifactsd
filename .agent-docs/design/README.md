@@ -56,7 +56,7 @@ Both QA rounds are answered and folded in below; there are no open questions.
 | Asset/migration bundling | `embed.FS` | — |
 | MCP SDK / transport | SDK no preference; **Streamable HTTP** (single transport, internet-accessible) | E3/E4/N1 |
 | Protected-access auditing | authenticated access to protected objects recorded in `audit_logs` | N6 |
-| Scale / intent | self-contained, audience **~up to 50**; not horizontally scalable (use S3 for mass distribution) | N7 |
+| Scale / intent | self-contained single process, audience **~up to 50** per artifact; use S3/CDN for mass distribution | N7 |
 | Resumable uploads | M2 milestone | F2 |
 
 ## Naming
