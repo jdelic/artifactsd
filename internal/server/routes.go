@@ -20,7 +20,11 @@ func (s *Server) routes() http.Handler {
 	// Route-group placeholders — replaced by their epics.
 	mux.Handle("/c/", notImplemented("public serving"))
 	mux.Handle("/s/", notImplemented("share serving"))
-	mux.Handle("/api/v1/", notImplemented("management API"))
+	if s.api != nil {
+		mux.Handle("/api/v1/", s.api.Routes())
+	} else {
+		mux.Handle("/api/v1/", notImplemented("management API"))
+	}
 	// Admin UI lands in its epic; the OIDC-gated entry point is wired now.
 	mux.Handle(s.cfg.Admin.Path+"/", s.adminGate(notImplemented("admin UI")))
 
