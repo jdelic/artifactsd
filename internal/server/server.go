@@ -11,6 +11,7 @@ import (
 
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/config"
+	"github.com/jdelic/artifactsd/internal/ratelimit"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -31,25 +32,27 @@ type Options struct {
 
 // Server is the artifactsd HTTP server.
 type Server struct {
-	cfg    *config.Config
-	log    *slog.Logger
-	access *audit.AccessLogger
-	db     *store.DB
-	http   *http.Server
+	cfg     *config.Config
+	log     *slog.Logger
+	access  *audit.AccessLogger
+	db      *store.DB
+	limiter *ratelimit.Limiter
+	http    *http.Server
 }
 
 // New builds a Server. The HTTP handler is the provided Handler, or the default
 // mux wrapped in the middleware stack.
 func New(opts Options) *Server {
 	s := &Server{
-		cfg:    opts.Config,
-		log:    opts.Logger,
-		access: opts.Access,
-		db:     opts.DB,
+		cfg:     opts.Config,
+		log:     opts.Logger,
+		access:  opts.Access,
+		db:      opts.DB,
+		limiter: ratelimit.New(opts.Config.Limits.AuthFailMax, opts.Config.Limits.AuthFailWindow),
 	}
 	handler := opts.Handler
 	if handler == nil {
-		handler = s.routes()
+		handler = s.Middleware(s.routes())
 	}
 	s.http = &http.Server{
 		Addr:              opts.Config.Server.Listen,
