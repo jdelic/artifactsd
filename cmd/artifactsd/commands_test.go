@@ -2,10 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jdelic/artifactsd/internal/auth"
+	"github.com/jdelic/artifactsd/internal/config"
 )
 
 // execute runs the root command with args and captured stdin/stdout/stderr.
@@ -67,14 +71,29 @@ func TestServe_MissingBaseURLFails(t *testing.T) {
 	}
 }
 
-func TestServe_ValidatesAndReturns(t *testing.T) {
-	_, stderr, err := execute(t, "", "serve",
-		"--base-url", "https://x.example.com", "--data", t.TempDir())
+func TestRunServe_StartsAndShutsDown(t *testing.T) {
+	cfg, err := config.LoadAndValidate(
+		[]string{"--base-url", "https://x.example.com", "--data", t.TempDir(), "--listen", "127.0.0.1:0"},
+		func(string) string { return "" }, io.Discard,
+	)
 	if err != nil {
-		t.Fatalf("serve: %v", err)
+		t.Fatalf("config: %v", err)
 	}
-	if !strings.Contains(stderr, "configuration validated") {
-		t.Errorf("expected validation log, got %q", stderr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runServe(ctx, cfg, io.Discard) }()
+
+	time.Sleep(50 * time.Millisecond) // let it bind + auto-migrate
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("runServe returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runServe did not return after cancellation")
 	}
 }
 
