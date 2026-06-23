@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -59,6 +60,7 @@ func New(opts Options) *Server {
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 	return s
 }
