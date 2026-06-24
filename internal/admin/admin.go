@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/blob"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
@@ -25,6 +26,7 @@ type Cleaner interface {
 // Deps are the handler's dependencies.
 type Deps struct {
 	Store   *store.Store
+	Blob    blob.Store
 	Config  *config.Config
 	Audit   *audit.Recorder
 	Cleaner Cleaner
@@ -35,6 +37,7 @@ type Deps struct {
 // Handler serves the admin web UI.
 type Handler struct {
 	store   *store.Store
+	blob    blob.Store
 	cfg     *config.Config
 	audit   *audit.Recorder
 	cleaner Cleaner
@@ -47,6 +50,7 @@ type Handler struct {
 func New(d Deps) *Handler { //nolint:gocritic // Deps is built once at construction
 	return &Handler{
 		store:   d.Store,
+		blob:    d.Blob,
 		cfg:     d.Config,
 		audit:   d.Audit,
 		cleaner: d.Cleaner,

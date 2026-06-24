@@ -38,6 +38,7 @@ type pageData struct {
 	FKeys   []fkey
 	Status  string // right-aligned status word in the F-key bar, e.g. "READY"
 	Title   string // breadcrumb/title shown in the top bar
+	Active  string // top-nav section to highlight, e.g. "dashboard", "collections"
 	Content template.HTML
 }
 
@@ -47,7 +48,8 @@ type fkey struct {
 }
 
 // render executes the named page template, then wraps its output in the
-// shared layout chrome.
+// shared layout chrome. active names the top-nav section to highlight (e.g.
+// "dashboard", "collections").
 func (h *Handler) render(w http.ResponseWriter, r *http.Request, page string, fkeys []fkey, status, title string, data any) {
 	var content bytes.Buffer
 	if err := h.tmpl.ExecuteTemplate(&content, page, data); err != nil {
@@ -65,6 +67,7 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, page string, fk
 		FKeys:     fkeys,
 		Status:    status,
 		Title:     title,
+		Active:    navSection(page),
 		Content:   template.HTML(content.String()), //nolint:gosec // page templates are our own, html/template-escaped
 	}
 	if id != nil {
@@ -83,6 +86,15 @@ func (h *Handler) renderPartial(w http.ResponseWriter, name string, data any) {
 	if err := h.tmpl.ExecuteTemplate(w, name, data); err != nil && h.log != nil {
 		h.log.Error("admin: render partial failed", "name", name, "error", err)
 	}
+}
+
+// navSection maps a page template name to the top-nav section it belongs
+// under (the collection tree browser highlights "Collections" too).
+func navSection(page string) string {
+	if page == "tree" {
+		return "collections"
+	}
+	return page
 }
 
 // actorOf returns the audit actor string for an identity: email if present,

@@ -1,0 +1,71 @@
+{{define "tree"}}{{template "tree_panel" .}}{{end}}
+
+{{define "tree_panel"}}
+<div id="tree-panel">
+  <div class="nc-panel" data-label="Path">
+    <div class="nc-breadcrumb">
+      {{range $i, $b := .Breadcrumb}}{{if $i}}<span class="nc-breadcrumb-sep">/</span>{{end}}<a href="{{$.AdminPath}}/collections/{{$.Collection}}/tree?path={{$b.Path}}">{{$b.Name}}</a>{{end}}
+    </div>
+    {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+  </div>
+
+  <div class="nc-panel" data-label="Upload">
+    <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/upload"
+          hx-target="#tree-panel" hx-swap="outerHTML" hx-encoding="multipart/form-data">
+      <input type="hidden" name="dir" value="{{.Dir}}">
+      <input type="file" name="file" required>
+      <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Upload</button>
+    </form>
+    <form class="nc-form nc-large-upload" data-admin-path="{{.AdminPath}}" data-collection="{{.Collection}}" data-dir="{{.Dir}}">
+      <input type="file" name="file" required>
+      <button class="nc-button" type="submit">Upload large (with progress)</button>
+      <progress class="nc-upload-progress" value="0" max="100" hidden></progress>
+      <span class="nc-upload-status"></span>
+    </form>
+  </div>
+
+  <div class="nc-panel" data-label="Folders">
+    <table class="nc-table">
+      <tr><th>Name</th><th></th></tr>
+      {{range .Folders}}
+      <tr>
+        <td><a href="{{$.AdminPath}}/collections/{{$.Collection}}/tree?path={{.Path}}">{{.Name}}/</a></td>
+        <td>
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/delete-folder/{{.Path}}"
+                hx-target="#tree-panel" hx-swap="outerHTML"
+                hx-confirm="Delete folder &quot;{{.Name}}&quot; and everything in it? This cannot be undone.">
+            <input type="hidden" name="dir" value="{{$.Dir}}">
+            <button class="nc-button" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="2">No folders.</td></tr>
+      {{end}}
+    </table>
+  </div>
+
+  <div class="nc-panel" data-label="Files">
+    <table class="nc-table">
+      <tr><th>Name</th><th>Size</th><th>Content-Type</th><th></th></tr>
+      {{range .Files}}
+      <tr>
+        <td><a href="{{.ViewURL}}" target="_blank" rel="noopener">{{.Name}}</a></td>
+        <td>{{.Size}}</td>
+        <td>{{.ContentType}}</td>
+        <td>
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/delete-file/{{.Path}}"
+                hx-target="#tree-panel" hx-swap="outerHTML"
+                hx-confirm="Delete file &quot;{{.Name}}&quot;? This cannot be undone.">
+            <input type="hidden" name="dir" value="{{$.Dir}}">
+            <button class="nc-button" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="4">No files.</td></tr>
+      {{end}}
+    </table>
+  </div>
+</div>
+{{end}}
