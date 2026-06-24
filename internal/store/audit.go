@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const auditCols = `id, ts, actor, action, target, details, request_id`
@@ -57,8 +58,34 @@ func (s *Store) AppendAudit(ctx context.Context, a *AuditLog) error {
 
 // ListAudit returns the most recent audit entries, newest first, up to limit.
 func (s *Store) ListAudit(ctx context.Context, limit int) ([]*AuditLog, error) {
-	rows, err := s.db.sql.QueryContext(ctx,
-		`SELECT `+auditCols+` FROM audit_logs ORDER BY ts DESC, id DESC LIMIT ?`, limit)
+	return s.QueryAudit(ctx, AuditFilter{Limit: limit})
+}
+
+// AuditFilter selects audit entries for QueryAudit. Zero values mean "no filter"
+// (Since), "any action" (Action), and the caller's default page size (Limit).
+type AuditFilter struct {
+	Since  *time.Time
+	Action string
+	Limit  int
+}
+
+// QueryAudit returns audit entries matching the filter, newest first. Used by
+// the management audit endpoint (design/04 §8): ?since= and ?action= filters.
+func (s *Store) QueryAudit(ctx context.Context, f AuditFilter) ([]*AuditLog, error) {
+	query := `SELECT ` + auditCols + ` FROM audit_logs WHERE 1=1`
+	var args []any
+	if f.Since != nil {
+		query += ` AND ts >= ?`
+		args = append(args, fmtTime(*f.Since))
+	}
+	if f.Action != "" {
+		query += ` AND action = ?`
+		args = append(args, f.Action)
+	}
+	query += ` ORDER BY ts DESC, id DESC LIMIT ?`
+	args = append(args, f.Limit)
+
+	rows, err := s.db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

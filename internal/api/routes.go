@@ -37,5 +37,13 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("PATCH /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.patchShare))
 	mux.Handle("DELETE /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.deleteShare))
 
+	// Tokens, audit, stats & maintenance (design/04 §8, admin-scoped).
+	mux.Handle("GET /api/v1/tokens", h.requireScope(auth.ScopeAdmin, h.listTokens))
+	mux.Handle("POST /api/v1/tokens", h.requireScope(auth.ScopeAdmin, h.createToken))
+	mux.Handle("DELETE /api/v1/tokens/{id}", h.requireScope(auth.ScopeAdmin, h.deleteToken))
+	mux.Handle("GET /api/v1/audit", h.requireScope(auth.ScopeAdmin, h.getAudit))
+	mux.Handle("GET /api/v1/stats", h.requireScope(auth.ScopeAdmin, h.getStats))
+	mux.Handle("POST /api/v1/maintenance/cleanup", h.requireScope(auth.ScopeAdmin, h.postMaintenanceCleanup))
+
 	return mux
 }
