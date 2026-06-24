@@ -126,6 +126,146 @@ func TestE2E_PutTree(t *testing.T) {
 	}
 }
 
+func TestE2E_CollectionCreate_VisibilityVariants(t *testing.T) {
+	e := newE2E(t)
+	for _, vis := range []string{"private", "unlisted", "protected"} {
+		name := "coll-" + vis
+		if code, _, errOut := e.run("collection", "create", name, "--visibility", vis); code != exitOK {
+			t.Fatalf("create %s: code=%d err=%s", vis, code, errOut)
+		}
+		code, out, errOut := e.run("--output", "json", "collection", "show", name)
+		if code != exitOK {
+			t.Fatalf("show %s: code=%d err=%s", name, code, errOut)
+		}
+		var col apiclient.Collection
+		if err := json.Unmarshal([]byte(out), &col); err != nil {
+			t.Fatalf("collection json: %v (%s)", err, out)
+		}
+		if col.Visibility != vis {
+			t.Errorf("collection %s visibility = %q, want %q", name, col.Visibility, vis)
+		}
+	}
+}
+
+func TestE2E_CollectionCreate_ListFlag(t *testing.T) {
+	e := newE2E(t)
+	listingFlag := func(metadata json.RawMessage) *bool {
+		var doc struct {
+			Access struct {
+				DirectoryListing *bool `json:"directory_listing"`
+			} `json:"access"`
+		}
+		if err := json.Unmarshal(metadata, &doc); err != nil {
+			t.Fatalf("metadata json: %v (%s)", err, metadata)
+		}
+		return doc.Access.DirectoryListing
+	}
+
+	if code, _, errOut := e.run("collection", "create", "listed", "--list"); code != exitOK {
+		t.Fatalf("create --list: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "collection", "show", "listed")
+	if code != exitOK {
+		t.Fatalf("show: code=%d err=%s", code, errOut)
+	}
+	var col apiclient.Collection
+	if err := json.Unmarshal([]byte(out), &col); err != nil {
+		t.Fatalf("collection json: %v (%s)", err, out)
+	}
+	if got := listingFlag(col.Metadata); got == nil || !*got {
+		t.Errorf("--list: directory_listing = %v, want true", got)
+	}
+
+	if code, _, errOut := e.run("collection", "create", "unlisted-dir", "--no-list"); code != exitOK {
+		t.Fatalf("create --no-list: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut = e.run("--output", "json", "collection", "show", "unlisted-dir")
+	if code != exitOK {
+		t.Fatalf("show: code=%d err=%s", code, errOut)
+	}
+	if err := json.Unmarshal([]byte(out), &col); err != nil {
+		t.Fatalf("collection json: %v (%s)", err, out)
+	}
+	if got := listingFlag(col.Metadata); got == nil || *got {
+		t.Errorf("--no-list: directory_listing = %v, want false", got)
+	}
+}
+
+func TestE2E_Put_ContentType(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "data.bin")
+	if err := os.WriteFile(local, []byte("binary"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := e.run("--output", "json", "put", "demo/data.bin", local, "--content-type", "application/x-custom")
+	if code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+	var info apiclient.FileInfo
+	if err := json.Unmarshal([]byte(out), &info); err != nil {
+		t.Fatalf("file json: %v (%s)", err, out)
+	}
+	if info.ContentType != "application/x-custom" {
+		t.Errorf("content_type = %q, want application/x-custom", info.ContentType)
+	}
+}
+
+func TestE2E_Get_OutputFile(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/a.txt", local); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+
+	dst := filepath.Join(t.TempDir(), "downloaded.txt")
+	if code, _, errOut := e.run("get", "demo/a.txt", "-o", dst); code != exitOK {
+		t.Fatalf("get -o: code=%d err=%s", code, errOut)
+	}
+	got, err := os.ReadFile(dst) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if string(got) != "hello" {
+		t.Errorf("downloaded content = %q, want hello", got)
+	}
+}
+
+func TestE2E_PutTree_IncludeGlob(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "site"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "index.html"), "<h1>hi</h1>")
+	mustWrite(t, filepath.Join(root, "notes.tmp"), "scratch")
+
+	code, out, errOut := e.run("--output", "json", "put-tree", "site", root, "--include", "*.html")
+	if code != exitOK {
+		t.Fatalf("put-tree: code=%d err=%s", code, errOut)
+	}
+	var summary struct {
+		Uploaded int `json:"uploaded"`
+	}
+	if err := json.Unmarshal([]byte(out), &summary); err != nil {
+		t.Fatalf("summary json: %v (%s)", err, out)
+	}
+	if summary.Uploaded != 1 {
+		t.Errorf("uploaded = %d, want 1 (only *.html included)", summary.Uploaded)
+	}
+	if code, _, _ := e.run("get", "site/notes.tmp"); code != exitNotFound {
+		t.Errorf("non-included file present (code %d)", code)
+	}
+}
+
 func TestE2E_AuthFailure(t *testing.T) {
 	ts := testserver.New(t)
 	var out, errOut bytes.Buffer
