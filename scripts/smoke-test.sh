@@ -94,6 +94,11 @@ ctl meta get smoke/hello.txt --output json | jq -e '.effective.crawlable == true
 log "tree"
 ctl tree smoke | grep -q hello.txt || fail "tree missing hello.txt"
 
+log "crawl"
+ctl crawl smoke | grep -q hello.txt || fail "crawl missing hello.txt"
+ctl crawl smoke --output json | jq -e '.entries[] | select(.path == "hello.txt")' >/dev/null \
+  || fail "crawl --output json missing hello.txt entry"
+
 log "large-upload session: begin, capability PUT (no token), then re-PUT is rejected"
 echo "large upload bytes $$" >"$WORKDIR/big.bin"
 upload=$(curl -fsS -X POST "$BASE_URL/api/v1/collections/smoke/uploads" \
