@@ -46,7 +46,7 @@ func scanShare(row interface{ Scan(...any) error }) (*Share, error) {
 // the denormalized expires_at is derived from the share's metadata.
 func (s *Store) CreateShare(ctx context.Context, sh *Share) error {
 	sh.CreatedAt = s.now()
-	_, exp, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt)
+	_, exp, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt, time.Time{})
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func (s *Store) ListSharesByCollection(ctx context.Context, collectionID int64) 
 // expires_at from the new metadata (PATCH). The share's original created_at is
 // used as the basis for any creation-relative expiry.
 func (s *Store) UpdateShare(ctx context.Context, sh *Share) error {
-	_, exp, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt)
+	_, exp, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt, time.Time{})
 	if err != nil {
 		return err
 	}

@@ -36,17 +36,27 @@ type Deps struct {
 
 // Handler serves public content.
 type Handler struct {
-	store *store.Store
-	blob  blob.Store
-	cfg   *config.Config
-	audit *audit.Recorder
-	oidc  *auth.OIDCProviderCache
-	log   *slog.Logger
+	store      *store.Store
+	blob       blob.Store
+	cfg        *config.Config
+	audit      *audit.Recorder
+	oidc       *auth.OIDCProviderCache
+	log        *slog.Logger
+	lastAccess *lastAccessUpdater
 }
 
 // New builds a serving handler.
 func New(d Deps) *Handler {
-	return &Handler{store: d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger}
+	return &Handler{
+		store: d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
+		lastAccess: newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, d.Logger),
+	}
+}
+
+// WithClock overrides the last-access throttle's clock (for tests).
+func (h *Handler) WithClock(now func() time.Time) *Handler {
+	h.lastAccess.withClock(now)
+	return h
 }
 
 // ServeCollection handles GET|HEAD /c/{collection}/{path...} (design/05 §1).
@@ -275,6 +285,10 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Col
 	if decision.Subject != "" && h.audit != nil {
 		_ = h.audit.RecordAccess(r.Context(), decision.Subject, coll.Name+"/"+node.Path)
 	}
+	// Throttled last_access_at update, feeding delete_after_last_access
+	// (design/05 §1 step 7, design/08 §3) — recorded before streaming starts so
+	// it isn't gated on the client reading the full response.
+	h.lastAccess.touch(r.Context(), node.ID)
 
 	http.ServeContent(w, r, node.Name, node.UpdatedAt, rc)
 }
