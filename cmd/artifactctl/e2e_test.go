@@ -191,6 +191,48 @@ func TestE2E_CollectionCreate_ListFlag(t *testing.T) {
 	}
 }
 
+func TestE2E_CollectionCreate_CrawlFlags(t *testing.T) {
+	e := newE2E(t)
+	crawl := func(metadata json.RawMessage) struct {
+		Crawlable *bool `json:"crawlable"`
+		Indexable *bool `json:"indexable"`
+	} {
+		var doc struct {
+			Crawl struct {
+				Crawlable *bool `json:"crawlable"`
+				Indexable *bool `json:"indexable"`
+			} `json:"crawl"`
+		}
+		if err := json.Unmarshal(metadata, &doc); err != nil {
+			t.Fatalf("metadata json: %v (%s)", err, metadata)
+		}
+		return doc.Crawl
+	}
+
+	if code, _, errOut := e.run("collection", "create", "indexable-demo", "--crawlable", "--index"); code != exitOK {
+		t.Fatalf("create --crawlable --index: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "collection", "show", "indexable-demo")
+	if code != exitOK {
+		t.Fatalf("show: code=%d err=%s", code, errOut)
+	}
+	var col apiclient.Collection
+	if err := json.Unmarshal([]byte(out), &col); err != nil {
+		t.Fatalf("collection json: %v (%s)", err, out)
+	}
+	got := crawl(col.Metadata)
+	if got.Crawlable == nil || !*got.Crawlable {
+		t.Errorf("--crawlable: crawlable = %v, want true", got.Crawlable)
+	}
+	if got.Indexable == nil || !*got.Indexable {
+		t.Errorf("--index: indexable = %v, want true", got.Indexable)
+	}
+
+	if code, _, errOut := e.run("collection", "create", "bad", "--index", "--no-index"); code != exitUsage {
+		t.Fatalf("create --index --no-index: code=%d err=%s, want exitUsage", code, errOut)
+	}
+}
+
 func TestE2E_Put_ContentType(t *testing.T) {
 	e := newE2E(t)
 	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {

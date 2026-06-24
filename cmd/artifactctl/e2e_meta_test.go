@@ -50,6 +50,48 @@ func TestE2E_MetaGetSet(t *testing.T) {
 	}
 }
 
+// TestE2E_MetaSet_Index covers the --index flag (artifactsd-3f7): before this,
+// meta set could only ever turn indexable off (--no-index), never on, since the
+// server defaults to indexable=false and there was no flag to opt in.
+func TestE2E_MetaSet_Index(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create collection: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/a.txt", local); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+
+	if code, _, errOut := e.run("meta", "set", "demo/a.txt", "--index"); code != exitOK {
+		t.Fatalf("meta set --index: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "meta", "get", "demo/a.txt")
+	if code != exitOK {
+		t.Fatalf("meta get: code=%d err=%s", code, errOut)
+	}
+	var got apiclient.FileMeta
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("meta json: %v (%s)", err, out)
+	}
+	var eff struct {
+		Indexable bool `json:"indexable"`
+	}
+	if err := json.Unmarshal(got.Effective, &eff); err != nil {
+		t.Fatalf("effective json: %v (%s)", err, got.Effective)
+	}
+	if !eff.Indexable {
+		t.Errorf("effective = %s, want indexable true", got.Effective)
+	}
+
+	if code, _, errOut := e.run("meta", "set", "demo/a.txt", "--index", "--no-index"); code != exitUsage {
+		t.Fatalf("meta set --index --no-index: code=%d err=%s, want exitUsage", code, errOut)
+	}
+}
+
 // TestE2E_MetaGetSet_Folder confirms `meta get`/`meta set` also works against
 // a folder path, not just a file: the underlying .../files/{path}/meta
 // endpoint resolves any node by path regardless of kind (internal/api

@@ -52,6 +52,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 		expires    string
 		headers    []string
 		crawlable  bool
+		index      bool
 		noIndex    bool
 	)
 	cmd := &cobra.Command{
@@ -67,7 +68,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			patch, err := buildFileMetaPatch(visibility, expires, headers, crawlable, noIndex)
+			patch, err := buildFileMetaPatch(visibility, expires, headers, crawlable, index, noIndex)
 			if err != nil {
 				return err
 			}
@@ -87,15 +88,20 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 	f.StringVar(&expires, "expires", "", "expire at absolute RFC3339 timestamp")
 	f.StringArrayVar(&headers, "header", nil, "response header k=v (repeatable)")
 	f.BoolVar(&crawlable, "crawlable", false, "mark crawlable")
+	f.BoolVar(&index, "index", false, "mark indexable")
 	f.BoolVar(&noIndex, "no-index", false, "mark non-indexable")
 	return cmd
 }
 
 // buildFileMetaPatch assembles a metadata document patch from the `meta set`
 // flags (design/03 §2 for the document shape).
-func buildFileMetaPatch(visibility, expires string, headers []string, crawlable, noIndex bool) (json.RawMessage, error) {
+func buildFileMetaPatch(visibility, expires string, headers []string, crawlable, index, noIndex bool) (json.RawMessage, error) {
 	if visibility != "" && !validVisibility(visibility) {
 		return nil, usagef("invalid --visibility %q: want public|unlisted|protected|private", visibility)
+	}
+	crawl, err := buildCrawlPatch(crawlable, index, noIndex)
+	if err != nil {
+		return nil, err
 	}
 	hdrMap, err := parseHeaders(headers)
 	if err != nil {
@@ -108,13 +114,6 @@ func buildFileMetaPatch(visibility, expires string, headers []string, crawlable,
 	if len(hdrMap) > 0 {
 		doc["content"] = map[string]any{"headers": hdrMap}
 	}
-	crawl := map[string]any{}
-	if crawlable {
-		crawl["crawlable"] = true
-	}
-	if noIndex {
-		crawl["indexable"] = false
-	}
 	if len(crawl) > 0 {
 		doc["crawl"] = crawl
 	}
@@ -122,9 +121,28 @@ func buildFileMetaPatch(visibility, expires string, headers []string, crawlable,
 		doc["expiry"] = map[string]any{"expires_at": expires}
 	}
 	if len(doc) == 0 {
-		return nil, usagef("meta set requires at least one of --visibility, --expires, --header, --crawlable, --no-index")
+		return nil, usagef("meta set requires at least one of --visibility, --expires, --header, --crawlable, --index, --no-index")
 	}
 	return json.Marshal(doc)
+}
+
+// buildCrawlPatch assembles the "crawl" section shared by `meta set` and
+// `collection create` from their crawl-related flags.
+func buildCrawlPatch(crawlable, index, noIndex bool) (map[string]any, error) {
+	if index && noIndex {
+		return nil, usagef("--index and --no-index are mutually exclusive")
+	}
+	crawl := map[string]any{}
+	if crawlable {
+		crawl["crawlable"] = true
+	}
+	if index {
+		crawl["indexable"] = true
+	}
+	if noIndex {
+		crawl["indexable"] = false
+	}
+	return crawl, nil
 }
 
 // parseHeaders parses repeated "k=v" flag values into a map.
