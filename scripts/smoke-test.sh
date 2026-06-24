@@ -94,6 +94,20 @@ ctl meta get smoke/hello.txt --output json | jq -e '.effective.crawlable == true
 log "tree"
 ctl tree smoke | grep -q hello.txt || fail "tree missing hello.txt"
 
+log "large-upload session: begin, capability PUT (no token), then re-PUT is rejected"
+echo "large upload bytes $$" >"$WORKDIR/big.bin"
+upload=$(curl -fsS -X POST "$BASE_URL/api/v1/collections/smoke/uploads" \
+  -H "Authorization: Bearer $BOOTSTRAP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"path":"big.bin"}') || fail "begin upload session failed"
+upload_url=$(echo "$upload" | jq -r '.upload_url')
+[[ -n "$upload_url" && "$upload_url" != "null" ]] || fail "begin upload did not return an upload_url"
+curl -fsS -X PUT "$upload_url" --data-binary "@$WORKDIR/big.bin" >/dev/null \
+  || fail "capability PUT to $upload_url failed"
+ctl get smoke/big.bin -o "$WORKDIR/big.downloaded.bin" >/dev/null
+cmp -s "$WORKDIR/big.bin" "$WORKDIR/big.downloaded.bin" || fail "large-upload content mismatch"
+second_put_status=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$upload_url" --data-binary "@$WORKDIR/big.bin")
+[[ "$second_put_status" == "409" ]] || fail "second PUT to a consumed upload_id = $second_put_status, want 409"
+
 log "share create/list/revoke"
 share_id=$(ctl share create smoke/hello.txt --output json | jq -r '.share_id')
 [[ -n "$share_id" && "$share_id" != "null" ]] || fail "share create did not return a share_id"
@@ -106,12 +120,9 @@ token_id=$(ctl token create smoke-test-token --scope collections:read --output j
 ctl token list | grep -q "^${token_id}[[:space:]]" || fail "token list missing id $token_id"
 ctl token revoke "$token_id" >/dev/null
 
-log "maintenance cleanup is expected to fail (no janitor wired yet — artifactsd-n18)"
-if ctl maintenance cleanup >/dev/null 2>"$WORKDIR/cleanup.err"; then
-  fail "maintenance cleanup unexpectedly succeeded — once artifactsd-n18 wires a janitor, update this script to expect success"
-fi
-grep -q "cleanup is not configured" "$WORKDIR/cleanup.err" \
-  || fail "unexpected cleanup error: $(cat "$WORKDIR/cleanup.err")"
+log "maintenance cleanup (janitor wired via artifactsd-ltb/zgj/n18)"
+ctl maintenance cleanup --output json | jq -e 'has("cleanup") and (.cleanup | has("nodes_deleted"))' >/dev/null \
+  || fail "maintenance cleanup did not return a janitor summary"
 
 log "curl-verify public serving over /c (no CLI command exercises raw HTTP semantics)"
 curl -fsS -o "$WORKDIR/hello.curl.txt" "$BASE_URL/c/smoke/hello.txt" || fail "curl GET /c/smoke/hello.txt failed"

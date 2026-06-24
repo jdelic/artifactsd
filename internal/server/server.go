@@ -16,6 +16,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/blob"
 	"github.com/jdelic/artifactsd/internal/config"
+	"github.com/jdelic/artifactsd/internal/janitor"
 	"github.com/jdelic/artifactsd/internal/ratelimit"
 	"github.com/jdelic/artifactsd/internal/serve"
 	"github.com/jdelic/artifactsd/internal/session"
@@ -54,6 +55,7 @@ type Server struct {
 	http    *http.Server
 	api     *api.Handler
 	serve   *serve.Handler
+	janitor *janitor.Janitor
 
 	oidcCache *auth.OIDCProviderCache
 	session   *session.Manager
@@ -82,12 +84,18 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 	}
 	s.initAdminAuth()
 	if opts.Store != nil {
+		s.janitor = janitor.New(janitor.Deps{
+			Store: opts.Store, Blob: opts.Blob, Logger: opts.Logger,
+			Audit:     audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
+			BatchSize: opts.Config.Limits.JanitorBatchSize,
+		})
 		s.api = api.New(api.Deps{
 			Store:   opts.Store,
 			Blob:    opts.Blob,
 			Config:  opts.Config,
 			Audit:   audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
 			Authn:   auth.NewAuthenticator(opts.Store.AuthTokenSource()).WithBootstrapToken(opts.Config.Bootstrap.Token),
+			Cleaner: s.janitor,
 			Logger:  opts.Logger,
 			BaseURL: opts.Config.Server.BaseURL,
 		})
@@ -118,6 +126,10 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 // SIGTERM), then gracefully drains in-flight requests. The TLS configuration is
 // applied per config (design/06 §6).
 func (s *Server) Run(ctx context.Context) error {
+	if s.janitor != nil {
+		go s.janitor.Loop(ctx, s.cfg.Limits.JanitorInterval)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		s.log.Info("http server listening",
