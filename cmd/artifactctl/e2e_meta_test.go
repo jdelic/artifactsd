@@ -191,9 +191,19 @@ func TestE2E_TokenLifecycle(t *testing.T) {
 	}
 }
 
-func TestE2E_MaintenanceCleanup_NoCleaner(t *testing.T) {
+func TestE2E_MaintenanceCleanup(t *testing.T) {
 	e := newE2E(t)
-	if code, _, _ := e.run("maintenance", "cleanup"); code == exitOK {
-		t.Error("expected failure: no janitor is wired into the test server")
+	code, out, errOut := e.run("--output", "json", "maintenance", "cleanup")
+	if code != exitOK {
+		t.Fatalf("cleanup: code=%d err=%s", code, errOut)
+	}
+	var result struct {
+		Cleanup map[string]any `json:"cleanup"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("cleanup json: %v (%s)", err, out)
+	}
+	if _, ok := result.Cleanup["nodes_deleted"]; !ok {
+		t.Errorf("cleanup result = %+v, want a nodes_deleted field", result.Cleanup)
 	}
 }
