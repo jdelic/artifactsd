@@ -85,6 +85,123 @@ func (h *Handler) ServeCollection(w http.ResponseWriter, r *http.Request) {
 	h.serveFile(w, r, coll, node, p)
 }
 
+// ServeShare handles GET|HEAD /s/{share_id}/{path...}: resolve share_id to its
+// (collection, base path), append+revalidate the optional tail stays within
+// that subtree, then run the same pipeline as /c with the share's metadata
+// layered on top at the highest precedence (design/05 §1 step 1/3, design/04
+// §6).
+func (h *Handler) ServeShare(w http.ResponseWriter, r *http.Request) {
+	sh, coll, ok := h.lookupActiveShare(w, r)
+	if !ok {
+		return
+	}
+
+	p, ok := h.resolveSharePath(w, r, sh)
+	if !ok {
+		return
+	}
+	if p == "" {
+		// Directory request at the share's own root: listing/index lands in
+		// artifactsd-c4f, same as the bare /c/{collection}/ case.
+		http.NotFound(w, r)
+		return
+	}
+
+	node, err := h.store.GetNode(r.Context(), coll.ID, p)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && node.Kind != store.KindFile) {
+		http.NotFound(w, r) // existence non-disclosure; folders land in c4f
+		return
+	}
+	if err != nil {
+		h.serverError(w, "lookup node", err)
+		return
+	}
+	h.serveShareFile(w, r, sh, coll, node, p)
+}
+
+// lookupActiveShare resolves {share_id} and its collection, rejecting a
+// revoked or expired share as 404 (existence non-disclosure, SPEC §17).
+func (h *Handler) lookupActiveShare(w http.ResponseWriter, r *http.Request) (*store.Share, *store.Collection, bool) {
+	sh, err := h.store.GetShare(r.Context(), r.PathValue("share_id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return nil, nil, false
+	}
+	if err != nil {
+		h.serverError(w, "lookup share", err)
+		return nil, nil, false
+	}
+	if sh.RevokedAt != nil || (sh.ExpiresAt != nil && !time.Now().Before(*sh.ExpiresAt)) {
+		http.NotFound(w, r)
+		return nil, nil, false
+	}
+
+	coll, err := h.store.GetCollection(r.Context(), sh.CollectionID)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return nil, nil, false
+	}
+	if err != nil {
+		h.serverError(w, "lookup share collection", err)
+		return nil, nil, false
+	}
+	return sh, coll, true
+}
+
+// resolveSharePath resolves the optional tail path under a share's target,
+// re-validating it stays within the share's subtree (design/05 §1 step 1): the
+// tail is cleaned on its own — paths.Clean rejects any ".." segment outright,
+// it never resolves one upward — before being concatenated onto the share's
+// fixed TargetPath, so a cleaned tail can never escape it. Returns "" for a
+// directory request at the share's own root (only reachable for a
+// whole-collection share with no tail).
+func (h *Handler) resolveSharePath(w http.ResponseWriter, r *http.Request, sh *store.Share) (string, bool) {
+	tail := r.PathValue("path")
+	if tail == "" {
+		return sh.TargetPath, true
+	}
+	if sh.TargetKind == "file" {
+		// A file-target share has nothing "under" it to address.
+		http.NotFound(w, r)
+		return "", false
+	}
+	cleaned, err := paths.Clean(tail)
+	if err != nil {
+		http.NotFound(w, r)
+		return "", false
+	}
+	if sh.TargetPath == "" {
+		return cleaned, true
+	}
+	return sh.TargetPath + "/" + cleaned, true
+}
+
+// serveShareFile resolves effective metadata through the normal collection→
+// ancestor→file chain, then layers the share's own metadata on top at the
+// highest precedence (design/05 §1 step 3). It also bypasses the
+// ancestor/own-private non-disclosure guard: a share is itself the access
+// grant (design/14 §1/§5 — capability sharing needs no additional auth), so an
+// object that would otherwise resolve "private" is served as if "unlisted"
+// instead, unless the share's own metadata configures additional auth
+// requirements (still enforced normally via eff.RequiresAuth()).
+func (h *Handler) serveShareFile(w http.ResponseWriter, r *http.Request, sh *store.Share, coll *store.Collection, node *store.Node, p string) {
+	layers, chainExpiry, _ := h.resolveChain(r.Context(), coll, p)
+	layers = append(layers, docOf(sh.Metadata))
+	expiry := meta.Earliest(chainExpiry, sh.ExpiresAt)
+	expired := expiry != nil && !time.Now().Before(*expiry)
+
+	eff := meta.Resolve(h.defaults(), layers...)
+	if eff.Visibility == meta.VisibilityPrivate {
+		eff.Visibility = meta.VisibilityUnlisted
+	}
+
+	decision := policy.Decide(policy.Input{
+		Effective: eff, Expired: expired, AncestorPrivate: false,
+		IsDirectory: false, Request: r, OIDC: h.oidc,
+	})
+	h.dispatch(w, r, coll, node, eff, decision)
+}
+
 func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, p string) {
 	layers, expiry, ancestorPrivate := h.resolveChain(r.Context(), coll, p)
 	eff := meta.Resolve(h.defaults(), layers...)
@@ -94,23 +211,24 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, coll *store.
 		Effective: eff, Expired: expired, AncestorPrivate: ancestorPrivate,
 		IsDirectory: false, Request: r, OIDC: h.oidc,
 	})
+	h.dispatch(w, r, coll, node, eff, decision)
+}
 
+// dispatch acts on a policy decision: 404/401/403/redirect, or stream the
+// file. Shared by the /c and /s pipelines (design/05 §1 steps 4-6).
+func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, eff *meta.Effective, decision policy.Decision) {
 	switch decision.Outcome {
 	case policy.NotFound:
 		http.NotFound(w, r)
-		return
 	case policy.Unauthorized:
 		if decision.Challenge != "" {
 			w.Header().Set("WWW-Authenticate", decision.Challenge)
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
 	case policy.Forbidden:
 		http.Error(w, "forbidden", http.StatusForbidden)
-		return
 	case policy.RedirectOIDC:
 		http.Redirect(w, r, "/auth/oidc/login?return_to="+url.QueryEscape(r.URL.Path), http.StatusFound)
-		return
 	case policy.Serve:
 		h.stream(w, r, coll, node, eff, &decision)
 	}
