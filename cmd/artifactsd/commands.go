@@ -96,14 +96,14 @@ func newMCPCmd() *cobra.Command {
 		Short:              "Run the MCP adapter",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadConfig(args, cmd.OutOrStderr())
-			if err != nil || cfg == nil {
+			m, err := config.LoadAndValidateMCP(args, os.Getenv, cmd.OutOrStderr())
+			if err != nil {
+				if errors.Is(err, flag.ErrHelp) {
+					return nil
+				}
 				return err
 			}
-			log := audit.NewAppLogger(cmd.ErrOrStderr(), cfg.Server.LogLevel)
-			// The MCP adapter is implemented in the MCP epic (artifactsd-zqw).
-			log.Warn("MCP adapter not yet implemented")
-			return nil
+			return runMCP(cmd.Context(), m, cmd.ErrOrStderr())
 		},
 	}
 }

@@ -309,6 +309,69 @@ func TestE2E_Tree(t *testing.T) {
 	}
 }
 
+func TestE2E_Crawl(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "site"); code != exitOK {
+		t.Fatalf("create collection: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "index.html")
+	if err := os.WriteFile(local, []byte("<h1>hi</h1>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "site/docs/index.html", local); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+
+	code, out, errOut := e.run("--output", "json", "crawl", "site")
+	if code != exitOK {
+		t.Fatalf("crawl: code=%d err=%s", code, errOut)
+	}
+	var resp apiclient.CrawlResponse
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		t.Fatalf("crawl json: %v (%s)", err, out)
+	}
+	if resp.Collection != "site" {
+		t.Errorf("collection = %q, want site", resp.Collection)
+	}
+	var sawFolder bool
+	for _, en := range resp.Entries {
+		if en.Path == "docs/" && en.Type == "folder" {
+			sawFolder = true
+		}
+	}
+	if !sawFolder {
+		t.Errorf("entries = %+v, want docs/ folder at depth 1", resp.Entries)
+	}
+
+	// --path scopes the crawl to the "docs" subtree.
+	code, out, errOut = e.run("--output", "json", "crawl", "site", "--path", "docs")
+	if code != exitOK {
+		t.Fatalf("crawl --path: code=%d err=%s", code, errOut)
+	}
+	resp = apiclient.CrawlResponse{}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		t.Fatalf("crawl json: %v (%s)", err, out)
+	}
+	var sawFile bool
+	for _, en := range resp.Entries {
+		if en.Path == "docs/index.html" && en.Type == "file" {
+			sawFile = true
+		}
+	}
+	if !sawFile {
+		t.Errorf("entries = %+v, want docs/index.html", resp.Entries)
+	}
+
+	// Text output renders the same entries without requiring --output json.
+	code, out, errOut = e.run("crawl", "site")
+	if code != exitOK {
+		t.Fatalf("crawl text: code=%d err=%s", code, errOut)
+	}
+	if !strings.Contains(out, "docs") {
+		t.Errorf("text output = %q, want it to mention docs", out)
+	}
+}
+
 func TestE2E_TokenLifecycle(t *testing.T) {
 	e := newE2E(t)
 	code, out, errOut := e.run("--output", "json", "token", "create", "ci", "--scope", "collections:read")

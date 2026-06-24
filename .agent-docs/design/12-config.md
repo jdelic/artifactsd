@@ -122,6 +122,25 @@ The SPEC §1 quickstart works as
 `artifactsd serve --listen :443 --base-url https://artifacts.example.com
 --data ./artifactsd-data` with everything else from defaults/env.
 
+### 6.1 `artifactsd mcp` settings
+
+`mcp` carries none of the storage/TLS/admin settings above — it is a thin
+HTTP-to-HTTP bridge, with its own listen address, calling the artifactsd
+management API as a client (design/11 §1):
+
+| Concern | Flag | Env | Default |
+|---------|------|-----|---------|
+| MCP HTTP listen address | `--listen` | `ARTIFACTSD_MCP_LISTEN` | `:8081` |
+| artifactsd API base URL to call | `--base-url` | `ARTIFACTSD_BASE_URL` | (required) |
+| Management API token | `--token` | `ARTIFACTSD_MCP_TOKEN` | (required) |
+| Log level | `--log-level` | `ARTIFACTSD_LOG_LEVEL` | `info` |
+
+`--base-url`/`ARTIFACTSD_BASE_URL` is shared with `serve` by name since it
+means the same thing either way — "where is the artifactsd server" — just
+consumed differently (`serve` uses it to build links about itself; `mcp` uses
+it as the apiclient target). The listen address gets its own default port so
+both can run as separate processes on one host without colliding.
+
 ## 7. Validation
 
 On startup, validate and **fail fast** with all problems listed: `base_url`
