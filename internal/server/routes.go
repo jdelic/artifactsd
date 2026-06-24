@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"strings"
 )
 
 // routes builds the route mux with the health endpoints and stubs for the route
@@ -50,8 +51,15 @@ func (s *Server) routes() http.Handler {
 	} else {
 		mux.Handle("/api/v1/", notImplemented("management API"))
 	}
-	// Admin UI lands in its epic; the OIDC-gated entry point is wired now.
-	mux.Handle(s.cfg.Admin.Path+"/", s.adminGate(notImplemented("admin UI")))
+	// Admin UI (design/09): server-rendered html/template + htmx over the same
+	// service layer the API uses. adminGate enforces OIDC/basic auth; csrfGate
+	// (design/09 §5) protects its mutating routes once a session exists.
+	if s.adminUI != nil {
+		stripped := http.StripPrefix(strings.TrimSuffix(s.cfg.Admin.Path, "/"), s.adminUI.Routes())
+		mux.Handle(s.cfg.Admin.Path+"/", s.adminGate(s.csrfGate(stripped)))
+	} else {
+		mux.Handle(s.cfg.Admin.Path+"/", s.adminGate(notImplemented("admin UI")))
+	}
 
 	mux.HandleFunc("/", s.handleRoot)
 	return mux

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jdelic/artifactsd/internal/admin"
 	"github.com/jdelic/artifactsd/internal/api"
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/auth"
@@ -55,6 +56,7 @@ type Server struct {
 	http    *http.Server
 	api     *api.Handler
 	serve   *serve.Handler
+	adminUI *admin.Handler
 	janitor *janitor.Janitor
 
 	oidcCache *auth.OIDCProviderCache
@@ -107,6 +109,14 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 			Audit:  audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
 			OIDC:   s.oidcCache,
 			Logger: opts.Logger,
+		})
+		s.adminUI = admin.New(admin.Deps{
+			Store:   opts.Store,
+			Config:  opts.Config,
+			Audit:   audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
+			Cleaner: s.janitor,
+			Session: s.session,
+			Logger:  opts.Logger,
 		})
 	}
 	handler := opts.Handler

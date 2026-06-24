@@ -3,13 +3,18 @@ package server
 import (
 	"net/http"
 	"net/url"
+
+	"github.com/jdelic/artifactsd/internal/session"
 )
 
 // csrfGate protects state-changing admin requests with a same-origin check
-// plus a synchronizer token bound to the caller's session (design/09 §5,
-// design/14 §7). It runs inside the admin mux, downstream of adminGate, so a
-// valid session is already expected; a missing/garbled token still fails
-// closed rather than relying solely on that ordering.
+// plus a synchronizer token bound to the caller's identity (design/09 §5,
+// design/14 §7). It runs inside the admin mux, downstream of adminGate, which
+// has already stashed that identity in the request context — covering the
+// basic-auth fallback too, which carries no session cookie of its own
+// (adminGate synthesizes a stable identity for it; see its comment). A
+// missing identity here still fails closed rather than relying solely on
+// that ordering.
 func (s *Server) csrfGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isMutating(r.Method) {
@@ -20,8 +25,8 @@ func (s *Server) csrfGate(next http.Handler) http.Handler {
 			http.Error(w, "cross-origin request rejected", http.StatusForbidden)
 			return
 		}
-		id, err := s.session.FromRequest(r)
-		if err != nil {
+		id := session.FromContext(r.Context())
+		if id == nil {
 			http.Error(w, "admin authentication required", http.StatusUnauthorized)
 			return
 		}

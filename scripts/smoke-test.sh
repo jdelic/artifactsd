@@ -160,6 +160,10 @@ log "curl-verify an unauthenticated management API request is rejected"
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/collections")
 [[ "$status" == "401" ]] || fail "expected 401 for unauthenticated /api/v1/collections, got $status"
 
+log "curl-verify an unauthenticated admin UI request is rejected"
+status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/admin/")
+[[ "$status" == "401" ]] || fail "expected 401 for unauthenticated /admin/, got $status"
+
 log "collection delete (cascade)"
 ctl collection delete smoke --force >/dev/null
 

@@ -1,0 +1,19 @@
+{{define "dashboard"}}
+<div class="nc-panel" data-label="Stats">
+  <div class="nc-stats-grid">
+    <div class="nc-stat"><span class="nc-stat-value">{{.Stats.Collections}}</span><span class="nc-stat-label">Collections</span></div>
+    <div class="nc-stat"><span class="nc-stat-value">{{.Stats.Files}}</span><span class="nc-stat-label">Files</span></div>
+    <div class="nc-stat"><span class="nc-stat-value">{{.Stats.Folders}}</span><span class="nc-stat-label">Folders</span></div>
+    <div class="nc-stat"><span class="nc-stat-value">{{.Stats.Shares}}</span><span class="nc-stat-label">Shares</span></div>
+    <div class="nc-stat"><span class="nc-stat-value">{{.Stats.ActiveTokens}}</span><span class="nc-stat-label">Active tokens</span></div>
+    <div class="nc-stat"><span class="nc-stat-value">{{.Stats.Blobs}}</span><span class="nc-stat-label">Blobs</span></div>
+    <div class="nc-stat nc-stat-wide"><span class="nc-stat-value">{{.Stats.StorageReadable}}</span><span class="nc-stat-label">Storage used</span></div>
+  </div>
+</div>
+<div class="nc-panel" data-label="Maintenance">
+  <button class="nc-button" type="button"
+          hx-post="{{.AdminPath}}/maintenance/cleanup"
+          hx-target="#cleanup-result" hx-swap="innerHTML">&lsaquo;F9&rsaquo; Run cleanup</button>
+  <div id="cleanup-result" class="nc-cleanup-result"></div>
+</div>
+{{end}}

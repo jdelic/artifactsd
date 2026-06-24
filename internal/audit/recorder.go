@@ -21,6 +21,7 @@ const (
 	ActionTokenCreate      = "token.create"
 	ActionTokenRevoke      = "token.revoke"
 	ActionExpiryDelete     = "expiry.delete"
+	ActionMaintenanceRun   = "maintenance.cleanup"
 )
 
 // ActorJanitor is the actor recorded for janitor-driven deletions.

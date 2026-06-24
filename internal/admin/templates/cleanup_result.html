@@ -1,0 +1,7 @@
+{{define "cleanup_result"}}{{if .Error}}<p class="nc-error">cleanup failed: {{.Error}}</p>{{else}}<ul class="nc-cleanup-summary">
+  <li>nodes deleted: {{.Result.NodesDeleted}}</li>
+  <li>collections deleted: {{.Result.CollectionsDeleted}}</li>
+  <li>shares deleted: {{.Result.SharesDeleted}}</li>
+  <li>upload sessions expired: {{.Result.UploadSessionsExpired}}</li>
+  <li>blobs deleted: {{.Result.BlobsDeleted}}</li>
+</ul>{{if .Result.Errors}}<p class="nc-error">errors: {{range .Result.Errors}}{{.}}; {{end}}</p>{{end}}{{end}}{{end}}
