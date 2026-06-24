@@ -72,7 +72,7 @@ export ARTIFACTSD_TOKEN="$BOOTSTRAP_TOKEN"
 ctl() { "$ARTIFACTCTL" "$@"; }
 
 log "collection create"
-ctl collection create smoke >/dev/null
+ctl collection create smoke --list >/dev/null
 
 log "collection list shows it"
 ctl collection list | grep -q '^smoke[[:space:]]' || fail "collection list missing 'smoke'"
@@ -129,6 +129,11 @@ curl -fsS -o "$WORKDIR/hello.curl.txt" "$BASE_URL/c/smoke/hello.txt" || fail "cu
 expected_sha=$(sha256sum "$WORKDIR/hello.txt" | awk '{print $1}')
 actual_sha=$(sha256sum "$WORKDIR/hello.curl.txt" | awk '{print $1}')
 [[ "$expected_sha" == "$actual_sha" ]] || fail "SHA256 mismatch: expected $expected_sha, got $actual_sha"
+
+log "curl-verify directory listing over /c (JSON)"
+listing=$(curl -fsS "$BASE_URL/c/smoke/?format=json") || fail "curl GET /c/smoke/?format=json failed"
+echo "$listing" | jq -e '.entries[] | select(.name == "hello.txt")' >/dev/null \
+  || fail "directory listing missing hello.txt entry: $listing"
 
 log "curl-verify an unauthenticated management API request is rejected"
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/collections")

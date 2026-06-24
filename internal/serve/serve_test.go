@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,7 +80,7 @@ func (h *harness) file(t *testing.T, c *store.Collection, p, content, metaJSON, 
 	refStr := string(ref)
 	ct := contentType
 	n := &store.Node{
-		CollectionID: c.ID, Path: p, Name: p, Kind: store.KindFile,
+		CollectionID: c.ID, ParentID: h.ensureParents(t, c, p), Path: p, Name: path.Base(p), Kind: store.KindFile,
 		BlobID: &refStr, Size: &size, Checksum: &sum, Metadata: []byte(metaJSON),
 	}
 	if ct != "" {
@@ -90,6 +92,44 @@ func (h *harness) file(t *testing.T, c *store.Collection, p, content, metaJSON, 
 	if err := h.st.RecomputeNodeDenormalized(context.Background(), n.ID); err != nil {
 		t.Fatalf("recompute node: %v", err)
 	}
+}
+
+// ensureParents materializes folder nodes for p's ancestors (mirroring the
+// real upload pipeline's design/07 §4 invariant: parent folder rows always
+// exist), returning the immediate parent's id.
+func (h *harness) ensureParents(t *testing.T, c *store.Collection, p string) *int64 {
+	t.Helper()
+	segs := strings.Split(p, "/")
+	if len(segs) == 1 {
+		return nil
+	}
+	var parentID *int64
+	prefix := ""
+	for _, seg := range segs[:len(segs)-1] {
+		if prefix == "" {
+			prefix = seg
+		} else {
+			prefix += "/" + seg
+		}
+		if existing, err := h.st.GetNode(context.Background(), c.ID, prefix); err == nil {
+			id := existing.ID
+			parentID = &id
+			continue
+		}
+		folder := &store.Node{
+			CollectionID: c.ID, ParentID: parentID, Path: prefix, Name: path.Base(prefix),
+			Kind: store.KindFolder, Metadata: []byte(`{}`),
+		}
+		if err := h.st.UpsertNode(context.Background(), folder); err != nil {
+			t.Fatalf("UpsertNode folder: %v", err)
+		}
+		if err := h.st.RecomputeNodeDenormalized(context.Background(), folder.ID); err != nil {
+			t.Fatalf("recompute folder: %v", err)
+		}
+		id := folder.ID
+		parentID = &id
+	}
+	return parentID
 }
 
 func (h *harness) share(t *testing.T, c *store.Collection, shareID, targetPath, targetKind, metaJSON string) *store.Share {
@@ -355,5 +395,117 @@ func TestServeShare_UnknownID(t *testing.T) {
 	h := newHarness(t)
 	if rec := h.get("/s/shr_doesnotexist/", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown share = %d, want 404", rec.Code)
+	}
+}
+
+func TestServeDirectory_ListingJSON(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
+	h.file(t, c, "a.txt", "a", `{}`, "text/plain")
+	h.file(t, c, "b.txt", "b", `{}`, "text/plain")
+
+	rec := h.get("/c/demo/?format=json", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("listing = %d (%s)", rec.Code, rec.Body)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("content-type = %q, want application/json", ct)
+	}
+	var view struct {
+		Entries []struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("unmarshal: %v (%s)", err, rec.Body)
+	}
+	if len(view.Entries) != 2 {
+		t.Fatalf("entries = %+v, want 2", view.Entries)
+	}
+}
+
+func TestServeDirectory_ListingHTML(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
+	h.file(t, c, "a.txt", "a", `{}`, "text/plain")
+
+	rec := h.get("/c/demo/", map[string]string{"Accept": "text/html"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("listing = %d (%s)", rec.Code, rec.Body)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "a.txt") {
+		t.Errorf("listing body missing a.txt: %s", rec.Body)
+	}
+}
+
+func TestServeDirectory_HidesPrivateAndUnlisted(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
+	h.file(t, c, "public.txt", "x", `{}`, "text/plain")
+	h.file(t, c, "secret.txt", "x", `{"access":{"visibility":"private"}}`, "text/plain")
+	h.file(t, c, "hidden.txt", "x", `{"access":{"visibility":"unlisted"}}`, "text/plain")
+
+	rec := h.get("/c/demo/?format=json", nil)
+	if !strings.Contains(rec.Body.String(), "public.txt") {
+		t.Errorf("listing missing public.txt: %s", rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "secret.txt") || strings.Contains(rec.Body.String(), "hidden.txt") {
+		t.Errorf("listing leaked a private/unlisted child: %s", rec.Body)
+	}
+
+	// Unlisted stays directly fetchable even though hidden from the listing.
+	if rec := h.get("/c/demo/hidden.txt", nil); rec.Code != http.StatusOK {
+		t.Errorf("unlisted direct fetch = %d, want 200", rec.Code)
+	}
+}
+
+func TestServeDirectory_IndexFallbackWhenListingOff(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public"}}`) // directory_listing defaults false
+	h.file(t, c, "sub/index.html", "<h1>sub index</h1>", `{}`, "text/html")
+
+	rec := h.get("/c/demo/sub/", nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != "<h1>sub index</h1>" {
+		t.Fatalf("index fallback = %d %q", rec.Code, rec.Body)
+	}
+
+	// No index.html at the root → 404, not a listing.
+	if rec := h.get("/c/demo/", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("root with no index = %d, want 404", rec.Code)
+	}
+}
+
+func TestServeDirectory_FolderTargetWithoutTrailingSlash(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
+	h.file(t, c, "assets/logo.png", "img", `{}`, "image/png")
+
+	rec := h.get("/c/demo/assets?format=json", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "logo.png") {
+		t.Errorf("folder target (no slash) = %d %q", rec.Code, rec.Body)
+	}
+}
+
+func TestServeDirectory_PrivateCollectionRootStays404(t *testing.T) {
+	h := newHarness(t)
+	h.collection(t, "secret", `{"access":{"visibility":"private","directory_listing":true}}`)
+	if rec := h.get("/c/secret/", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("private root = %d, want 404 (non-disclosure, not an index fallback)", rec.Code)
+	}
+}
+
+func TestServeShare_DirectoryListing(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "run-8f31c2", `{"access":{"visibility":"private"}}`)
+	h.file(t, c, "outputs/result.json", `{"ok":true}`, `{}`, "application/json")
+	h.share(t, c, "shr_dir", "outputs", "folder", `{"access":{"directory_listing":true}}`)
+
+	rec := h.get("/s/shr_dir/?format=json", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "result.json") {
+		t.Errorf("share directory listing = %d %q", rec.Code, rec.Body)
 	}
 }

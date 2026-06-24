@@ -63,8 +63,11 @@ func (h *Handler) ServeCollection(w http.ResponseWriter, r *http.Request) {
 
 	rawPath := r.PathValue("path")
 	if rawPath == "" || strings.HasSuffix(r.URL.Path, "/") {
-		// Directory requests (listing/index) land in artifactsd-c4f.
-		http.NotFound(w, r)
+		dirPath, dirNode, ok := h.resolveDirNode(w, r, coll, rawPath)
+		if !ok {
+			return
+		}
+		h.serveDirectory(w, r, coll, dirPath, dirNode, nil)
 		return
 	}
 	p, err := paths.Clean(rawPath)
@@ -74,12 +77,16 @@ func (h *Handler) ServeCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	node, err := h.store.GetNode(r.Context(), coll.ID, p)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && node.Kind != store.KindFile) {
-		http.NotFound(w, r) // existence non-disclosure
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
 		return
 	}
 	if err != nil {
 		h.serverError(w, "lookup node", err)
+		return
+	}
+	if node.Kind != store.KindFile {
+		h.serveDirectory(w, r, coll, p, node, nil)
 		return
 	}
 	h.serveFile(w, r, coll, node, p)
@@ -101,19 +108,23 @@ func (h *Handler) ServeShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p == "" {
-		// Directory request at the share's own root: listing/index lands in
-		// artifactsd-c4f, same as the bare /c/{collection}/ case.
-		http.NotFound(w, r)
+		// Directory request at the share's own root (a whole-collection share
+		// with no tail).
+		h.serveDirectory(w, r, coll, "", nil, sh)
 		return
 	}
 
 	node, err := h.store.GetNode(r.Context(), coll.ID, p)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && node.Kind != store.KindFile) {
-		http.NotFound(w, r) // existence non-disclosure; folders land in c4f
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r) // existence non-disclosure
 		return
 	}
 	if err != nil {
 		h.serverError(w, "lookup node", err)
+		return
+	}
+	if node.Kind != store.KindFile {
+		h.serveDirectory(w, r, coll, p, node, sh)
 		return
 	}
 	h.serveShareFile(w, r, sh, coll, node, p)
