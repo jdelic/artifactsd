@@ -23,7 +23,7 @@ func runMCP(parent context.Context, m *config.MCP, stderr io.Writer) error {
 	log := audit.NewAppLogger(stderr, m.LogLevel)
 
 	client := apiclient.New(apiclient.Config{BaseURL: m.BaseURL, Token: m.Token})
-	srv := mcp.New(mcp.Config{Client: client})
+	srv := mcp.New(mcp.Config{Client: client, BaseURL: m.BaseURL})
 
 	httpSrv := &http.Server{Addr: m.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 

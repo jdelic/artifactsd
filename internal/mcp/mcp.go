@@ -1,8 +1,8 @@
 // Package mcp implements the MCP adapter exposing artifactsd tools over
 // Streamable HTTP — the single committed transport (design/11 §1, decisions
-// E4/N1). This package owns the SDK wiring, the apiclient dependency, and
-// error mapping; the ten tools (SPEC §16) are registered onto Server.MCP via
-// the SDK's AddTool by the tools epic (artifactsd-0gt).
+// E4/N1). The ten tools (SPEC §16) call the management API through
+// pkg/apiclient, the same client the CLI uses; MCP is an adapter, not the
+// canonical storage layer.
 package mcp
 
 import (
@@ -20,28 +20,33 @@ type Config struct {
 	// tool handlers call into (design/11 §1). Tools never talk to artifactsd
 	// auth directly; they go through this client, same as the CLI.
 	Client *apiclient.Client
+	// BaseURL is the artifactsd public base URL, used to compose /c/... and
+	// /s/... URLs locally (e.g. artifact_get_public_url) without a round trip.
+	BaseURL string
 }
 
-// Server wraps the MCP SDK server and the apiclient it hands to tool
-// handlers registered on MCP.
+// Server wraps the MCP SDK server and the apiclient its tool handlers call.
 type Server struct {
-	// MCP is the underlying SDK server. Tool handlers are added with
-	// gosdk.AddTool(s.MCP, ...) (artifactsd-0gt).
+	// MCP is the underlying SDK server.
 	MCP *gosdk.Server
 	// Client is the apiclient tool handlers use to call the management API.
 	Client *apiclient.Client
+	// BaseURL is the artifactsd public base URL (see Config.BaseURL).
+	BaseURL string
 }
 
-// New builds the MCP server with no tools registered. Tools are added by
-// callers (artifactsd-0gt) via gosdk.AddTool(s.MCP, ...).
+// New builds the MCP server with the ten SPEC §16 tools registered.
 func New(cfg Config) *Server {
-	return &Server{
+	s := &Server{
 		MCP: gosdk.NewServer(&gosdk.Implementation{
 			Name:    "artifactsd",
 			Version: buildinfo.Version,
 		}, nil),
-		Client: cfg.Client,
+		Client:  cfg.Client,
+		BaseURL: cfg.BaseURL,
 	}
+	registerTools(s)
+	return s
 }
 
 // Handler returns the Streamable HTTP handler serving this MCP server
