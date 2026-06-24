@@ -39,6 +39,15 @@ A `Makefile`/`Taskfile` target `make check` runs the full set; CI runs the same.
 - **CLI tests**: command parsing + golden output; against an in-process test
   server.
 - **MCP tests**: tool schema + mapping to API via a fake client.
+- **Spawned-process smoke test** (`make smoke` / `scripts/smoke-test.sh`):
+  builds the real `artifactsd`/`artifactctl` binaries, spawns `artifactsd
+  serve` as a separate OS process over a real TCP listener (with
+  `ARTIFACTSD_BOOTSTRAP_TOKEN`, [12 §2.1](12-config.md)), waits for
+  `/healthz`, then drives it through `artifactctl` (collection, put/get, meta,
+  tree, share, token, maintenance) plus `curl` for the couple of things no CLI
+  command exposes (raw HTTP status codes, and a SHA256 check of a file served
+  over `/c`). Distinct from the in-process `testserver` e2e tests above, which
+  never leave the test binary's own process.
 
 Use an injectable `clock` interface (no real sleeps) for expiry/throttle/rate
 tests. Use `t.TempDir()` for data dirs.
