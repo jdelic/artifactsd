@@ -81,6 +81,7 @@ func newRootCmd(a *app) *cobra.Command {
 		a.newMetaCmd(),
 		a.newShareCmd(),
 		a.newTreeCmd(),
+		a.newCrawlCmd(),
 		a.newTokenCmd(),
 		a.newMaintenanceCmd(),
 		newVersionCmd(),
