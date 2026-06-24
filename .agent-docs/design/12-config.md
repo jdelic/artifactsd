@@ -63,6 +63,15 @@ hash, so restarting with the same value does not create duplicate rows. Treat
 it like any other secret (a deployment-time env var, not a default); once a
 "real" admin token exists, operators can drop it from the environment.
 
+Unlike every other token, the bootstrap value carries **no `tok_` prefix
+requirement** — it's an operator-chosen secret, not a generated one. The auth
+middleware ([06 §1.1](06-auth-security.md)) normally only recognizes Bearer
+tokens prefixed `tok_`, so `Authenticator.WithBootstrapToken` special-cases an
+exact match against the configured bootstrap value and normalizes it to
+`tok_`+token before the usual hash lookup, matching how it was seeded
+(`cmd/artifactsd/bootstrap.go`). Present it as `Bearer <ARTIFACTSD_BOOTSTRAP_TOKEN value>`,
+with no prefix added by the operator.
+
 ## 3. Default object policy (server defaults layer, [03 §2](03-metadata-policy.md))
 
 These set the base layer of metadata resolution. Per-object metadata still

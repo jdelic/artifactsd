@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"strings"
@@ -47,8 +48,9 @@ type Principal struct {
 
 // Authenticator authenticates management-API requests by their bearer token.
 type Authenticator struct {
-	store TokenStore
-	now   func() time.Time
+	store          TokenStore
+	now            func() time.Time
+	bootstrapToken string
 }
 
 // NewAuthenticator builds an Authenticator over a token store.
@@ -62,12 +64,28 @@ func (a *Authenticator) WithClock(now func() time.Time) *Authenticator {
 	return a
 }
 
+// WithBootstrapToken registers the operator-chosen bootstrap secret
+// (ARTIFACTSD_BOOTSTRAP_TOKEN, design/12 §2.1). Unlike every other token, it
+// carries no tok_ prefix, so Authenticate recognizes it by exact match and
+// normalizes it to tok_+token before the usual hash lookup — matching how
+// cmd/artifactsd/bootstrap.go seeded it into the store.
+func (a *Authenticator) WithBootstrapToken(token string) *Authenticator {
+	a.bootstrapToken = token
+	return a
+}
+
 // Authenticate resolves the API token on the request into a Principal. It
 // returns ErrNoCredentials when no `Bearer tok_...` is present, or a specific
 // error for unknown/expired/revoked tokens.
 func (a *Authenticator) Authenticate(ctx context.Context, r *http.Request) (*Principal, error) {
 	scheme, token, ok := parseAuthHeader(r)
-	if !ok || !strings.EqualFold(scheme, "Bearer") || !strings.HasPrefix(token, TokenPrefixValue) {
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return nil, ErrNoCredentials
+	}
+	if a.bootstrapToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(a.bootstrapToken)) == 1 {
+		token = TokenPrefixValue + token
+	}
+	if !strings.HasPrefix(token, TokenPrefixValue) {
 		return nil, ErrNoCredentials
 	}
 

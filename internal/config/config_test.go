@@ -169,6 +169,14 @@ func TestValidate_BasicFallbackNeedsUserAndSecret(t *testing.T) {
 	}
 }
 
+func TestValidate_BootstrapTokenAnyValueAllowed(t *testing.T) {
+	c := validBase(t)
+	c.Bootstrap.Token = "ci-secret-without-prefix"
+	if err := c.Validate(); err != nil {
+		t.Errorf("Validate with an unprefixed bootstrap token: %v", err)
+	}
+}
+
 func TestValidate_InvalidVisibility(t *testing.T) {
 	c := validBase(t)
 	c.Policy.Visibility = "translucent"
