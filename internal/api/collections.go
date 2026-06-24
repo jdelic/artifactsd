@@ -153,6 +153,24 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	force := r.URL.Query().Get("force") == "true"
+	if !force {
+		nodes, err := h.store.ListCollectionNodes(r.Context(), c.ID)
+		if err != nil {
+			h.internalServerError(w, "list collection nodes", err)
+			return
+		}
+		shares, err := h.store.ListSharesByCollection(r.Context(), c.ID)
+		if err != nil {
+			h.internalServerError(w, "list collection shares", err)
+			return
+		}
+		if len(nodes) > 0 || len(shares) > 0 {
+			writeError(w, http.StatusConflict, CodeConflict,
+				"collection is not empty; pass force=true to delete it and its contents")
+			return
+		}
+	}
 	if err := h.store.DeleteCollection(r.Context(), c.ID); err != nil {
 		h.internalServerError(w, "delete collection", err)
 		return

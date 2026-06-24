@@ -158,6 +158,32 @@ func TestCollections_BadName(t *testing.T) {
 	}
 }
 
+// TestCollections_DeleteNonEmptyRequiresForce covers artifactsd-dfk: deleting a
+// non-empty collection without force must be rejected, and force=true must
+// still cascade-delete it.
+func TestCollections_DeleteNonEmptyRequiresForce(t *testing.T) {
+	h := newHarness(t)
+	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
+	if rec := h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/a.txt", []byte("x"), nil); rec.Code != http.StatusCreated {
+		t.Fatalf("put: %d (%s)", rec.Code, rec.Body)
+	}
+
+	if rec := h.do(t, h.token, http.MethodDelete, "/api/v1/collections/demo", nil, nil); rec.Code != http.StatusConflict {
+		t.Errorf("delete non-empty without force = %d, want 409 (%s)", rec.Code, rec.Body)
+	}
+	// Still present.
+	if rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo", nil, nil); rec.Code != http.StatusOK {
+		t.Errorf("get after rejected delete = %d, want 200", rec.Code)
+	}
+
+	if rec := h.do(t, h.token, http.MethodDelete, "/api/v1/collections/demo?force=true", nil, nil); rec.Code != http.StatusNoContent {
+		t.Errorf("delete with force = %d, want 204 (%s)", rec.Code, rec.Body)
+	}
+	if rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo", nil, nil); rec.Code != http.StatusNotFound {
+		t.Errorf("get after forced delete = %d, want 404", rec.Code)
+	}
+}
+
 func TestAuth_RequiredAndScoped(t *testing.T) {
 	h := newHarness(t)
 	// No token → 401.
