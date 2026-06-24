@@ -34,12 +34,13 @@ const (
 // Config is the fully-resolved server configuration. It is immutable after
 // Load+Validate succeed.
 type Config struct {
-	Server Server
-	TLS    TLS
-	Admin  Admin
-	OIDC   OIDC
-	Policy DefaultPolicy
-	Limits Limits
+	Server    Server
+	TLS       TLS
+	Admin     Admin
+	OIDC      OIDC
+	Policy    DefaultPolicy
+	Limits    Limits
+	Bootstrap Bootstrap
 }
 
 // Server holds core HTTP/server settings.
@@ -85,6 +86,17 @@ type OIDC struct {
 // admin login via OIDC.
 func (o OIDC) Enabled() bool {
 	return o.Issuer != "" || o.ClientID != "" || o.ClientSecret != "" || o.RedirectURL != ""
+}
+
+// Bootstrap holds the one-time admin token seeded at startup so a fresh
+// deployment has a way into the management API without direct DB access
+// (design/12 §2; there is otherwise no path to mint the first API token).
+type Bootstrap struct {
+	// Token is a cleartext secret chosen by the operator. If set, runServe
+	// seeds it as an admin-scoped API token on every boot, but only inserts a
+	// row the first time (idempotent on its hash) — restarting with the same
+	// value is a no-op, not a duplicate token.
+	Token string
 }
 
 // DefaultPolicy is the server-defaults layer of metadata resolution

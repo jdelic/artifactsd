@@ -203,3 +203,21 @@ func TestAdminEnabled(t *testing.T) {
 		t.Error("AdminEnabled = false with OIDC issuer set")
 	}
 }
+
+func TestBootstrapToken(t *testing.T) {
+	c, err := Load(nil, envMap(nil), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Bootstrap.Token != "" {
+		t.Errorf("Bootstrap.Token = %q, want empty by default", c.Bootstrap.Token)
+	}
+
+	c, err = Load(nil, envMap(map[string]string{"ARTIFACTSD_BOOTSTRAP_TOKEN": "tok_ci-secret"}), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Bootstrap.Token != "tok_ci-secret" {
+		t.Errorf("Bootstrap.Token = %q, want tok_ci-secret", c.Bootstrap.Token)
+	}
+}
