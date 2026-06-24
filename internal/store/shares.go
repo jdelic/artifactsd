@@ -42,9 +42,15 @@ func scanShare(row interface{ Scan(...any) error }) (*Share, error) {
 	return &sh, nil
 }
 
-// CreateShare inserts a new share. The caller supplies the unguessable ShareID.
+// CreateShare inserts a new share. The caller supplies the unguessable ShareID;
+// the denormalized expires_at is derived from the share's metadata.
 func (s *Store) CreateShare(ctx context.Context, sh *Share) error {
 	sh.CreatedAt = s.now()
+	_, exp, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt)
+	if err != nil {
+		return err
+	}
+	sh.ExpiresAt = exp
 	res, err := s.db.sql.ExecContext(
 		ctx,
 		`INSERT INTO shares (share_id, collection_id, target_path, target_kind, metadata, created_at, expires_at)
@@ -88,6 +94,24 @@ func (s *Store) ListSharesByCollection(ctx context.Context, collectionID int64) 
 		out = append(out, sh)
 	}
 	return out, rows.Err()
+}
+
+// UpdateShare replaces a share's metadata and re-derives its denormalized
+// expires_at from the new metadata (PATCH). The share's original created_at is
+// used as the basis for any creation-relative expiry.
+func (s *Store) UpdateShare(ctx context.Context, sh *Share) error {
+	_, exp, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt)
+	if err != nil {
+		return err
+	}
+	sh.ExpiresAt = exp
+	res, err := s.db.sql.ExecContext(ctx,
+		`UPDATE shares SET metadata = ?, expires_at = ? WHERE share_id = ?`,
+		defaultJSON(sh.Metadata), fmtTimePtr(sh.ExpiresAt), sh.ShareID)
+	if err != nil {
+		return err
+	}
+	return requireOne(res)
 }
 
 // RevokeShare marks a share revoked at the given time.
