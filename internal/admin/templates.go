@@ -89,12 +89,17 @@ func (h *Handler) renderPartial(w http.ResponseWriter, name string, data any) {
 }
 
 // navSection maps a page template name to the top-nav section it belongs
-// under (the collection tree browser highlights "Collections" too).
+// under (e.g. the collection tree browser, metadata editor, and shares
+// screens all highlight "Collections" too).
 func navSection(page string) string {
-	if page == "tree" {
+	switch page {
+	case "tree", "meta", "shares":
 		return "collections"
+	case "tokens", "audit":
+		return "tools"
+	default:
+		return page
 	}
-	return page
 }
 
 // actorOf returns the audit actor string for an identity: email if present,

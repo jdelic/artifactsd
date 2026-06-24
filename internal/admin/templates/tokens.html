@@ -1,0 +1,51 @@
+{{define "tokens"}}
+<div class="nc-panel" data-label="Tools">
+  <a href="{{.AdminPath}}/tokens">Tokens</a>
+  <a href="{{.AdminPath}}/audit">Audit log</a>
+</div>
+{{template "tokens_panel" .}}
+{{end}}
+
+{{define "tokens_panel"}}
+<div id="tokens-panel">
+  <div class="nc-panel" data-label="Create token">
+    <form class="nc-form" hx-post="{{.AdminPath}}/tokens" hx-target="#tokens-panel" hx-swap="outerHTML">
+      <label>Name <input type="text" name="name" placeholder="ci-runner" required></label>
+      <span class="nc-scopes">
+        {{range .KnownScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
+      </span>
+      <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Create</button>
+    </form>
+    {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+    {{if .NewToken}}
+    <div class="nc-saved">
+      token for "{{.NewTokenFor}}" (shown once, copy it now): <code>{{.NewToken}}</code>
+    </div>
+    {{end}}
+  </div>
+  <div class="nc-panel" data-label="Tokens">
+    <table class="nc-table">
+      <tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Created</th><th>Status</th><th></th></tr>
+      {{range .Tokens}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Prefix}}</td>
+        <td>{{.Scopes}}</td>
+        <td>{{.CreatedAt}}</td>
+        <td>{{if .Revoked}}revoked{{else}}active{{end}}</td>
+        <td>
+          {{if not .Revoked}}
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/tokens/{{.ID}}/revoke"
+                hx-target="#tokens-panel" hx-swap="outerHTML" hx-confirm="Revoke token {{.Name}}?">
+            <button class="nc-button" type="submit">Revoke</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="6">No tokens yet.</td></tr>
+      {{end}}
+    </table>
+  </div>
+</div>
+{{end}}

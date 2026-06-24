@@ -18,6 +18,8 @@
         <td>{{.Visibility}}</td>
         <td>{{.CreatedAt}}</td>
         <td>
+          <a href="{{$.AdminPath}}/collections/{{.Name}}/meta">Metadata</a>
+          <a href="{{$.AdminPath}}/collections/{{.Name}}/shares">Shares</a>
           <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{.Name}}/delete"
                 hx-target="#collections-panel" hx-swap="outerHTML"
                 hx-confirm="Delete collection &quot;{{.Name}}&quot; and all its contents? This cannot be undone.">

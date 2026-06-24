@@ -1,0 +1,29 @@
+{{define "audit"}}
+<div class="nc-panel" data-label="Tools">
+  <a href="{{.AdminPath}}/tokens">Tokens</a>
+  <a href="{{.AdminPath}}/audit">Audit log</a>
+</div>
+<div class="nc-panel" data-label="Filter">
+  <form class="nc-form" method="get" action="{{.AdminPath}}/audit">
+    <label>Action <input type="text" name="action" value="{{.Action}}" placeholder="collection.create"></label>
+    <label>Since <input type="text" name="since" value="{{.Since}}" placeholder="2026-06-01"></label>
+    <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Filter</button>
+  </form>
+  {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+</div>
+<div class="nc-panel" data-label="Audit log">
+  <table class="nc-table">
+    <tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Target</th></tr>
+    {{range .Entries}}
+    <tr>
+      <td>{{.Timestamp}}</td>
+      <td>{{.Actor}}</td>
+      <td>{{.Action}}</td>
+      <td>{{.Target}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4">No matching entries.</td></tr>
+    {{end}}
+  </table>
+</div>
+{{end}}
