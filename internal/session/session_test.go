@@ -87,3 +87,43 @@ func TestFromRequest_NoCookie(t *testing.T) {
 		t.Errorf("FromRequest no cookie = %v, want ErrNoSession", err)
 	}
 }
+
+func TestCSRFToken_RoundTrip(t *testing.T) {
+	m := newManager(t)
+	id := &Identity{Subject: "u1", Expiry: time.Now().Add(time.Hour)}
+	token := m.CSRFToken(id)
+	if token == "" {
+		t.Fatal("CSRFToken returned empty string")
+	}
+	if !m.VerifyCSRFToken(id, token) {
+		t.Error("VerifyCSRFToken rejected its own token")
+	}
+}
+
+func TestCSRFToken_RejectsTamperedToken(t *testing.T) {
+	m := newManager(t)
+	id := &Identity{Subject: "u1", Expiry: time.Now().Add(time.Hour)}
+	token := m.CSRFToken(id)
+	if m.VerifyCSRFToken(id, "x"+token[1:]) {
+		t.Error("VerifyCSRFToken accepted a tampered token")
+	}
+}
+
+func TestCSRFToken_RejectsDifferentIdentity(t *testing.T) {
+	m := newManager(t)
+	id1 := &Identity{Subject: "u1", Expiry: time.Now().Add(time.Hour)}
+	id2 := &Identity{Subject: "u2", Expiry: id1.Expiry}
+	token := m.CSRFToken(id1)
+	if m.VerifyCSRFToken(id2, token) {
+		t.Error("VerifyCSRFToken accepted a token minted for a different identity")
+	}
+}
+
+func TestCSRFToken_DifferentKeysDiffer(t *testing.T) {
+	m1 := newManager(t)
+	m2 := newManager(t)
+	id := &Identity{Subject: "u1", Expiry: time.Now().Add(time.Hour)}
+	if m1.CSRFToken(id) == m2.CSRFToken(id) {
+		t.Error("CSRFToken collided across independently generated keys")
+	}
+}

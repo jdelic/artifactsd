@@ -154,3 +154,19 @@ func (m *Manager) FromRequest(r *http.Request) (*Identity, error) {
 	}
 	return m.Decode(c.Value)
 }
+
+// CSRFToken derives a synchronizer token from the authenticated session
+// rather than minting and storing a second secret: it's reproducible from the
+// already-signed identity, so no extra cookie or server-side state is needed
+// (design/09 §5, design/14 §7).
+func (m *Manager) CSRFToken(id *Identity) string {
+	h := hmac.New(sha256.New, m.key)
+	h.Write([]byte("csrf:" + id.Subject + ":" + id.Expiry.Format(time.RFC3339Nano)))
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+}
+
+// VerifyCSRFToken reports whether token matches the one derived for id.
+func (m *Manager) VerifyCSRFToken(id *Identity, token string) bool {
+	want := m.CSRFToken(id)
+	return subtle.ConstantTimeCompare([]byte(want), []byte(token)) == 1
+}
