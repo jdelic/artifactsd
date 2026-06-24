@@ -49,6 +49,29 @@ Admin access is granted only when the OIDC token carries the required group
 (or via the basic fallback). Secrets are read from env; a cleartext basic
 password is hashed at startup and never persisted.
 
+### 2.1 Bootstrap admin token
+
+| Concern | Env |
+|---------|-----|
+| Initial admin API token | `ARTIFACTSD_BOOTSTRAP_TOKEN` |
+
+The management API (`/api/v1/tokens` etc.) requires an existing admin-scoped
+token to mint any further tokens, so a fresh deployment otherwise has no way
+in. If `ARTIFACTSD_BOOTSTRAP_TOKEN` is set, `serve` seeds it as an
+admin-scoped API token on every boot — idempotently, keyed on the token's
+hash, so restarting with the same value does not create duplicate rows. Treat
+it like any other secret (a deployment-time env var, not a default); once a
+"real" admin token exists, operators can drop it from the environment.
+
+Unlike every other token, the bootstrap value carries **no `tok_` prefix
+requirement** — it's an operator-chosen secret, not a generated one. The auth
+middleware ([06 §1.1](06-auth-security.md)) normally only recognizes Bearer
+tokens prefixed `tok_`, so `Authenticator.WithBootstrapToken` special-cases an
+exact match against the configured bootstrap value and normalizes it to
+`tok_`+token before the usual hash lookup, matching how it was seeded
+(`cmd/artifactsd/bootstrap.go`). Present it as `Bearer <ARTIFACTSD_BOOTSTRAP_TOKEN value>`,
+with no prefix added by the operator.
+
 ## 3. Default object policy (server defaults layer, [03 §2](03-metadata-policy.md))
 
 These set the base layer of metadata resolution. Per-object metadata still

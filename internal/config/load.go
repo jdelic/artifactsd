@@ -106,6 +106,11 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 	}
 	c.Limits = lim
 
+	// Bootstrap admin token: env-only (design/12 §2).
+	c.Bootstrap = Bootstrap{
+		Token: getenv("ARTIFACTSD_BOOTSTRAP_TOKEN"),
+	}
+
 	return c, nil
 }
 

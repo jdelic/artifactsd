@@ -90,6 +90,35 @@ func TestAuthenticate_Errors(t *testing.T) {
 	}
 }
 
+func TestAuthenticate_BootstrapToken(t *testing.T) {
+	store := newFakeStore()
+	// Seeded the same way cmd/artifactsd/bootstrap.go does: hashed/prefixed as
+	// tok_+token even though the operator's raw secret carries no prefix.
+	store.add("tok_raw-secret-no-prefix", &TokenRecord{ID: 9, Name: "bootstrap", Scopes: NewScopeSet(ScopeAdmin)})
+	a := NewAuthenticator(store).WithClock(fixedClock).WithBootstrapToken("raw-secret-no-prefix")
+
+	p, err := a.Authenticate(context.Background(), apiReq("Bearer raw-secret-no-prefix"))
+	if err != nil {
+		t.Fatalf("Authenticate with unprefixed bootstrap token: %v", err)
+	}
+	if p.TokenID != 9 {
+		t.Errorf("principal = %+v, want TokenID 9", p)
+	}
+
+	// A token that merely starts with the bootstrap value, or differs in any
+	// other way, must not match.
+	if _, err := a.Authenticate(context.Background(), apiReq("Bearer raw-secret-no-prefix-extra")); !errors.Is(err, ErrNoCredentials) {
+		t.Errorf("Authenticate with extended token: err = %v, want ErrNoCredentials", err)
+	}
+
+	// A regular tok_-prefixed token still authenticates normally even when a
+	// bootstrap token is configured.
+	store.add("tok_normal", &TokenRecord{ID: 1, Scopes: NewScopeSet(ScopeAdmin)})
+	if _, err := a.Authenticate(context.Background(), apiReq("Bearer tok_normal")); err != nil {
+		t.Errorf("Authenticate with a normal token: %v", err)
+	}
+}
+
 func TestMiddleware_ScopeEnforcement(t *testing.T) {
 	store := newFakeStore()
 	store.add("tok_reader", &TokenRecord{ID: 1, Prefix: "tok_reader", Scopes: NewScopeSet(ScopeCollectionsRead)})

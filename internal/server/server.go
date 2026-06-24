@@ -87,7 +87,7 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 			Blob:    opts.Blob,
 			Config:  opts.Config,
 			Audit:   audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
-			Authn:   auth.NewAuthenticator(opts.Store.AuthTokenSource()),
+			Authn:   auth.NewAuthenticator(opts.Store.AuthTokenSource()).WithBootstrapToken(opts.Config.Bootstrap.Token),
 			Logger:  opts.Logger,
 			BaseURL: opts.Config.Server.BaseURL,
 		})
