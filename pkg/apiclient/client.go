@@ -127,6 +127,53 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body, out any)
 	return nil
 }
 
+// doRaw sends a request with a raw (non-JSON) body and the given headers,
+// decoding a JSON response into out (out may be nil). Used for binary uploads.
+func (c *Client) doRaw(ctx context.Context, method, path string, body io.Reader, headers map[string]string, out any) error {
+	req, err := c.newRequest(ctx, method, path, body)
+	if err != nil {
+		return err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("apiclient: %s %s: %w", method, path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 300 {
+		return decodeError(resp)
+	}
+	if out == nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("apiclient: decoding response: %w", err)
+	}
+	return nil
+}
+
+// openStream issues a GET and returns the response body for streaming. The
+// caller must Close it. Non-2xx responses become a typed *Error.
+func (c *Client) openStream(ctx context.Context, path string) (io.ReadCloser, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("apiclient: GET %s: %w", path, err)
+	}
+	if resp.StatusCode >= 300 {
+		defer func() { _ = resp.Body.Close() }()
+		return nil, decodeError(resp)
+	}
+	return resp.Body, nil
+}
+
 // newRequest builds an authenticated request against the client's base URL.
 func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
