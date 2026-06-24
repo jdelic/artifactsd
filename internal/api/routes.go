@@ -30,5 +30,12 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("PATCH /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFolder))
 	mux.Handle("DELETE /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteFolder))
 
+	// Shares (design/04 §6).
+	mux.Handle("POST /api/v1/collections/{c}/shares", h.requireScope(auth.ScopeSharesWrite, h.createShare))
+	mux.Handle("GET /api/v1/collections/{c}/shares", h.requireScope(auth.ScopeSharesRead, h.listShares))
+	mux.Handle("GET /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesRead, h.getShare))
+	mux.Handle("PATCH /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.patchShare))
+	mux.Handle("DELETE /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.deleteShare))
+
 	return mux
 }

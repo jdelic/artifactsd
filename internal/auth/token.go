@@ -13,8 +13,16 @@ import (
 // TokenPrefixValue is the literal prefix on every management API token.
 const TokenPrefixValue = "tok_"
 
+// SharePrefixValue is the literal prefix on every share id (the unguessable
+// capability in a /s/{share_id}/ URL, design/04 §6).
+const SharePrefixValue = "shr_"
+
 // tokenSecretBytes is the entropy of the random secret (256 bits, design/06 §1.1).
 const tokenSecretBytes = 32
+
+// shareSecretBytes is the entropy of a share id (128 bits is ample for an
+// unguessable URL capability while keeping the id short).
+const shareSecretBytes = 16
 
 // prefixLen is how many leading characters are stored as token_prefix for
 // display/lookup hinting (covers "tok_" + 8 secret chars).
@@ -52,6 +60,17 @@ func GenerateToken() (token, hash, prefix string, err error) {
 	}
 	token = TokenPrefixValue + secret
 	return token, HashToken(token), TokenPrefix(token), nil
+}
+
+// GenerateShareID mints a new unguessable share id (design/04 §6). Possession of
+// the id is the capability to reach the share, so it carries CSPRNG entropy and
+// is never derived from the target.
+func GenerateShareID() (string, error) {
+	secret, err := randomBase62(shareSecretBytes)
+	if err != nil {
+		return "", err
+	}
+	return SharePrefixValue + secret, nil
 }
 
 // TokenPrefix returns the leading prefixLen characters of a token for display.
