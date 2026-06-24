@@ -29,8 +29,19 @@ func (s *Server) routes() http.Handler {
 		// this response's Allow/Disallow lines instead.
 		mux.HandleFunc("GET /robots.txt", s.serve.RobotsRoot)
 		mux.HandleFunc("HEAD /robots.txt", s.serve.RobotsRoot)
+		// Root sitemap (design/05 §4, SPEC §10.4). The per-collection sitemap
+		// (/c/{collection}/sitemap.xml) is a generated endpoint too, but it is
+		// dispatched from inside ServeCollection rather than registered here: a
+		// GET on a specific path implicitly also matches HEAD, which collides
+		// with the HEAD /c/{collection}/{path...} wildcard under net/http's
+		// pattern-precedence rules. Folding it into ServeCollection both avoids
+		// that conflict and lets the generated sitemap shadow any file literally
+		// named sitemap.xml at a collection root.
+		mux.HandleFunc("GET /sitemap.xml", s.serve.SitemapRoot)
+		mux.HandleFunc("HEAD /sitemap.xml", s.serve.SitemapRoot)
 	} else {
 		mux.Handle("/robots.txt", notImplemented("public serving"))
+		mux.Handle("/sitemap.xml", notImplemented("public serving"))
 		mux.Handle("/c/", notImplemented("public serving"))
 		mux.Handle("/s/", notImplemented("public serving"))
 	}

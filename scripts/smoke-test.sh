@@ -145,6 +145,12 @@ log "curl-verify root robots.txt (deliberately no per-collection one, RFC 9309)"
 robots_root=$(curl -fsS "$BASE_URL/robots.txt") || fail "curl GET /robots.txt failed"
 echo "$robots_root" | grep -q '^Disallow: /api/$' || fail "root robots.txt missing Disallow: /api/: $robots_root"
 
+log "curl-verify sitemap.xml endpoints return a well-formed urlset"
+sitemap_root=$(curl -fsS "$BASE_URL/sitemap.xml") || fail "curl GET /sitemap.xml failed"
+echo "$sitemap_root" | grep -q '<urlset' || fail "root sitemap.xml missing <urlset>: $sitemap_root"
+curl -fsS "$BASE_URL/c/smoke/sitemap.xml" | grep -q '<urlset' \
+  || fail "per-collection sitemap.xml missing <urlset>"
+
 log "curl-verify an unauthenticated management API request is rejected"
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/collections")
 [[ "$status" == "401" ]] || fail "expected 401 for unauthenticated /api/v1/collections, got $status"

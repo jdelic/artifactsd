@@ -36,22 +36,24 @@ type Deps struct {
 
 // Handler serves public content.
 type Handler struct {
-	store       *store.Store
-	blob        blob.Store
-	cfg         *config.Config
-	audit       *audit.Recorder
-	oidc        *auth.OIDCProviderCache
-	log         *slog.Logger
-	lastAccess  *lastAccessUpdater
-	robotsCache *robotsCache
+	store        *store.Store
+	blob         blob.Store
+	cfg          *config.Config
+	audit        *audit.Recorder
+	oidc         *auth.OIDCProviderCache
+	log          *slog.Logger
+	lastAccess   *lastAccessUpdater
+	robotsCache  *robotsCache
+	sitemapCache *sitemapCache
 }
 
 // New builds a serving handler.
 func New(d Deps) *Handler {
 	return &Handler{
 		store: d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
-		lastAccess:  newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, d.Logger),
-		robotsCache: newRobotsCache(),
+		lastAccess:   newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, d.Logger),
+		robotsCache:  newRobotsCache(),
+		sitemapCache: newSitemapCache(),
 	}
 }
 
@@ -74,6 +76,14 @@ func (h *Handler) ServeCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rawPath := r.PathValue("path")
+	// The collection-root sitemap is a generated endpoint (design/05 §4),
+	// dispatched here rather than as its own route to avoid a net/http
+	// pattern-precedence collision with the /c file wildcard; it shadows any
+	// file literally named sitemap.xml at the collection root.
+	if rawPath == "sitemap.xml" {
+		h.SitemapCollection(w, r)
+		return
+	}
 	if rawPath == "" || strings.HasSuffix(r.URL.Path, "/") {
 		dirPath, dirNode, ok := h.resolveDirNode(w, r, coll, rawPath)
 		if !ok {
