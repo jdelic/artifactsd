@@ -78,6 +78,11 @@ func newRootCmd(a *app) *cobra.Command {
 		a.newGetCmd(),
 		a.newRmCmd(),
 		a.newPutTreeCmd(),
+		a.newMetaCmd(),
+		a.newShareCmd(),
+		a.newTreeCmd(),
+		a.newTokenCmd(),
+		a.newMaintenanceCmd(),
 		newVersionCmd(),
 	)
 	return root

@@ -75,6 +75,49 @@ func TestClient_GetFile_NotFound(t *testing.T) {
 	}
 }
 
+func TestClient_GetFileMeta(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/collections/demo/files/a.txt/meta" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"path":      "a.txt",
+			"own":       map[string]any{"access": map[string]any{"visibility": "public"}},
+			"effective": map[string]any{"visibility": "public", "crawlable": true},
+		})
+	})
+	meta, err := c.GetFileMeta(context.Background(), "demo", "a.txt")
+	if err != nil {
+		t.Fatalf("get meta: %v", err)
+	}
+	if meta.Path != "a.txt" || len(meta.Own) == 0 || len(meta.Effective) == 0 {
+		t.Errorf("meta = %+v", meta)
+	}
+}
+
+func TestClient_PatchFileMeta(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/collections/demo/files/a.txt/meta" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), "unlisted") {
+			t.Errorf("body = %s", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"path": "a.txt",
+			"own":  map[string]any{"access": map[string]any{"visibility": "unlisted"}},
+		})
+	})
+	meta, err := c.PatchFileMeta(context.Background(), "demo", "a.txt", json.RawMessage(`{"access":{"visibility":"unlisted"}}`))
+	if err != nil {
+		t.Fatalf("patch meta: %v", err)
+	}
+	if meta.Path != "a.txt" || len(meta.Effective) != 0 {
+		t.Errorf("meta = %+v", meta)
+	}
+}
+
 func TestEscapeSegments(t *testing.T) {
 	if got := escapeSegments("a/b c/d"); got != "a/b%20c/d" {
 		t.Errorf("escapeSegments = %q", got)
