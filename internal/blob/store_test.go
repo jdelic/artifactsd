@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newStore(t *testing.T) *FSStore {
@@ -172,5 +173,68 @@ func TestOpen_MissingRef(t *testing.T) {
 	s := newStore(t)
 	if _, err := s.Open(context.Background(), "sha256:bad"); err == nil {
 		t.Error("expected error opening invalid ref")
+	}
+}
+
+func TestListRefs(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	if refs, err := s.ListRefs(ctx); err != nil || len(refs) != 0 {
+		t.Fatalf("ListRefs on empty store = %v, %v", refs, err)
+	}
+
+	ref1, _, _, err := s.Put(ctx, strings.NewReader("a"))
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	ref2, _, _, err := s.Put(ctx, strings.NewReader("b"))
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	refs, err := s.ListRefs(ctx)
+	if err != nil {
+		t.Fatalf("ListRefs: %v", err)
+	}
+	got := map[Ref]bool{}
+	for _, r := range refs {
+		got[r] = true
+	}
+	if !got[ref1] || !got[ref2] || len(refs) != 2 {
+		t.Errorf("ListRefs = %v, want exactly [%s %s]", refs, ref1, ref2)
+	}
+}
+
+func TestSweepTemp(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	old := filepath.Join(s.tmpDir, "blob-old")
+	if err := os.WriteFile(old, []byte("orphan"), 0o600); err != nil {
+		t.Fatalf("write temp: %v", err)
+	}
+	oldTime := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(old, oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	fresh := filepath.Join(s.tmpDir, "blob-fresh")
+	if err := os.WriteFile(fresh, []byte("in-progress"), 0o600); err != nil {
+		t.Fatalf("write temp: %v", err)
+	}
+
+	removed, err := s.SweepTemp(ctx, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("SweepTemp: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Error("old temp file was not removed")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Error("fresh temp file was removed")
 	}
 }

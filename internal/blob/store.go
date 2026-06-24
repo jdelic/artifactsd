@@ -13,9 +13,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Algo is the only content-addressing algorithm supported in v1.
@@ -58,6 +60,21 @@ type Store interface {
 	Delete(ctx context.Context, ref Ref) error
 	// Exists reports whether the blob is present.
 	Exists(ctx context.Context, ref Ref) (bool, error)
+}
+
+// Lister is an optional capability for blob stores that can enumerate every
+// ref they hold, used by the janitor's periodic orphan-blob reconciliation
+// (design/08 §5). The FS backend implements it; a future non-FS backend (e.g.
+// S3) may rely on its own lifecycle policy instead and need not.
+type Lister interface {
+	ListRefs(ctx context.Context) ([]Ref, error)
+}
+
+// TempSweeper is an optional capability for blob stores with a filesystem
+// staging area that can accumulate orphaned temp files after a crash
+// mid-upload (design/07 §6, design/08 §5).
+type TempSweeper interface {
+	SweepTemp(ctx context.Context, olderThan time.Duration) (removed int, err error)
 }
 
 // FSStore is a filesystem-backed Store rooted at a data directory.
@@ -181,4 +198,65 @@ func (s *FSStore) Delete(_ context.Context, ref Ref) error {
 		return fmt.Errorf("blob: delete: %w", err)
 	}
 	return nil
+}
+
+var _ Lister = (*FSStore)(nil)
+
+// ListRefs walks the sharded blob tree and returns every stored ref, for the
+// janitor's periodic full orphan-blob scan (design/08 §5). It does not require
+// the caller to already know which refs exist (unlike the per-deletion GC in
+// design/08 §4, which only re-checks refs it just unreferenced).
+func (s *FSStore) ListRefs(ctx context.Context) ([]Ref, error) {
+	root := filepath.Join(s.blobsDir, Algo)
+	var out []Ref
+	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		out = append(out, RefFor(d.Name()))
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("blob: list refs: %w", err)
+	}
+	return out, nil
+}
+
+var _ TempSweeper = (*FSStore)(nil)
+
+// SweepTemp removes staged-write temp files older than olderThan — orphans
+// left behind by a crash mid-upload, since Put's normal path always cleans up
+// its own temp file (design/07 §6, design/08 §5).
+func (s *FSStore) SweepTemp(_ context.Context, olderThan time.Duration) (int, error) {
+	entries, err := os.ReadDir(s.tmpDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("blob: sweep temp: %w", err)
+	}
+	cutoff := time.Now().Add(-olderThan)
+	removed := 0
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.tmpDir, e.Name())); err == nil {
+			removed++
+		}
+	}
+	return removed, nil
 }
