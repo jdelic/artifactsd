@@ -14,6 +14,8 @@ const (
 	ActionCollectionDelete = "collection.delete"
 	ActionFilePut          = "file.put"
 	ActionFileDelete       = "file.delete"
+	ActionUploadBegin      = "upload.begin"
+	ActionUploadComplete   = "upload.complete"
 	ActionShareCreate      = "share.create"
 	ActionShareRevoke      = "share.revoke"
 	ActionTokenCreate      = "token.create"
@@ -23,6 +25,11 @@ const (
 
 // ActorJanitor is the actor recorded for janitor-driven deletions.
 const ActorJanitor = "janitor"
+
+// ActorUpload is the actor recorded when a large-upload PUT completes a
+// session; the caller is identified only by the unguessable upload_id
+// capability, never an authenticated principal (design/07 §3, design/14 §5).
+const ActorUpload = "upload"
 
 // Entry is one audit record. It is persisted in the audit_logs table and
 // mirrored to stderr. It must never carry secrets: Details is caller-sanitized

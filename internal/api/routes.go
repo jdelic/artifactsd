@@ -24,6 +24,15 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("PATCH /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFile))
 	mux.Handle("DELETE /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteFile))
 
+	// Large uploads (design/04 §5). Beginning a session requires a write-scoped
+	// token; the upload_id-keyed routes are pure capability endpoints (decision
+	// D2) and intentionally bypass requireScope — possession of the unguessable
+	// id in the URL is the only credential checked.
+	mux.Handle("POST /api/v1/collections/{c}/uploads", h.requireScope(auth.ScopeCollectionsWrite, h.createUploadSession))
+	mux.Handle("PUT /api/v1/uploads/{upload_id}", http.HandlerFunc(h.putUpload))
+	mux.Handle("GET /api/v1/uploads/{upload_id}", http.HandlerFunc(h.getUploadStatus))
+	mux.Handle("DELETE /api/v1/uploads/{upload_id}", http.HandlerFunc(h.deleteUpload))
+
 	// Folders & tree (design/04 §4).
 	mux.Handle("GET /api/v1/collections/{c}/tree", h.requireScope(auth.ScopeCollectionsRead, h.tree))
 	mux.Handle("GET /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsRead, h.getFolder))

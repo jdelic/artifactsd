@@ -45,7 +45,7 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	contentType := uploadContentType(doc, r)
+	contentType := resolveContentType(docContentType(doc), r)
 	metaJSON, err := doc.JSON()
 	if err != nil {
 		h.internalServerError(w, "encode metadata", err)
@@ -302,9 +302,20 @@ func (h *Handler) fileURL(collection, p string) string {
 	return strings.TrimRight(h.baseURL, "/") + "/c/" + collection + "/" + p
 }
 
-func uploadContentType(doc *meta.Document, r *http.Request) string {
-	if doc.Content != nil && doc.Content.ContentType != nil && *doc.Content.ContentType != "" {
-		return *doc.Content.ContentType
+// docContentType extracts a metadata document's explicit content type, if any.
+func docContentType(doc *meta.Document) *string {
+	if doc.Content == nil {
+		return nil
+	}
+	return doc.Content.ContentType
+}
+
+// resolveContentType prefers an explicit metadata content type over the
+// request's Content-Type header (ignoring the Go HTTP client's generic
+// default), shared by the direct-PUT and large-upload paths (design/07 §2/§3).
+func resolveContentType(metaCT *string, r *http.Request) string {
+	if metaCT != nil && *metaCT != "" {
+		return *metaCT
 	}
 	if ct := r.Header.Get("Content-Type"); ct != "" && ct != "application/octet-stream" {
 		return ct
