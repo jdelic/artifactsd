@@ -290,17 +290,11 @@ Disallow: /admin/
 Disallow: /c/private-run/
 Allow: /c/public-demo/
 ```
-Collections may also expose collection-specific crawler information:
-```javascript
-GET /c/{collection}/robots.txt
-```
-Example:
-```javascript
-User-agent: *
-Allow: /
-Disallow: /private/
-Sitemap: https://artifacts.example.com/c/sales-demo-2026/sitemap.xml
-```
+There is deliberately no per-collection `GET /c/{collection}/robots.txt`: the
+robots.txt convention (RFC 9309) only recognizes the file at the domain root,
+so a crawler would never discover one served at a sub-path. Per-collection
+crawl/index policy is folded into the root `robots.txt` above instead, via one
+`Allow`/`Disallow` line per collection.
 ### 10.4 Sitemap generation
 For public and indexable collections, the server may expose:
 ```javascript

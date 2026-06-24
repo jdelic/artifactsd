@@ -56,6 +56,8 @@ func newHarness(t *testing.T) *harness {
 	mux.HandleFunc("HEAD /c/{collection}/{path...}", h.ServeCollection)
 	mux.HandleFunc("GET /s/{share_id}/{path...}", h.ServeShare)
 	mux.HandleFunc("HEAD /s/{share_id}/{path...}", h.ServeShare)
+	mux.HandleFunc("GET /robots.txt", h.RobotsRoot)
+	mux.HandleFunc("HEAD /robots.txt", h.RobotsRoot)
 	return &harness{mux: mux, st: st, bs: bs, cfg: cfg, h: h}
 }
 

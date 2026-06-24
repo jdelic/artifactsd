@@ -141,6 +141,10 @@ crawl=$(curl -fsS -H "Authorization: Bearer $BOOTSTRAP_TOKEN" "$BASE_URL/api/v1/
 echo "$crawl" | jq -e '.entries[] | select(.path == "hello.txt")' >/dev/null \
   || fail "crawl API missing hello.txt entry (set crawlable earlier): $crawl"
 
+log "curl-verify root robots.txt (deliberately no per-collection one, RFC 9309)"
+robots_root=$(curl -fsS "$BASE_URL/robots.txt") || fail "curl GET /robots.txt failed"
+echo "$robots_root" | grep -q '^Disallow: /api/$' || fail "root robots.txt missing Disallow: /api/: $robots_root"
+
 log "curl-verify an unauthenticated management API request is rejected"
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/collections")
 [[ "$status" == "401" ]] || fail "expected 401 for unauthenticated /api/v1/collections, got $status"
