@@ -112,6 +112,7 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 		})
 		s.adminUI = admin.New(admin.Deps{
 			Store:   opts.Store,
+			Blob:    opts.Blob,
 			Config:  opts.Config,
 			Audit:   audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
 			Cleaner: s.janitor,

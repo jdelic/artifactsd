@@ -1,0 +1,34 @@
+{{define "collections"}}{{template "collections_panel" .}}{{end}}
+
+{{define "collections_panel"}}
+<div id="collections-panel">
+  <div class="nc-panel" data-label="Create collection">
+    <form class="nc-form" hx-post="{{.AdminPath}}/collections" hx-target="#collections-panel" hx-swap="outerHTML">
+      <label>Name <input type="text" name="name" placeholder="my-collection" required autofocus></label>
+      <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Create</button>
+    </form>
+    {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+  </div>
+  <div class="nc-panel" data-label="Collections">
+    <table class="nc-table">
+      <tr><th>Name</th><th>Visibility</th><th>Created</th><th></th></tr>
+      {{range .Collections}}
+      <tr>
+        <td><a href="{{$.AdminPath}}/collections/{{.Name}}/tree">{{.Name}}</a></td>
+        <td>{{.Visibility}}</td>
+        <td>{{.CreatedAt}}</td>
+        <td>
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{.Name}}/delete"
+                hx-target="#collections-panel" hx-swap="outerHTML"
+                hx-confirm="Delete collection &quot;{{.Name}}&quot; and all its contents? This cannot be undone.">
+            <button class="nc-button" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="4">No collections yet.</td></tr>
+      {{end}}
+    </table>
+  </div>
+</div>
+{{end}}
