@@ -30,5 +30,20 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("PATCH /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFolder))
 	mux.Handle("DELETE /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteFolder))
 
+	// Shares (design/04 §6).
+	mux.Handle("POST /api/v1/collections/{c}/shares", h.requireScope(auth.ScopeSharesWrite, h.createShare))
+	mux.Handle("GET /api/v1/collections/{c}/shares", h.requireScope(auth.ScopeSharesRead, h.listShares))
+	mux.Handle("GET /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesRead, h.getShare))
+	mux.Handle("PATCH /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.patchShare))
+	mux.Handle("DELETE /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.deleteShare))
+
+	// Tokens, audit, stats & maintenance (design/04 §8, admin-scoped).
+	mux.Handle("GET /api/v1/tokens", h.requireScope(auth.ScopeAdmin, h.listTokens))
+	mux.Handle("POST /api/v1/tokens", h.requireScope(auth.ScopeAdmin, h.createToken))
+	mux.Handle("DELETE /api/v1/tokens/{id}", h.requireScope(auth.ScopeAdmin, h.deleteToken))
+	mux.Handle("GET /api/v1/audit", h.requireScope(auth.ScopeAdmin, h.getAudit))
+	mux.Handle("GET /api/v1/stats", h.requireScope(auth.ScopeAdmin, h.getStats))
+	mux.Handle("POST /api/v1/maintenance/cleanup", h.requireScope(auth.ScopeAdmin, h.postMaintenanceCleanup))
+
 	return mux
 }

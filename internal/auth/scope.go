@@ -21,6 +21,25 @@ const (
 	ScopeTokensWrite      Scope = "tokens:write"
 )
 
+// KnownScopes lists every scope a token may be granted (design/04 §1). Used to
+// reject unknown/typo'd scopes when minting tokens.
+var KnownScopes = []Scope{
+	ScopeAdmin,
+	ScopeCollectionsRead, ScopeCollectionsWrite,
+	ScopeSharesRead, ScopeSharesWrite,
+	ScopeTokensRead, ScopeTokensWrite,
+}
+
+// IsKnownScope reports whether sc is a recognized scope.
+func IsKnownScope(sc Scope) bool {
+	for _, k := range KnownScopes {
+		if k == sc {
+			return true
+		}
+	}
+	return false
+}
+
 // ScopeSet is a token's granted scopes.
 type ScopeSet map[Scope]struct{}
 

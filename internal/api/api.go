@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -26,7 +27,19 @@ const (
 	CodeUnsupported  = "unsupported_media_type"
 	CodeRateLimited  = "rate_limited"
 	CodeInternal     = "internal"
+	// CodeUnavailable extends the design/04 §1 set for 503 responses when a
+	// backing capability (e.g. the cleanup janitor) is not configured.
+	CodeUnavailable = "unavailable"
 )
+
+// Cleaner runs a single on-demand maintenance/cleanup pass (design/08 §1). The
+// concrete implementation is the expiry janitor; it is injected so the
+// management API stays decoupled from the janitor package. RunOnce returns a
+// JSON-serializable summary of what was reclaimed. When no Cleaner is wired the
+// maintenance endpoint reports the capability as unavailable.
+type Cleaner interface {
+	RunOnce(ctx context.Context) (any, error)
+}
 
 // Deps are the handler's dependencies.
 type Deps struct {
@@ -35,6 +48,7 @@ type Deps struct {
 	Config  *config.Config
 	Audit   *audit.Recorder
 	Authn   *auth.Authenticator
+	Cleaner Cleaner
 	Logger  *slog.Logger
 	BaseURL string
 }
@@ -46,18 +60,20 @@ type Handler struct {
 	cfg     *config.Config
 	audit   *audit.Recorder
 	authn   *auth.Authenticator
+	cleaner Cleaner
 	log     *slog.Logger
 	baseURL string
 }
 
 // New builds the API handler.
-func New(d Deps) *Handler {
+func New(d Deps) *Handler { //nolint:gocritic // Deps is built once at construction
 	return &Handler{
 		store:   d.Store,
 		blob:    d.Blob,
 		cfg:     d.Config,
 		audit:   d.Audit,
 		authn:   d.Authn,
+		cleaner: d.Cleaner,
 		log:     d.Logger,
 		baseURL: d.BaseURL,
 	}
