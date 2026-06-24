@@ -23,7 +23,14 @@ func (s *Server) routes() http.Handler {
 		mux.HandleFunc("HEAD /c/{collection}/{path...}", s.serve.ServeCollection)
 		mux.HandleFunc("GET /s/{share_id}/{path...}", s.serve.ServeShare)
 		mux.HandleFunc("HEAD /s/{share_id}/{path...}", s.serve.ServeShare)
+		// Root robots policy (design/05 §3, SPEC §10.3) — deliberately
+		// root-only, no /c/{collection}/robots.txt: RFC 9309 only recognizes
+		// the file at the domain root, so per-collection policy is folded into
+		// this response's Allow/Disallow lines instead.
+		mux.HandleFunc("GET /robots.txt", s.serve.RobotsRoot)
+		mux.HandleFunc("HEAD /robots.txt", s.serve.RobotsRoot)
 	} else {
+		mux.Handle("/robots.txt", notImplemented("public serving"))
 		mux.Handle("/c/", notImplemented("public serving"))
 		mux.Handle("/s/", notImplemented("public serving"))
 	}

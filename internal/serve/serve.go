@@ -36,20 +36,22 @@ type Deps struct {
 
 // Handler serves public content.
 type Handler struct {
-	store      *store.Store
-	blob       blob.Store
-	cfg        *config.Config
-	audit      *audit.Recorder
-	oidc       *auth.OIDCProviderCache
-	log        *slog.Logger
-	lastAccess *lastAccessUpdater
+	store       *store.Store
+	blob        blob.Store
+	cfg         *config.Config
+	audit       *audit.Recorder
+	oidc        *auth.OIDCProviderCache
+	log         *slog.Logger
+	lastAccess  *lastAccessUpdater
+	robotsCache *robotsCache
 }
 
 // New builds a serving handler.
 func New(d Deps) *Handler {
 	return &Handler{
 		store: d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
-		lastAccess: newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, d.Logger),
+		lastAccess:  newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, d.Logger),
+		robotsCache: newRobotsCache(),
 	}
 }
 

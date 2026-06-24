@@ -53,21 +53,23 @@ listing mirrors the crawl entry shape for programmatic use.
 
 ```
 GET /robots.txt
-GET /c/{collection}/robots.txt
 ```
 
-Root `robots.txt` is generated from global config + per-collection crawl policy:
-- Always `Disallow: /api/` and `Disallow: /admin/`.
+Deliberately root-only: the robots.txt convention (RFC 9309) only recognizes
+the file at the domain root, so a `GET /c/{collection}/robots.txt` would never
+be discovered by a standards-compliant crawler — per-collection policy is
+folded into the root response instead of exposed as its own endpoint.
+
+Generated from global config + per-collection crawl policy:
+- Always `Disallow: /api/` and `Disallow: /admin/` (the configured admin path).
 - For each collection: `Allow: /c/{name}/` if `crawl.indexable`, else
-  `Disallow: /c/{name}/`. `private`/`unlisted` collections are disallowed.
-- Emits `Sitemap: {base_url}/sitemap.xml` when any indexable content exists.
+  `Disallow: /c/{name}/`. `private`/`unlisted` collections are disallowed
+  regardless of `indexable`.
+- Emits `Sitemap: {base_url}/sitemap.xml` when any collection is allowed.
 
-Collection `robots.txt` reflects that collection's `crawl.robots` block
-(user-agent allow/disallow lists) and a `Sitemap:` line to its own sitemap when
-indexable (SPEC §10.3 example).
-
-Results are cached in-memory with a short TTL and invalidated on metadata
-changes.
+Results are cached in-memory with a short TTL (not exposed as config); the
+cost of staleness is bounded by that window rather than precise invalidation
+hooks on every metadata write.
 
 ## 4. Sitemap generation (SPEC §10.4)
 
