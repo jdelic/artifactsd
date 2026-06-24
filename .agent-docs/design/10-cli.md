@@ -48,7 +48,7 @@ artifactctl put <collection>/<path> <localfile>
         [--expires <ts>] [--expires-in <dur>] [--no-index]
 artifactctl put-tree <collection> <localdir>
         [--content-type-auto] [--public] [--no-index] [--header k=v ...]
-        [--include glob] [--exclude glob]
+        [--include glob] [--exclude glob] [--large-upload-threshold <bytes>]
 artifactctl get <collection>/<path> [-o <localfile>]
 artifactctl rm <collection>/<path>
 
