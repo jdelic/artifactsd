@@ -114,6 +114,46 @@ func TestMigrate_AppliesAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMCP_MissingTokenFails(t *testing.T) {
+	_, _, err := execute(t, "", "mcp", "--base-url", "https://x.example.com")
+	if err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("expected a token validation error, got %v", err)
+	}
+}
+
+func TestMCP_MissingBaseURLFails(t *testing.T) {
+	_, _, err := execute(t, "", "mcp", "--token", "tok_abc")
+	if err == nil || !strings.Contains(err.Error(), "base-url") {
+		t.Fatalf("expected a base-url validation error, got %v", err)
+	}
+}
+
+func TestRunMCP_StartsAndShutsDown(t *testing.T) {
+	m, err := config.LoadAndValidateMCP(
+		[]string{"--listen", "127.0.0.1:0", "--base-url", "https://x.example.com", "--token", "tok_abc"},
+		func(string) string { return "" }, io.Discard,
+	)
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runMCP(ctx, m, io.Discard) }()
+
+	time.Sleep(50 * time.Millisecond) // let it bind
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("runMCP returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runMCP did not return after cancellation")
+	}
+}
+
 func TestUnknownCommandFails(t *testing.T) {
 	if _, _, err := execute(t, "", "frobnicate"); err == nil {
 		t.Error("expected error for unknown command")
