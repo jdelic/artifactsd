@@ -135,6 +135,12 @@ listing=$(curl -fsS "$BASE_URL/c/smoke/?format=json") || fail "curl GET /c/smoke
 echo "$listing" | jq -e '.entries[] | select(.name == "hello.txt")' >/dev/null \
   || fail "directory listing missing hello.txt entry: $listing"
 
+log "curl-verify agent crawl API"
+crawl=$(curl -fsS -H "Authorization: Bearer $BOOTSTRAP_TOKEN" "$BASE_URL/api/v1/collections/smoke/crawl") \
+  || fail "curl GET /api/v1/collections/smoke/crawl failed"
+echo "$crawl" | jq -e '.entries[] | select(.path == "hello.txt")' >/dev/null \
+  || fail "crawl API missing hello.txt entry (set crawlable earlier): $crawl"
+
 log "curl-verify an unauthenticated management API request is rejected"
 status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/collections")
 [[ "$status" == "401" ]] || fail "expected 401 for unauthenticated /api/v1/collections, got $status"

@@ -39,6 +39,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("PATCH /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFolder))
 	mux.Handle("DELETE /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteFolder))
 
+	// Crawl API (design/04 §7, design/05 §5).
+	mux.Handle("GET /api/v1/crawl", h.requireScope(auth.ScopeCollectionsRead, h.crawlRoot))
+	mux.Handle("GET /api/v1/collections/{c}/crawl", h.requireScope(auth.ScopeCollectionsRead, h.crawlCollection))
+
 	// Shares (design/04 §6).
 	mux.Handle("POST /api/v1/collections/{c}/shares", h.requireScope(auth.ScopeSharesWrite, h.createShare))
 	mux.Handle("GET /api/v1/collections/{c}/shares", h.requireScope(auth.ScopeSharesRead, h.listShares))
