@@ -17,12 +17,20 @@ const TokenPrefixValue = "tok_"
 // capability in a /s/{share_id}/ URL, design/04 §6).
 const SharePrefixValue = "shr_"
 
+// UploadPrefixValue is the literal prefix on every large-upload session id (the
+// unguessable capability in a PUT /api/v1/uploads/{upload_id} URL, design/07 §3).
+const UploadPrefixValue = "upl_"
+
 // tokenSecretBytes is the entropy of the random secret (256 bits, design/06 §1.1).
 const tokenSecretBytes = 32
 
 // shareSecretBytes is the entropy of a share id (128 bits is ample for an
 // unguessable URL capability while keeping the id short).
 const shareSecretBytes = 16
+
+// uploadSecretBytes is the entropy of an upload session id (design/07 §3 wants
+// at least 95 bits; 128 bits matches the share id capability).
+const uploadSecretBytes = 16
 
 // prefixLen is how many leading characters are stored as token_prefix for
 // display/lookup hinting (covers "tok_" + 8 secret chars).
@@ -71,6 +79,17 @@ func GenerateShareID() (string, error) {
 		return "", err
 	}
 	return SharePrefixValue + secret, nil
+}
+
+// GenerateUploadID mints a new unguessable large-upload session id (design/07
+// §3, decision D2). Possession of the id (via the upload_url) is the sole
+// capability needed to stream bytes to it — no bearer token is checked.
+func GenerateUploadID() (string, error) {
+	secret, err := randomBase62(uploadSecretBytes)
+	if err != nil {
+		return "", err
+	}
+	return UploadPrefixValue + secret, nil
 }
 
 // TokenPrefix returns the leading prefixLen characters of a token for display.

@@ -26,6 +26,13 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessEnv(t, nil)
+}
+
+// newHarnessEnv is like newHarness but lets a test override env-only settings
+// (e.g. ARTIFACTSD_UPLOAD_TTL) that have no flag equivalent.
+func newHarnessEnv(t *testing.T, env map[string]string) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	db, err := store.Open(context.Background(), filepath.Join(dir, store.DBFilename))
 	if err != nil {
@@ -43,7 +50,7 @@ func newHarness(t *testing.T) *harness {
 
 	cfg, err := config.LoadAndValidate(
 		[]string{"--base-url", "https://x.example.com", "--data", dir},
-		func(string) string { return "" }, io.Discard,
+		func(k string) string { return env[k] }, io.Discard,
 	)
 	if err != nil {
 		t.Fatalf("config: %v", err)
