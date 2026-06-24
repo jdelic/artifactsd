@@ -1,0 +1,190 @@
+/* artifactsd admin UI — 90s DOS/TUI aesthetic (design/09 §1, per Jonas's note
+   "reminiscent of 90s terminal apps, but keep it easy to change"). Kept to a
+   single small file with no build step, mirroring the design mockup's
+   blue/cyan/yellow Midnight-Commander-style palette. */
+
+@font-face {
+  font-family: "VT323";
+  src: url("fonts/vt323.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  --nc-blue: #0000a8;
+  --nc-cyan: #00a8a8;
+  --nc-cyan-bright: #54fcfc;
+  --nc-yellow: #fcfc54;
+  --nc-white: #fcfcfc;
+  --nc-red: #fc5454;
+  --nc-grey: #a8a8a8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #000;
+}
+
+body {
+  font-family: "VT323", ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 21px;
+  line-height: 1.15;
+  color: var(--nc-white);
+}
+
+.nc-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--nc-blue);
+}
+
+.nc-topbar,
+.nc-footer {
+  display: flex;
+  align-items: center;
+  background: var(--nc-cyan);
+  color: #000;
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+.nc-topbar {
+  height: 32px;
+}
+
+.nc-nav {
+  padding: 3px 14px;
+}
+
+.nc-nav u {
+  color: #a80000;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.nc-nav-active {
+  background: var(--nc-cyan-bright);
+}
+
+.nc-spacer {
+  flex: 1;
+}
+
+.nc-user {
+  padding: 0 14px;
+  color: var(--nc-blue);
+}
+
+.nc-content {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nc-panel {
+  position: relative;
+  border: 3px ridge var(--nc-cyan-bright);
+  padding: 18px 14px 14px;
+}
+
+.nc-panel::before {
+  content: attr(data-label);
+  position: absolute;
+  top: -14px;
+  left: 18px;
+  background: var(--nc-blue);
+  color: var(--nc-cyan-bright);
+  padding: 0 8px;
+  font-weight: bold;
+}
+
+.nc-stats-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.nc-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 110px;
+}
+
+.nc-stat-wide {
+  min-width: 180px;
+}
+
+.nc-stat-value {
+  font-size: 30px;
+  color: var(--nc-yellow);
+}
+
+.nc-stat-label {
+  font-size: 16px;
+  color: var(--nc-grey);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.nc-button {
+  font-family: inherit;
+  font-size: inherit;
+  background: var(--nc-cyan);
+  color: #000;
+  border: 2px solid var(--nc-white);
+  border-right-color: #000;
+  border-bottom-color: #000;
+  padding: 6px 18px;
+  cursor: pointer;
+}
+
+.nc-button:hover {
+  background: var(--nc-cyan-bright);
+}
+
+.nc-cleanup-result {
+  margin-top: 10px;
+}
+
+.nc-cleanup-summary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--nc-cyan-bright);
+}
+
+.nc-error {
+  color: var(--nc-red);
+}
+
+.nc-footer {
+  height: 28px;
+  padding: 0 8px;
+}
+
+.nc-fkeys b {
+  color: #a80000;
+  margin-right: 2px;
+}
+
+.nc-fkeys span {
+  margin-right: 12px;
+}
+
+.nc-status {
+  margin-left: auto;
+  padding: 0 10px;
+  background: var(--nc-yellow);
+  font-weight: bold;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}

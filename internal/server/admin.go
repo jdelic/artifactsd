@@ -158,15 +158,20 @@ func (s *Server) clearFlowCookie(w http.ResponseWriter) {
 
 // adminGate protects admin routes: a valid admin session (OIDC group) or the
 // basic fallback grants access; otherwise browsers are redirected to OIDC login
-// and API clients get a 401 (design/14 §7).
+// and API clients get a 401 (design/14 §7). On success it stashes the
+// identity in the request context (session.NewContext) — computed once here
+// rather than re-derived independently downstream, since the basic-auth
+// fallback carries no session cookie at all, and a freshly re-derived
+// per-call identity for it could disagree across requests (breaking anything,
+// like CSRF tokens, that needs the same identity to round-trip — design/09 §5).
 func (s *Server) adminGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, err := s.session.FromRequest(r); err == nil && s.isAdmin(id) {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(session.NewContext(r.Context(), id)))
 			return
 		}
-		if s.checkAdminBasic(r) {
-			next.ServeHTTP(w, r)
+		if id := s.checkAdminBasic(r); id != nil {
+			next.ServeHTTP(w, r.WithContext(session.NewContext(r.Context(), id)))
 			return
 		}
 		s.challengeAdmin(w, r)
@@ -187,14 +192,19 @@ func (s *Server) isAdmin(id *session.Identity) bool {
 	return false
 }
 
-// checkAdminBasic verifies the optional htaccess fallback admin credentials.
-func (s *Server) checkAdminBasic(r *http.Request) bool {
+// checkAdminBasic verifies the optional htaccess fallback admin credentials,
+// returning a synthetic identity on success (deterministic and stable across
+// requests, since there's no session cookie backing this path) or nil.
+func (s *Server) checkAdminBasic(r *http.Request) *session.Identity {
 	if s.cfg.Admin.BasicUser == "" || s.adminBasicHash == "" {
-		return false
+		return nil
 	}
 	v := auth.NewBasicVerifier(s.cfg.Admin.BasicUser, s.adminBasicHash, auth.DefaultRealm)
 	ok, _ := v.Verify(r)
-	return ok
+	if !ok {
+		return nil
+	}
+	return &session.Identity{Subject: "basic:" + s.cfg.Admin.BasicUser}
 }
 
 // challengeAdmin redirects browsers to OIDC login (when configured) and

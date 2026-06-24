@@ -1,0 +1,32 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} - artifactsd admin</title>
+<link rel="stylesheet" href="{{.AdminPath}}/static/admin.css">
+<script src="{{.AdminPath}}/static/htmx.min.js"></script>
+</head>
+<body hx-headers='{"X-CSRF-Token":"{{.CSRFToken}}"}'>
+<div class="nc-screen">
+  <div class="nc-topbar">
+    <span class="nc-nav nc-nav-active"><u>D</u>ashboard</span>
+    <span class="nc-nav"><u>C</u>ollections</span>
+    <span class="nc-nav"><u>F</u>iles</span>
+    <span class="nc-nav"><u>S</u>hares</span>
+    <span class="nc-nav"><u>T</u>ools</span>
+    <span class="nc-nav"><u>H</u>elp</span>
+    <div class="nc-spacer"></div>
+    {{if .Identity}}<span class="nc-user">{{or .Identity.Email .Identity.Subject}}</span>{{end}}
+  </div>
+  <div class="nc-content">
+{{.Content}}
+  </div>
+  <div class="nc-footer">
+    <span class="nc-fkeys">{{range .FKeys}}<span><b>{{.Key}}</b>{{.Label}} </span>{{end}}</span>
+    <span class="nc-status">{{.Status}}</span>
+  </div>
+</div>
+</body>
+</html>
+{{end}}
