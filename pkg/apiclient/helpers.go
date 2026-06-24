@@ -1,9 +1,6 @@
 package apiclient
 
-import (
-	"net/url"
-	"strconv"
-)
+import "net/url"
 
 // encodeQuery renders query values as a "?..." suffix, or "" when empty.
 func encodeQuery(q url.Values) string {
@@ -12,5 +9,3 @@ func encodeQuery(q url.Values) string {
 	}
 	return "?" + q.Encode()
 }
-
-func itoa(n int) string { return strconv.Itoa(n) }

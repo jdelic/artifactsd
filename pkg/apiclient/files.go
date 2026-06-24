@@ -42,7 +42,7 @@ func (c *Client) PutFile(ctx context.Context, collection, path string, body io.R
 		headers[metadataHeader] = base64.RawURLEncoding.EncodeToString(opts.Metadata)
 	}
 	var out FileInfo
-	if err := c.doRaw(ctx, http.MethodPut, filePath(collection, path), body, headers, &out); err != nil {
+	if err := c.sendRaw(ctx, http.MethodPut, filePath(collection, path), body, headers, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -55,7 +55,7 @@ func (c *Client) GetFile(ctx context.Context, collection, path string) (io.ReadC
 
 // DeleteFile removes a file (design/04 §3).
 func (c *Client) DeleteFile(ctx context.Context, collection, path string) error {
-	return c.doJSON(ctx, http.MethodDelete, filePath(collection, path), nil, nil)
+	return c.sendJSON(ctx, http.MethodDelete, filePath(collection, path), nil, nil)
 }
 
 // filePath builds the /files/ route, escaping each path segment while preserving

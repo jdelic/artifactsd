@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 // Collection mirrors the API's collection view (design/04 §2). Metadata is left
@@ -33,7 +34,7 @@ type CreateCollectionRequest struct {
 // CreateCollection creates a collection (design/04 §2).
 func (c *Client) CreateCollection(ctx context.Context, req CreateCollectionRequest) (*Collection, error) {
 	var out Collection
-	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/collections", req, &out); err != nil {
+	if err := c.sendJSON(ctx, http.MethodPost, "/api/v1/collections", req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -47,10 +48,10 @@ func (c *Client) ListCollections(ctx context.Context, cursor string, limit int) 
 		q.Set("cursor", cursor)
 	}
 	if limit > 0 {
-		q.Set("limit", itoa(limit))
+		q.Set("limit", strconv.Itoa(limit))
 	}
 	var out Page[Collection]
-	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/collections"+encodeQuery(q), nil, &out); err != nil {
+	if err := c.sendJSON(ctx, http.MethodGet, "/api/v1/collections"+encodeQuery(q), nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -59,7 +60,7 @@ func (c *Client) ListCollections(ctx context.Context, cursor string, limit int) 
 // GetCollection fetches one collection by name (design/04 §2).
 func (c *Client) GetCollection(ctx context.Context, name string) (*Collection, error) {
 	var out Collection
-	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/collections/"+url.PathEscape(name), nil, &out); err != nil {
+	if err := c.sendJSON(ctx, http.MethodGet, "/api/v1/collections/"+url.PathEscape(name), nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -68,7 +69,7 @@ func (c *Client) GetCollection(ctx context.Context, name string) (*Collection, e
 // PatchCollectionMeta merges metadata onto a collection (design/04 §2).
 func (c *Client) PatchCollectionMeta(ctx context.Context, name string, metadata json.RawMessage) (*Collection, error) {
 	var out Collection
-	if err := c.doJSON(ctx, http.MethodPatch, "/api/v1/collections/"+url.PathEscape(name)+"/meta", metadata, &out); err != nil {
+	if err := c.sendJSON(ctx, http.MethodPatch, "/api/v1/collections/"+url.PathEscape(name)+"/meta", metadata, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -81,5 +82,5 @@ func (c *Client) DeleteCollection(ctx context.Context, name string, force bool) 
 	if force {
 		q.Set("force", "true")
 	}
-	return c.doJSON(ctx, http.MethodDelete, "/api/v1/collections/"+url.PathEscape(name)+encodeQuery(q), nil, nil)
+	return c.sendJSON(ctx, http.MethodDelete, "/api/v1/collections/"+url.PathEscape(name)+encodeQuery(q), nil, nil)
 }

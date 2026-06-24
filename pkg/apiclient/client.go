@@ -90,9 +90,9 @@ type errorEnvelope struct {
 	} `json:"error"`
 }
 
-// doJSON sends a JSON request (body may be nil) and decodes a JSON response into
-// out (out may be nil to discard). Non-2xx responses become a typed *Error.
-func (c *Client) doJSON(ctx context.Context, method, path string, body, out any) error {
+// sendJSON sends a JSON request (body may be nil) and decodes a JSON response
+// into out (out may be nil to discard). Non-2xx responses become a typed *Error.
+func (c *Client) sendJSON(ctx context.Context, method, path string, body, out any) error {
 	var rdr io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -127,9 +127,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body, out any)
 	return nil
 }
 
-// doRaw sends a request with a raw (non-JSON) body and the given headers,
+// sendRaw sends a request with a raw (non-JSON) body and the given headers,
 // decoding a JSON response into out (out may be nil). Used for binary uploads.
-func (c *Client) doRaw(ctx context.Context, method, path string, body io.Reader, headers map[string]string, out any) error {
+func (c *Client) sendRaw(ctx context.Context, method, path string, body io.Reader, headers map[string]string, out any) error {
 	req, err := c.newRequest(ctx, method, path, body)
 	if err != nil {
 		return err
