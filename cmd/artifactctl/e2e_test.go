@@ -82,12 +82,44 @@ func TestE2E_CollectionAndFileLifecycle(t *testing.T) {
 		t.Errorf("get after rm = %d, want %d", code, exitNotFound)
 	}
 
-	// Delete the collection.
-	if code, _, errOut := e.run("collection", "delete", "demo"); code != exitOK {
+	// Delete the collection. --force is required: the now-empty "docs" folder
+	// node left behind by rm still counts as collection content (artifactsd-dfk).
+	if code, _, errOut := e.run("collection", "delete", "demo", "--force"); code != exitOK {
 		t.Fatalf("delete collection: code=%d err=%s", code, errOut)
 	}
 	if code, _, _ := e.run("collection", "show", "demo"); code != exitNotFound {
 		t.Errorf("show after delete = %d, want %d", code, exitNotFound)
+	}
+}
+
+// TestE2E_CollectionDelete_NonEmptyRequiresForce covers artifactsd-dfk: the
+// server now rejects deleting a non-empty collection unless force=true, so
+// `collection delete`'s --force flag is a real safety gate, not a no-op.
+func TestE2E_CollectionDelete_NonEmptyRequiresForce(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/a.txt", local); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+
+	if code, _, _ := e.run("collection", "delete", "demo"); code == exitOK {
+		t.Fatalf("delete without --force on non-empty collection succeeded, want an error")
+	}
+	if code, _, errOut := e.run("collection", "show", "demo"); code != exitOK {
+		t.Fatalf("show after rejected delete: code=%d err=%s, want collection to still exist", code, errOut)
+	}
+
+	if code, _, errOut := e.run("collection", "delete", "demo", "--force"); code != exitOK {
+		t.Fatalf("delete --force: code=%d err=%s", code, errOut)
+	}
+	if code, _, _ := e.run("collection", "show", "demo"); code != exitNotFound {
+		t.Errorf("show after forced delete = %d, want %d", code, exitNotFound)
 	}
 }
 
