@@ -58,6 +58,35 @@ func (c *Client) DeleteFile(ctx context.Context, collection, path string) error 
 	return c.sendJSON(ctx, http.MethodDelete, filePath(collection, path), nil, nil)
 }
 
+// FileMeta is the response shape for file metadata reads and patches
+// (design/04 §3). Own and Effective are left as raw JSON since they have
+// different shapes (a metadata document vs. a flat resolved view); Effective
+// is absent from PATCH responses.
+type FileMeta struct {
+	Path      string          `json:"path"`
+	Own       json.RawMessage `json:"own"`
+	Effective json.RawMessage `json:"effective,omitempty"`
+}
+
+// GetFileMeta reads a file's own and effective metadata (design/04 §3).
+func (c *Client) GetFileMeta(ctx context.Context, collection, path string) (*FileMeta, error) {
+	var out FileMeta
+	if err := c.sendJSON(ctx, http.MethodGet, filePath(collection, path)+"/meta", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PatchFileMeta merges patch (a metadata document) onto a file's stored
+// metadata (design/04 §3).
+func (c *Client) PatchFileMeta(ctx context.Context, collection, path string, patch json.RawMessage) (*FileMeta, error) {
+	var out FileMeta
+	if err := c.sendJSON(ctx, http.MethodPatch, filePath(collection, path)+"/meta", patch, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // filePath builds the /files/ route, escaping each path segment while preserving
 // the slash separators the {path...} wildcard expects.
 func filePath(collection, path string) string {

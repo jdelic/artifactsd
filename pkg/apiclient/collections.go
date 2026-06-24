@@ -84,3 +84,30 @@ func (c *Client) DeleteCollection(ctx context.Context, name string, force bool) 
 	}
 	return c.sendJSON(ctx, http.MethodDelete, "/api/v1/collections/"+url.PathEscape(name)+encodeQuery(q), nil, nil)
 }
+
+// TreeNode is one entry in a collection's structured listing (design/04 §4).
+type TreeNode struct {
+	Path        string  `json:"path"`
+	Kind        string  `json:"kind"` // "file"|"folder"
+	Size        *int64  `json:"size,omitempty"`
+	ContentType *string `json:"content_type,omitempty"`
+	ExpiresAt   *string `json:"expires_at,omitempty"`
+}
+
+// Tree lists a collection's files and folders (design/04 §4). path scopes the
+// listing to a subtree ("" for the root); depth limits how many levels below
+// path are returned (0 for unlimited).
+func (c *Client) Tree(ctx context.Context, collection, path string, depth int) (*Page[TreeNode], error) {
+	q := url.Values{}
+	if path != "" {
+		q.Set("path", path)
+	}
+	if depth > 0 {
+		q.Set("depth", strconv.Itoa(depth))
+	}
+	var out Page[TreeNode]
+	if err := c.sendJSON(ctx, http.MethodGet, "/api/v1/collections/"+url.PathEscape(collection)+"/tree"+encodeQuery(q), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
