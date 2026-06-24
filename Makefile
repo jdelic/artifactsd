@@ -48,6 +48,10 @@ lint: ## golangci-lint
 test: ## Run tests with the race detector
 	$(GO) test $(PKGS) -race
 
+.PHONY: smoke
+smoke: build ## Spawn a real artifactsd and drive it with artifactctl + curl
+	./scripts/smoke-test.sh
+
 .PHONY: cover
 cover: ## Run tests with coverage report
 	$(GO) test $(PKGS) -race -coverprofile=coverage.out
