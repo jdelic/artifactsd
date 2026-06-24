@@ -167,6 +167,10 @@ body {
   color: var(--nc-red);
 }
 
+.nc-saved {
+  color: var(--nc-cyan-bright);
+}
+
 .nc-form {
   display: flex;
   align-items: center;
@@ -181,13 +185,46 @@ body {
 }
 
 .nc-form input[type="text"],
-.nc-form input[type="file"] {
+.nc-form input[type="file"],
+.nc-form select,
+.nc-form textarea {
   font-family: inherit;
   font-size: inherit;
   background: var(--nc-white);
   color: #000;
   border: 2px solid #000;
   padding: 4px 6px;
+}
+
+.nc-form-grid {
+  align-items: flex-start;
+}
+
+.nc-form-wide {
+  flex-basis: 100%;
+}
+
+.nc-raw-json {
+  font-family: inherit;
+  white-space: pre;
+}
+
+.nc-scopes {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.nc-scope {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nc-auth-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .nc-inline-form {

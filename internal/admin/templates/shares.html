@@ -1,0 +1,36 @@
+{{define "shares"}}{{template "shares_panel" .}}{{end}}
+
+{{define "shares_panel"}}
+<div id="shares-panel">
+  <div class="nc-panel" data-label="Create share">
+    <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/shares" hx-target="#shares-panel" hx-swap="outerHTML">
+      <label>Target path <input type="text" name="target_path" placeholder="(whole collection)"></label>
+      <label>Expires in <input type="text" name="expires_in" placeholder="7d (optional)"></label>
+      <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Create</button>
+    </form>
+    {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+    {{if .NewURL}}<div class="nc-saved">created: <code>{{.NewURL}}</code></div>{{end}}
+  </div>
+  <div class="nc-panel" data-label="Shares">
+    <table class="nc-table">
+      <tr><th>Share URL</th><th>Target</th><th>Created</th><th>Expires</th><th></th></tr>
+      {{range .Shares}}
+      <tr>
+        <td><a href="{{.URL}}" target="_blank" rel="noopener">{{.ShareID}}</a></td>
+        <td>{{if .TargetPath}}{{.TargetPath}}{{else}}(whole collection){{end}}</td>
+        <td>{{.CreatedAt}}</td>
+        <td>{{.ExpiresAt}}</td>
+        <td>
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/shares/{{.ShareID}}/revoke"
+                hx-target="#shares-panel" hx-swap="outerHTML" hx-confirm="Revoke this share?">
+            <button class="nc-button" type="submit">Revoke</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5">No shares yet.</td></tr>
+      {{end}}
+    </table>
+  </div>
+</div>
+{{end}}

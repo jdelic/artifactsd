@@ -16,7 +16,7 @@
     <a class="nc-nav{{if eq .Active "collections"}} nc-nav-active{{end}}" href="{{.AdminPath}}/collections"><u>C</u>ollections</a>
     <span class="nc-nav"><u>F</u>iles</span>
     <span class="nc-nav"><u>S</u>hares</span>
-    <span class="nc-nav"><u>T</u>ools</span>
+    <a class="nc-nav{{if eq .Active "tools"}} nc-nav-active{{end}}" href="{{.AdminPath}}/tokens"><u>T</u>ools</a>
     <span class="nc-nav"><u>H</u>elp</span>
     <div class="nc-spacer"></div>
     {{if .Identity}}<span class="nc-user">{{or .Identity.Email .Identity.Subject}}</span>{{end}}

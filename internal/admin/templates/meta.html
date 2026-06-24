@@ -1,0 +1,72 @@
+{{define "meta"}}{{template "meta_panel" .}}{{end}}
+
+{{define "meta_panel"}}
+<div id="meta-panel">
+  <div class="nc-panel" data-label="Metadata: {{.Label}}">
+    {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+    {{if .Saved}}<div class="nc-saved">saved</div>{{end}}
+  </div>
+
+  <div class="nc-panel" data-label="Content / Access / Crawl / Expiry">
+    <form class="nc-form nc-form-grid" hx-post="{{.AdminPath}}/collections/{{.Collection}}/meta/fields?path={{.Path}}"
+          hx-target="#meta-panel" hx-swap="outerHTML">
+      <label>Content-Type <input type="text" name="content_type" value="{{.ContentType}}" placeholder="(auto-detect)"></label>
+      <label>Visibility
+        <select name="visibility">
+          <option value="" {{if eq .Visibility ""}}selected{{end}}>(inherit)</option>
+          <option value="public" {{if eq .Visibility "public"}}selected{{end}}>public</option>
+          <option value="unlisted" {{if eq .Visibility "unlisted"}}selected{{end}}>unlisted</option>
+          <option value="protected" {{if eq .Visibility "protected"}}selected{{end}}>protected</option>
+          <option value="private" {{if eq .Visibility "private"}}selected{{end}}>private</option>
+        </select>
+      </label>
+      <label>Directory listing
+        <select name="directory_listing">
+          <option value="" {{if eq .DirectoryListing ""}}selected{{end}}>(inherit)</option>
+          <option value="true" {{if eq .DirectoryListing "true"}}selected{{end}}>on</option>
+          <option value="false" {{if eq .DirectoryListing "false"}}selected{{end}}>off</option>
+        </select>
+      </label>
+      <label>Crawlable
+        <select name="crawlable">
+          <option value="" {{if eq .Crawlable ""}}selected{{end}}>(inherit)</option>
+          <option value="true" {{if eq .Crawlable "true"}}selected{{end}}>yes</option>
+          <option value="false" {{if eq .Crawlable "false"}}selected{{end}}>no</option>
+        </select>
+      </label>
+      <label>Indexable
+        <select name="indexable">
+          <option value="" {{if eq .Indexable ""}}selected{{end}}>(inherit)</option>
+          <option value="true" {{if eq .Indexable "true"}}selected{{end}}>yes</option>
+          <option value="false" {{if eq .Indexable "false"}}selected{{end}}>no</option>
+        </select>
+      </label>
+      <label>Expires at (RFC3339) <input type="text" name="expires_at" value="{{.ExpiresAt}}" placeholder="2026-07-01T00:00:00Z"></label>
+      <label>Delete after creation <input type="text" name="delete_after_creation" value="{{.DeleteAfterCreation}}" placeholder="30d"></label>
+      <label>Delete after last access <input type="text" name="delete_after_last_access" value="{{.DeleteAfterLastAccess}}" placeholder="30d"></label>
+      <label class="nc-form-wide">Headers (one "Name: value" per line)
+        <textarea name="headers" rows="3" cols="50">{{.Headers}}</textarea>
+      </label>
+      <button class="nc-button" type="submit">&lsaquo;F2&rsaquo; Save</button>
+    </form>
+  </div>
+
+  <div class="nc-panel" data-label="Auth (edit via raw JSON below)">
+    {{if .AuthEntries}}
+    <ul class="nc-auth-list">
+      {{range .AuthEntries}}<li>{{.Type}}: {{.Detail}}</li>{{end}}
+    </ul>
+    {{else}}
+    <p>No auth requirements set on this object.</p>
+    {{end}}
+  </div>
+
+  <div class="nc-panel" data-label="Raw JSON">
+    <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/meta/raw?path={{.Path}}"
+          hx-target="#meta-panel" hx-swap="outerHTML">
+      <textarea name="raw" rows="16" cols="70" class="nc-raw-json">{{.RawJSON}}</textarea>
+      <button class="nc-button" type="submit">Save raw JSON</button>
+    </form>
+  </div>
+</div>
+{{end}}
