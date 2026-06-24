@@ -25,6 +25,8 @@ picture, or jump to the area you are working on.
 
 See also:
 - [`../ROADMAP.md`](../ROADMAP.md) — milestones and how the beads epics map to this design.
+- [`../../docs/`](../../docs/) — the user-facing documentation (installation,
+  quickstart, and the config/API/CLI/MCP reference) derived from this design.
 
 ## Decision summary (all operator QA rounds resolved)
 
