@@ -17,13 +17,22 @@ import (
 // don't set Deps.BatchSize explicitly (e.g. ad-hoc tests).
 const defaultBatchSize = 500
 
+// defaultUploadTTL matches config's default (design/12 §4) for callers that
+// don't set Deps.UploadTTL explicitly.
+const defaultUploadTTL = time.Hour
+
+// reconcileEvery is how many RunOnce passes occur between Reconcile passes in
+// Loop (design/08 §7's blob_gc_every; not yet exposed as its own config key).
+const reconcileEvery = 30
+
 // Deps are the janitor's dependencies.
 type Deps struct {
 	Store     *store.Store
 	Blob      blob.Store
 	Audit     *audit.Recorder
 	Logger    *slog.Logger
-	BatchSize int // 0 uses defaultBatchSize
+	BatchSize int           // 0 uses defaultBatchSize
+	UploadTTL time.Duration // 0 uses defaultUploadTTL; temp files older than this are swept
 }
 
 // Janitor performs expiry-driven deletion passes (design/08). It satisfies
@@ -34,6 +43,7 @@ type Janitor struct {
 	audit     *audit.Recorder
 	log       *slog.Logger
 	batchSize int
+	uploadTTL time.Duration
 	now       func() time.Time
 }
 
@@ -43,8 +53,12 @@ func New(d Deps) *Janitor { //nolint:gocritic // Deps is built once at construct
 	if bs <= 0 {
 		bs = defaultBatchSize
 	}
+	ttl := d.UploadTTL
+	if ttl <= 0 {
+		ttl = defaultUploadTTL
+	}
 	return &Janitor{
-		store: d.Store, blob: d.Blob, audit: d.Audit, log: d.Logger, batchSize: bs,
+		store: d.Store, blob: d.Blob, audit: d.Audit, log: d.Logger, batchSize: bs, uploadTTL: ttl,
 		now: func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -58,19 +72,22 @@ func (j *Janitor) WithClock(now func() time.Time) *Janitor {
 // Summary reports one pass's results (design/08 §8); it is also the JSON body
 // returned by POST /api/v1/maintenance/cleanup.
 type Summary struct {
-	NodesDeleted       int      `json:"nodes_deleted"`
-	CollectionsDeleted int      `json:"collections_deleted"`
-	SharesDeleted      int      `json:"shares_deleted"`
-	BlobsDeleted       int      `json:"blobs_deleted"`
-	Errors             []string `json:"errors,omitempty"`
+	NodesDeleted          int      `json:"nodes_deleted"`
+	CollectionsDeleted    int      `json:"collections_deleted"`
+	SharesDeleted         int      `json:"shares_deleted"`
+	UploadSessionsExpired int      `json:"upload_sessions_expired"`
+	BlobsDeleted          int      `json:"blobs_deleted"`
+	Errors                []string `json:"errors,omitempty"`
 }
 
 // RunOnce performs a single expiry sweep: delete expired nodes, collections,
 // and shares (earliest-expiry-in-the-tree-wins is already baked into the
-// denormalized expires_at, design/03 §4), unlinking blobs that become
-// unreferenced, with an audit record per deletion (design/08 §4). Per-item
-// failures are collected into Summary.Errors rather than aborting the pass
-// (design/08 §8: failures are logged and retried next pass).
+// denormalized expires_at, design/03 §4), expire stale pending upload
+// sessions, and unlink blobs that become unreferenced as a result, with an
+// audit record per deletion (design/08 §4). Per-item failures are collected
+// into Summary.Errors rather than aborting the pass (design/08 §8: failures
+// are logged and retried next pass). The heavier full orphan-blob scan and
+// temp-file sweep are not part of this fast pass; see Reconcile.
 func (j *Janitor) RunOnce(ctx context.Context) (any, error) {
 	now := j.now()
 	sum := &Summary{}
@@ -84,19 +101,78 @@ func (j *Janitor) RunOnce(ctx context.Context) (any, error) {
 	if err := j.expireShares(ctx, now, sum); err != nil {
 		sum.Errors = append(sum.Errors, err.Error())
 	}
+	if err := j.expireUploadSessions(ctx, now, sum); err != nil {
+		sum.Errors = append(sum.Errors, err.Error())
+	}
 
 	if j.log != nil {
 		j.log.Info("janitor: pass complete",
 			"nodes_deleted", sum.NodesDeleted, "collections_deleted", sum.CollectionsDeleted,
-			"shares_deleted", sum.SharesDeleted, "blobs_deleted", sum.BlobsDeleted, "errors", len(sum.Errors))
+			"shares_deleted", sum.SharesDeleted, "upload_sessions_expired", sum.UploadSessionsExpired,
+			"blobs_deleted", sum.BlobsDeleted, "errors", len(sum.Errors))
 	}
 	return sum, nil
 }
 
-// Loop runs RunOnce on a ticker until ctx is canceled (design/08 §1/§7).
+// ReconcileSummary reports one Reconcile pass's results (design/08 §5/§8).
+type ReconcileSummary struct {
+	OrphanBlobsDeleted int      `json:"orphan_blobs_deleted"`
+	TempFilesRemoved   int      `json:"temp_files_removed"`
+	Errors             []string `json:"errors,omitempty"`
+}
+
+// Reconcile performs the heavier, less-frequent sweep that RunOnce skips: a
+// full scan of every stored blob ref, unlinking any with no referencing node
+// (catches orphans from a crash between blob.Put and the node write, design/07
+// §6), and removal of stale temp files. It is a no-op for a blob.Store backend
+// that doesn't implement blob.Lister/blob.TempSweeper (design/08 §5).
+func (j *Janitor) Reconcile(ctx context.Context) (*ReconcileSummary, error) {
+	sum := &ReconcileSummary{}
+
+	if lister, ok := j.blob.(blob.Lister); ok {
+		refs, err := lister.ListRefs(ctx)
+		if err != nil {
+			sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: list blob refs: %v", err))
+		}
+		for _, ref := range refs {
+			n, err := j.store.BlobRefCount(ctx, string(ref))
+			if err != nil {
+				sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: refcount blob %s: %v", ref, err))
+				continue
+			}
+			if n > 0 {
+				continue
+			}
+			if err := j.blob.Delete(ctx, ref); err != nil {
+				sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: unlink orphan blob %s: %v", ref, err))
+				continue
+			}
+			sum.OrphanBlobsDeleted++
+		}
+	}
+
+	if sweeper, ok := j.blob.(blob.TempSweeper); ok {
+		removed, err := sweeper.SweepTemp(ctx, j.uploadTTL)
+		if err != nil {
+			sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: sweep temp: %v", err))
+		}
+		sum.TempFilesRemoved = removed
+	}
+
+	if j.log != nil {
+		j.log.Info("janitor: reconcile complete",
+			"orphan_blobs_deleted", sum.OrphanBlobsDeleted, "temp_files_removed", sum.TempFilesRemoved,
+			"errors", len(sum.Errors))
+	}
+	return sum, nil
+}
+
+// Loop runs RunOnce on a ticker until ctx is canceled, interleaving a less
+// frequent Reconcile pass every reconcileEvery ticks (design/08 §1/§7).
 func (j *Janitor) Loop(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	passes := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -104,6 +180,12 @@ func (j *Janitor) Loop(ctx context.Context, interval time.Duration) {
 		case <-t.C:
 			if _, err := j.RunOnce(ctx); err != nil && j.log != nil {
 				j.log.Error("janitor: pass failed", "error", err)
+			}
+			passes++
+			if passes%reconcileEvery == 0 {
+				if _, err := j.Reconcile(ctx); err != nil && j.log != nil {
+					j.log.Error("janitor: reconcile failed", "error", err)
+				}
 			}
 		}
 	}
@@ -196,6 +278,29 @@ func (j *Janitor) expireShares(ctx context.Context, now time.Time, sum *Summary)
 		}
 		sum.SharesDeleted++
 		_ = j.audit.RecordDeletion(ctx, audit.ActorJanitor, audit.ActionExpiryDelete, sh.ShareID, nil)
+	}
+	return nil
+}
+
+// expireUploadSessions marks pending large-upload sessions past their TTL as
+// expired (design/07 §6, design/08 §5). A pending session never has a
+// referenced blob — Put only commits a blob once a PUT completes — so there is
+// no temp blob to unlink here; stray temp files are handled by Reconcile.
+func (j *Janitor) expireUploadSessions(ctx context.Context, now time.Time, sum *Summary) error {
+	sessions, err := j.store.ListExpiredUploadSessions(ctx, now, j.batchSize)
+	if err != nil {
+		return fmt.Errorf("janitor: list expired upload sessions: %w", err)
+	}
+	for _, s := range sessions {
+		if err := j.store.SetUploadStatus(ctx, s.UploadID, store.UploadExpired); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: expire upload session %s: %v", s.UploadID, err))
+			continue
+		}
+		sum.UploadSessionsExpired++
+		_ = j.audit.RecordDeletion(ctx, audit.ActorJanitor, audit.ActionExpiryDelete, "upload:"+s.UploadID, nil)
 	}
 	return nil
 }

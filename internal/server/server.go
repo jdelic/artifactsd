@@ -88,6 +88,7 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 			Store: opts.Store, Blob: opts.Blob, Logger: opts.Logger,
 			Audit:     audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
 			BatchSize: opts.Config.Limits.JanitorBatchSize,
+			UploadTTL: opts.Config.Limits.UploadTTL,
 		})
 		s.api = api.New(api.Deps{
 			Store:   opts.Store,
@@ -127,7 +128,14 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 // applied per config (design/06 §6).
 func (s *Server) Run(ctx context.Context) error {
 	if s.janitor != nil {
-		go s.janitor.Loop(ctx, s.cfg.Limits.JanitorInterval)
+		go func() {
+			// Startup reconcile (design/08 §5) runs once, in the background, before
+			// the regular ticker loop — it must not delay /healthz becoming ready.
+			if _, err := s.janitor.Reconcile(ctx); err != nil {
+				s.log.Error("janitor: startup reconcile failed", "error", err)
+			}
+			s.janitor.Loop(ctx, s.cfg.Limits.JanitorInterval)
+		}()
 	}
 
 	errCh := make(chan error, 1)
