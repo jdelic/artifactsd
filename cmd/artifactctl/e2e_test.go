@@ -308,6 +308,42 @@ func TestE2E_PutTree_IncludeGlob(t *testing.T) {
 	}
 }
 
+// TestE2E_PutTree_LargeUploadThreshold covers artifactsd-crx.1: a low
+// --large-upload-threshold forces every file through the begin-upload +
+// capability-PUT path (design/07 §3) instead of a direct PUT, and the content
+// still round-trips correctly.
+func TestE2E_PutTree_LargeUploadThreshold(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "site"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "a.txt"), "hello from a")
+	mustWrite(t, filepath.Join(root, "nested", "b.txt"), "hello from b")
+
+	code, out, errOut := e.run("--output", "json", "put-tree", "site", root, "--large-upload-threshold", "1")
+	if code != exitOK {
+		t.Fatalf("put-tree: code=%d err=%s", code, errOut)
+	}
+	var summary struct {
+		Uploaded int   `json:"uploaded"`
+		Bytes    int64 `json:"bytes"`
+	}
+	if err := json.Unmarshal([]byte(out), &summary); err != nil {
+		t.Fatalf("summary json: %v (%s)", err, out)
+	}
+	if summary.Uploaded != 2 {
+		t.Errorf("uploaded = %d, want 2", summary.Uploaded)
+	}
+
+	if code, body, errOut := e.run("get", "site/a.txt"); code != exitOK || body != "hello from a" {
+		t.Errorf("get a.txt = %d %q (err=%s)", code, body, errOut)
+	}
+	if code, body, errOut := e.run("get", "site/nested/b.txt"); code != exitOK || body != "hello from b" {
+		t.Errorf("get nested/b.txt = %d %q (err=%s)", code, body, errOut)
+	}
+}
+
 func TestE2E_AuthFailure(t *testing.T) {
 	ts := testserver.New(t)
 	var out, errOut bytes.Buffer

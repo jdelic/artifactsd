@@ -115,11 +115,18 @@ func (a *app) newRmCmd() *cobra.Command {
 	}
 }
 
+// defaultLargeUploadThreshold is put-tree's default cutover point (bytes)
+// from a direct PUT to a large-upload session (design/10 §3, design/07 §3):
+// big enough that most text/HTML/image artifacts go straight through, small
+// enough to avoid buffering large bodies through the JSON-API request path.
+const defaultLargeUploadThreshold = 8 << 20 // 8 MiB
+
 func (a *app) newPutTreeCmd() *cobra.Command {
 	var (
-		contentTypeAuto bool
-		include         string
-		exclude         string
+		contentTypeAuto      bool
+		include              string
+		exclude              string
+		largeUploadThreshold int64
 	)
 	cmd := &cobra.Command{
 		Use:   "put-tree <collection> <localdir>",
@@ -130,26 +137,96 @@ func (a *app) newPutTreeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.putTree(cmd, cli, args[0], args[1], contentTypeAuto, include, exclude)
+			return a.putTree(cmd, cli, args[0], args[1], contentTypeAuto, include, exclude, largeUploadThreshold)
 		},
 	}
 	f := cmd.Flags()
 	f.BoolVar(&contentTypeAuto, "content-type-auto", false, "infer content type per file from extension")
 	f.StringVar(&include, "include", "", "only upload paths matching this glob")
 	f.StringVar(&exclude, "exclude", "", "skip paths matching this glob")
+	f.Int64Var(&largeUploadThreshold, "large-upload-threshold", defaultLargeUploadThreshold,
+		"files at or above this size (bytes) use a large-upload session instead of a direct PUT")
 	return cmd
 }
 
-// putTree walks localDir and uploads each file under <collection>/<relpath>,
-// applying include/exclude globs (matched against the forward-slash relative
-// path) and optional per-file content-type inference, then reports a summary.
-//
-// Large-upload sessions for big files (design/10 §3) await the uploads epic
-// (artifactsd-4v3); every file is uploaded with a direct PUT for now.
-func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, localDir string, ctAuto bool, include, exclude string) error {
+// treeFile is one upload candidate discovered by the put-tree walk.
+type treeFile struct {
+	abs  string
+	rel  string
+	size int64
+}
+
+// putTree walks localDir, applying include/exclude globs (matched against the
+// forward-slash relative path), then uploads each match under
+// <collection>/<relpath> — a direct PUT for files under threshold, a
+// large-upload session (design/07 §3) for files at or above it — and reports
+// a summary. A progress bar (design/10 intro) tracks completion on stderr
+// when it is a terminal.
+func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, localDir string, ctAuto bool, include, exclude string, threshold int64) error {
+	files, err := discoverTreeFiles(localDir, include, exclude)
+	if err != nil {
+		return err
+	}
+
+	prog := newUploadProgress(a.err, len(files), a.quiet, a.jsonOutput())
 	var uploaded int
 	var totalBytes int64
-	walkErr := filepath.Walk(localDir, func(p string, info os.FileInfo, err error) error {
+	for _, tf := range files {
+		ct := ""
+		if ctAuto {
+			ct = mime.TypeByExtension(filepath.Ext(tf.abs))
+		}
+		if err := a.putTreeFile(cmd, cli, collection, tf, ct, threshold); err != nil {
+			prog.finish()
+			return err
+		}
+		uploaded++
+		totalBytes += tf.size
+		prog.advance(tf.rel)
+		if a.verbose {
+			a.printf("  %s\n", tf.rel)
+		}
+	}
+	prog.finish()
+
+	if a.jsonOutput() {
+		return a.printJSON(map[string]any{"uploaded": uploaded, "bytes": totalBytes})
+	}
+	a.printf("uploaded %d files (%d bytes) to %s\n", uploaded, totalBytes, collection)
+	return nil
+}
+
+// putTreeFile uploads one file: a direct PUT below threshold, a large-upload
+// session (begin + capability PUT) at or above it.
+func (a *app) putTreeFile(cmd *cobra.Command, cli *apiclient.Client, collection string, tf treeFile, contentType string, threshold int64) error {
+	f, err := os.Open(tf.abs) //nolint:gosec // walking a user-supplied directory to upload
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	if threshold > 0 && tf.size >= threshold {
+		session, err := cli.BeginUpload(cmd.Context(), collection, apiclient.BeginUploadRequest{Path: tf.rel})
+		if err != nil {
+			return fmt.Errorf("beginning upload for %s: %w", tf.rel, err)
+		}
+		if _, err := cli.PutUploadURL(cmd.Context(), session.UploadURL, f, contentType); err != nil {
+			return fmt.Errorf("uploading %s: %w", tf.rel, err)
+		}
+		return nil
+	}
+
+	if _, err := cli.PutFile(cmd.Context(), collection, tf.rel, f, apiclient.PutFileOptions{ContentType: contentType}); err != nil {
+		return fmt.Errorf("uploading %s: %w", tf.rel, err)
+	}
+	return nil
+}
+
+// discoverTreeFiles walks localDir and returns every regular file passing the
+// include/exclude globs, relative to localDir with forward slashes.
+func discoverTreeFiles(localDir, include, exclude string) ([]treeFile, error) {
+	var files []treeFile
+	err := filepath.Walk(localDir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -168,34 +245,13 @@ func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, loc
 		if !ok {
 			return nil
 		}
-		f, err := os.Open(p) //nolint:gosec // walking a user-supplied directory to upload
-		if err != nil {
-			return err
-		}
-		defer func() { _ = f.Close() }()
-
-		opts := apiclient.PutFileOptions{}
-		if ctAuto {
-			opts.ContentType = mime.TypeByExtension(filepath.Ext(p))
-		}
-		if _, err := cli.PutFile(cmd.Context(), collection, rel, f, opts); err != nil {
-			return fmt.Errorf("uploading %s: %w", rel, err)
-		}
-		uploaded++
-		totalBytes += info.Size()
-		if a.verbose {
-			a.printf("  %s\n", rel)
-		}
+		files = append(files, treeFile{abs: p, rel: rel, size: info.Size()})
 		return nil
 	})
-	if walkErr != nil {
-		return walkErr
+	if err != nil {
+		return nil, err
 	}
-	if a.jsonOutput() {
-		return a.printJSON(map[string]any{"uploaded": uploaded, "bytes": totalBytes})
-	}
-	a.printf("uploaded %d files (%d bytes) to %s\n", uploaded, totalBytes, collection)
-	return nil
+	return files, nil
 }
 
 // renderFile prints a file info as JSON or a short text summary.
