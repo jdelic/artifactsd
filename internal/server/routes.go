@@ -17,14 +17,16 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /auth/oidc/login", s.handleOIDCLogin)
 	mux.HandleFunc("GET /auth/oidc/callback", s.handleOIDCCallback)
 
-	// Public serving (design/05). /s share serving lands in artifactsd-dxb.
+	// Public serving (design/05).
 	if s.serve != nil {
 		mux.HandleFunc("GET /c/{collection}/{path...}", s.serve.ServeCollection)
 		mux.HandleFunc("HEAD /c/{collection}/{path...}", s.serve.ServeCollection)
+		mux.HandleFunc("GET /s/{share_id}/{path...}", s.serve.ServeShare)
+		mux.HandleFunc("HEAD /s/{share_id}/{path...}", s.serve.ServeShare)
 	} else {
 		mux.Handle("/c/", notImplemented("public serving"))
+		mux.Handle("/s/", notImplemented("public serving"))
 	}
-	mux.Handle("/s/", notImplemented("share serving"))
 	if s.api != nil {
 		mux.Handle("/api/v1/", s.api.Routes())
 	} else {
