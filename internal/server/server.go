@@ -158,3 +158,8 @@ func (s *Server) shutdown() error {
 
 // Addr returns the configured listen address.
 func (s *Server) Addr() string { return s.http.Addr }
+
+// Handler returns the server's composed HTTP handler (middleware stack wrapping
+// the route mux). Exposed for in-process integration tests (httptest) so they
+// exercise the full wiring without binding the configured listener.
+func (s *Server) Handler() http.Handler { return s.http.Handler }
