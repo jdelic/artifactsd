@@ -27,7 +27,7 @@ func runServe(parent context.Context, cfg *config.Config, stderr io.Writer) erro
 	// Ownership of db passes to the server, which closes it on shutdown.
 
 	if cfg.Server.AutoMigrate {
-		version, merr := db.Migrate(parent)
+		version, merr := db.Migrate(context.WithoutCancel(parent))
 		if merr != nil {
 			_ = db.Close()
 			return merr
