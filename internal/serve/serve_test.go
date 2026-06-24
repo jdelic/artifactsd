@@ -25,6 +25,7 @@ type harness struct {
 	st  *store.Store
 	bs  blob.Store
 	cfg *config.Config
+	h   *Handler
 }
 
 func newHarness(t *testing.T) *harness {
@@ -55,7 +56,7 @@ func newHarness(t *testing.T) *harness {
 	mux.HandleFunc("HEAD /c/{collection}/{path...}", h.ServeCollection)
 	mux.HandleFunc("GET /s/{share_id}/{path...}", h.ServeShare)
 	mux.HandleFunc("HEAD /s/{share_id}/{path...}", h.ServeShare)
-	return &harness{mux: mux, st: st, bs: bs, cfg: cfg}
+	return &harness{mux: mux, st: st, bs: bs, cfg: cfg, h: h}
 }
 
 func (h *harness) collection(t *testing.T, name, metaJSON string) *store.Collection {
@@ -507,5 +508,62 @@ func TestServeShare_DirectoryListing(t *testing.T) {
 	rec := h.get("/s/shr_dir/?format=json", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "result.json") {
 		t.Errorf("share directory listing = %d %q", rec.Code, rec.Body)
+	}
+}
+
+// TestServe_TouchesLastAccessThrottled exercises the design/08 §3 wiring
+// end-to-end: serving a file advances its last_access_at and re-derives its
+// denormalized expires_at from delete_after_last_access; a second serve within
+// the throttle window is coalesced (no further write); once the injected clock
+// advances past the window, the next serve persists again.
+func TestServe_TouchesLastAccessThrottled(t *testing.T) {
+	h := newHarness(t)
+	window := h.cfg.Limits.AccessUpdateThrottle
+	clock := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	h.h.WithClock(func() time.Time { return clock })
+
+	c := h.collection(t, "demo", `{"access":{"visibility":"public"}}`)
+	h.file(t, c, "report.txt", "hello", `{"expiry":{"delete_after_last_access":"3d"}}`, "text/plain")
+	node, err := h.st.GetNode(context.Background(), c.ID, "report.txt")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if node.LastAccessAt != nil {
+		t.Fatalf("last_access_at = %v before any serve, want nil", node.LastAccessAt)
+	}
+
+	if rec := h.get("/c/demo/report.txt", nil); rec.Code != http.StatusOK {
+		t.Fatalf("serve 1 = %d", rec.Code)
+	}
+	node, _ = h.st.GetNode(context.Background(), c.ID, "report.txt")
+	if node.LastAccessAt == nil || !node.LastAccessAt.Equal(clock) {
+		t.Fatalf("last_access_at after serve 1 = %v, want %v", node.LastAccessAt, clock)
+	}
+	if node.ExpiresAt == nil || !node.ExpiresAt.Equal(clock.Add(3*24*time.Hour)) {
+		t.Errorf("expires_at after serve 1 = %v, want %v", node.ExpiresAt, clock.Add(3*24*time.Hour))
+	}
+
+	// Within the throttle window: a second serve is coalesced, no write.
+	clock = clock.Add(window / 2)
+	if rec := h.get("/c/demo/report.txt", nil); rec.Code != http.StatusOK {
+		t.Fatalf("serve 2 = %d", rec.Code)
+	}
+	node, _ = h.st.GetNode(context.Background(), c.ID, "report.txt")
+	firstTouch := clock.Add(-window / 2)
+	if !node.LastAccessAt.Equal(firstTouch) {
+		t.Errorf("last_access_at after serve 2 (within window) = %v, want unchanged %v", node.LastAccessAt, firstTouch)
+	}
+
+	// Past the throttle window: the next serve persists again.
+	clock = clock.Add(window)
+	if rec := h.get("/c/demo/report.txt", nil); rec.Code != http.StatusOK {
+		t.Fatalf("serve 3 = %d", rec.Code)
+	}
+	node, _ = h.st.GetNode(context.Background(), c.ID, "report.txt")
+	if node.LastAccessAt == nil || !node.LastAccessAt.Equal(clock) {
+		t.Errorf("last_access_at after serve 3 (past window) = %v, want %v", node.LastAccessAt, clock)
+	}
+	if node.ExpiresAt == nil || !node.ExpiresAt.Equal(clock.Add(3*24*time.Hour)) {
+		t.Errorf("expires_at after serve 3 = %v, want %v", node.ExpiresAt, clock.Add(3*24*time.Hour))
 	}
 }

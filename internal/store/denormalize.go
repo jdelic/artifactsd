@@ -29,22 +29,29 @@ type metaForDenormalize struct {
 		Visibility string `json:"visibility"`
 	} `json:"access"`
 	Expiry struct {
-		ExpiresAt           *time.Time `json:"expires_at"`
-		DeleteAfterCreation string     `json:"delete_after_creation"`
+		ExpiresAt             *time.Time `json:"expires_at"`
+		DeleteAfterCreation   string     `json:"delete_after_creation"`
+		DeleteAfterLastAccess string     `json:"delete_after_last_access"`
 	} `json:"expiry"`
 }
 
 // DeriveDenormalized computes the denormalized visibility and effective
-// absolute expiry from an object's own metadata document and creation time.
+// absolute expiry from an object's own metadata document, creation time, and
+// last-access time (design/03 §4).
 //
 //   - visibility is the metadata's access.visibility, or "" when unset (meaning
 //     "inherit" for nodes; callers may substitute a default for collections).
-//   - expiresAt is the earliest of an explicit expiry.expires_at and a
-//     creation-relative expiry.delete_after_creation, or nil when neither is set.
+//   - expiresAt is the earliest of an explicit expiry.expires_at, a
+//     creation-relative expiry.delete_after_creation, and an access-relative
+//     expiry.delete_after_last_access (relative to lastAccess, or createdAt if
+//     lastAccess is zero — never yet accessed), or nil when none apply.
 //
-// (delete_after_last_access yields a moving target and is handled by the
-// janitor at access time, not baked into this absolute column — design/08.)
-func DeriveDenormalized(meta json.RawMessage, createdAt time.Time) (visibility string, expiresAt *time.Time, err error) {
+// delete_after_last_access makes expiresAt a moving target: callers that track
+// access (currently nodes, via the throttled touch in internal/serve) must
+// re-derive and persist this column each time lastAccess advances (design/08
+// §3); callers with no access signal pass a zero lastAccess, which is
+// equivalent to never having been accessed.
+func DeriveDenormalized(meta json.RawMessage, createdAt, lastAccess time.Time) (visibility string, expiresAt *time.Time, err error) {
 	if len(meta) == 0 {
 		return "", nil, nil
 	}
@@ -69,6 +76,20 @@ func DeriveDenormalized(meta json.RawMessage, createdAt time.Time) (visibility s
 			expiresAt = &candidate
 		}
 	}
+	if dala := strings.TrimSpace(doc.Expiry.DeleteAfterLastAccess); dala != "" {
+		d, perr := durations.Parse(dala)
+		if perr != nil {
+			return "", nil, fmt.Errorf("store: expiry.delete_after_last_access: %w", perr)
+		}
+		base := lastAccess
+		if base.IsZero() {
+			base = createdAt
+		}
+		candidate := base.Add(d).UTC()
+		if expiresAt == nil || candidate.Before(*expiresAt) {
+			expiresAt = &candidate
+		}
+	}
 	return visibility, expiresAt, nil
 }
 
@@ -80,7 +101,7 @@ func (s *Store) RecomputeCollectionDenormalized(ctx context.Context, id int64, d
 	if err != nil {
 		return err
 	}
-	vis, exp, err := DeriveDenormalized(c.Metadata, c.CreatedAt)
+	vis, exp, err := DeriveDenormalized(c.Metadata, c.CreatedAt, time.Time{})
 	if err != nil {
 		return err
 	}
@@ -100,7 +121,11 @@ func (s *Store) RecomputeNodeDenormalized(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	vis, exp, err := DeriveDenormalized(n.Metadata, n.CreatedAt)
+	var lastAccess time.Time
+	if n.LastAccessAt != nil {
+		lastAccess = *n.LastAccessAt
+	}
+	vis, exp, err := DeriveDenormalized(n.Metadata, n.CreatedAt, lastAccess)
 	if err != nil {
 		return err
 	}
