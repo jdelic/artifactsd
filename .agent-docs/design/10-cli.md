@@ -36,7 +36,7 @@ Global flags: `--base-url`, `--token`, `--profile`, `--output text|json`,
 ```
 artifactctl collection create <name> [--public|--unlisted|--protected|--private]
                                       [--list] [--no-list]
-                                      [--crawlable] [--no-index]
+                                      [--crawlable] [--index] [--no-index]
                                       [--expires <ts>] [--expires-in <dur>]
 artifactctl collection list
 artifactctl collection show <name>
@@ -54,7 +54,7 @@ artifactctl rm <collection>/<path>
 
 artifactctl meta get <collection>/<path>
 artifactctl meta set <collection>/<path> [--visibility ...] [--expires ...]
-                                         [--header k=v] [--crawlable] [--no-index]
+                                         [--header k=v] [--crawlable] [--index] [--no-index]
 
 artifactctl share create <collection>[/<path>]
         [--unlisted|--protected] [--bearer-token [<t>]] [--basic <user:pass>]
