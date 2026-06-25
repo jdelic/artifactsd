@@ -1,0 +1,8 @@
+.git
+dist
+artifactsd-data
+*.out
+coverage.*
+.beads
+.agent-docs
+docs

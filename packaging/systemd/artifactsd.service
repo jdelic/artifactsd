@@ -1,0 +1,40 @@
+# Example systemd unit for artifactsd serve.
+#
+# Install:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin artifactsd
+#   sudo install -m755 artifactsd /usr/local/bin/artifactsd
+#   sudo install -o artifactsd -g artifactsd -m750 -d /var/lib/artifactsd
+#   sudo install -o root -g artifactsd -m640 artifactsd.env /etc/artifactsd.env   # see artifactsd.env.example
+#   sudo install -m644 artifactsd.service /etc/systemd/system/artifactsd.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now artifactsd
+
+[Unit]
+Description=artifactsd server
+Documentation=https://github.com/jdelic/artifactsd
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=artifactsd
+Group=artifactsd
+EnvironmentFile=/etc/artifactsd.env
+ExecStart=/usr/local/bin/artifactsd serve
+Restart=on-failure
+RestartSec=5s
+
+# Data directory; must match ARTIFACTSD_DATA_DIR in the env file.
+StateDirectory=artifactsd
+WorkingDirectory=/var/lib/artifactsd
+
+# Allow binding low ports (e.g. :443) without running as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/artifactsd
+
+[Install]
+WantedBy=multi-user.target

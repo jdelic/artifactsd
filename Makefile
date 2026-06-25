@@ -6,6 +6,7 @@ GOBIN         := $(shell $(GO) env GOPATH)/bin
 GOLANGCI_LINT ?= $(GOBIN)/golangci-lint
 GOFUMPT       ?= $(GOBIN)/gofumpt
 GOVULNCHECK   ?= $(GOBIN)/govulncheck
+GORELEASER    ?= $(GOBIN)/goreleaser
 
 PKGS          := ./...
 VERSION       ?= dev
@@ -52,6 +53,14 @@ test: ## Run tests with the race detector
 smoke: build ## Spawn a real artifactsd and drive it with artifactctl + curl
 	./scripts/smoke-test.sh
 
+.PHONY: release-snapshot
+release-snapshot: ## Build release archives for all platforms into ./dist without publishing
+	$(GORELEASER) release --snapshot --clean
+
+.PHONY: docker-build
+docker-build: ## Build the artifactsd Docker image for the local platform
+	docker build -t artifactsd:dev --build-arg VERSION=$(VERSION) .
+
 .PHONY: cover
 cover: ## Run tests with coverage report
 	$(GO) test $(PKGS) -race -coverprofile=coverage.out
@@ -74,6 +83,10 @@ tools: ## Install the developer tools used by `make check`
 	$(GO) install mvdan.cc/gofumpt@latest
 	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
+
+.PHONY: release-tools
+release-tools: ## Install goreleaser, used by `make release-snapshot`
+	$(GO) install github.com/goreleaser/goreleaser/v2@latest
 
 .PHONY: clean
 clean: ## Remove build artifacts
