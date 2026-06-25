@@ -137,6 +137,37 @@ artifactctl maintenance cleanup    # trigger a janitor pass now
 artifactctl version
 ```
 
+### Skill install
+
+```
+artifactctl skill install <agent> [--global]
+```
+
+Installs the [`SKILL.md`](../SKILL.md) agent skill (teaching an AI assistant
+how to publish artifacts with this CLI or MCP tools) into a coding agent's
+tooling, so it's picked up automatically in that agent's sessions. Supported
+agents: `claude`, `codex`, `copilot`, `crush`, `opencode`, `hermes`.
+
+By default it installs into the current project (the working directory);
+`--global` installs into the agent's user-wide location instead (not
+supported for `copilot`, which has no such location).
+
+| Agent | Local path | Global path (`--global`) |
+|-------|------------|---------------------------|
+| `claude` | `.claude/skills/artifactsd/SKILL.md` | `~/.claude/skills/artifactsd/SKILL.md` |
+| `hermes` | `skills/artifactsd/SKILL.md` | `~/.hermes/skills/artifactsd/SKILL.md` |
+| `codex` | `AGENTS.md` | `~/.codex/AGENTS.md` |
+| `opencode` | `AGENTS.md` | `~/.config/opencode/AGENTS.md` |
+| `crush` | `AGENTS.md` | `~/.config/crush/CRUSH.md` |
+| `copilot` | `.github/copilot-instructions.md` | — |
+
+`claude` and `hermes` use a directory-per-skill convention with the same
+`SKILL.md` frontmatter format, so the file is copied verbatim. The other
+agents read a single shared instructions file, so the skill's body (with its
+YAML frontmatter stripped) is written inside a marker-delimited block; the
+rest of the file — including content you wrote yourself — is left alone, and
+re-running `skill install` only updates that block.
+
 ## Recipes
 
 Public, non-indexable report from a built site:
