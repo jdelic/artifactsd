@@ -75,6 +75,36 @@ func TestMerge_HeadersMapMergeAndRemove(t *testing.T) {
 	}
 }
 
+// TestMerge_HeadersCaseInsensitive confirms that override and removal match the
+// existing header regardless of key casing (artifactsd-lw4.1): the base holds a
+// canonical key, the patch uses a different case, and the result has exactly one
+// canonical entry.
+func TestMerge_HeadersCaseInsensitive(t *testing.T) {
+	base := &Document{Content: &Content{Headers: map[string]string{
+		"Content-Type":  "text/plain",
+		"Cache-Control": "max-age=60",
+	}}}
+	patch := &Document{Content: &Content{Headers: map[string]string{
+		"content-type":  "text/html", // override despite lower-case key
+		"cache-control": "",          // remove despite lower-case key
+	}}}
+	base.Merge(patch)
+
+	got := base.Content.Headers
+	if len(got) != 1 {
+		t.Fatalf("headers = %v, want exactly one canonical entry", got)
+	}
+	if got["Content-Type"] != "text/html" {
+		t.Errorf("Content-Type = %q, want text/html (case-insensitive override)", got["Content-Type"])
+	}
+	if _, ok := got["Cache-Control"]; ok {
+		t.Error("Cache-Control should have been removed by a lower-case empty-value patch")
+	}
+	if _, ok := got["cache-control"]; ok {
+		t.Error("no non-canonical key should remain after merge")
+	}
+}
+
 // TestMerge_HeadersIntoNilBase ensures headers can be added when the base has no
 // content section at all.
 func TestMerge_HeadersIntoNilBase(t *testing.T) {

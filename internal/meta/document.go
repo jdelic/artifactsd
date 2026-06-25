@@ -117,6 +117,7 @@ func FromJSON(data []byte) (*Document, error) {
 	if err := dec.Decode(&d); err != nil {
 		return nil, fmt.Errorf("meta: parsing JSON: %w", err)
 	}
+	d.normalize()
 	return &d, nil
 }
 
@@ -129,7 +130,18 @@ func FromYAML(data []byte) (*Document, error) {
 	if err := yaml.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("meta: parsing YAML: %w", err)
 	}
+	d.normalize()
 	return &d, nil
+}
+
+// normalize canonicalizes the document into its stored form. Currently this
+// canonicalizes content.headers keys so that stored documents, merges, and
+// resolution all agree on header casing (design/03 §6); applied on every parse
+// so both freshly-written and already-stored documents are normalized.
+func (d *Document) normalize() {
+	if d.Content != nil && len(d.Content.Headers) > 0 {
+		d.Content.Headers = canonicalHeaders(d.Content.Headers)
+	}
 }
 
 // JSON serializes the document to compact JSON (the storage form).

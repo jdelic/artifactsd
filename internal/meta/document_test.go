@@ -9,6 +9,46 @@ import (
 
 func strp(s string) *string { return &s }
 
+// TestFromJSON_CanonicalizesHeaderKeys verifies the parse-time normalization
+// (artifactsd-lw4.1): stored documents always hold HTTP-canonical header keys so
+// they agree with the resolved/served form and can never collide after
+// resolution.
+func TestFromJSON_CanonicalizesHeaderKeys(t *testing.T) {
+	d, err := FromJSON([]byte(`{"content":{"headers":{"cache-control":"no-store","x-custom-thing":"v"}}}`))
+	if err != nil {
+		t.Fatalf("FromJSON: %v", err)
+	}
+	h := d.Content.Headers
+	if h["Cache-Control"] != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store (key should be canonicalized)", h["Cache-Control"])
+	}
+	if h["X-Custom-Thing"] != "v" {
+		t.Errorf("X-Custom-Thing = %q, want v", h["X-Custom-Thing"])
+	}
+	if _, ok := h["cache-control"]; ok {
+		t.Error("raw lower-case key should not survive parsing")
+	}
+}
+
+// TestFromJSON_HeaderKeyCollisionCollapses verifies that two raw keys that
+// canonicalize to the same name collapse to a single deterministic entry rather
+// than producing a non-deterministic collision at resolution time.
+func TestFromJSON_HeaderKeyCollisionCollapses(t *testing.T) {
+	d, err := FromJSON([]byte(`{"content":{"headers":{"Cache-Control":"first","cache-control":"second"}}}`))
+	if err != nil {
+		t.Fatalf("FromJSON: %v", err)
+	}
+	h := d.Content.Headers
+	if len(h) != 1 {
+		t.Fatalf("headers = %v, want a single collapsed entry", h)
+	}
+	// "cache-control" sorts after "Cache-Control" (lower-case > upper-case in
+	// ASCII), so the last-in-sorted-order value wins, deterministically.
+	if h["Cache-Control"] != "second" {
+		t.Errorf("collapsed value = %q, want %q (lexicographically-last raw key wins)", h["Cache-Control"], "second")
+	}
+}
+
 func TestFromJSON_RoundTrip(t *testing.T) {
 	in := `{"access":{"visibility":"public","directory_listing":true},"crawl":{"indexable":false}}`
 	d, err := FromJSON([]byte(in))

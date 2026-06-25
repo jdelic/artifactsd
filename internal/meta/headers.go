@@ -40,6 +40,28 @@ func RejectedHeaders(headers map[string]string) []string {
 	return bad
 }
 
+// canonicalHeaders returns a copy of headers with keys in HTTP-canonical form
+// (http.CanonicalHeaderKey), so stored documents agree on casing with the
+// resolved/served form (design/03 §6). Keys that canonicalize to the same name
+// collapse to one entry; the value from the lexicographically-last raw key wins
+// so the result is deterministic regardless of map iteration order. Returns the
+// input unchanged when it is nil or empty.
+func canonicalHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return headers
+	}
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make(map[string]string, len(headers))
+	for _, k := range keys {
+		out[http.CanonicalHeaderKey(k)] = headers[k]
+	}
+	return out
+}
+
 // FilterHeaders returns a copy of headers safe to emit at serve time: unsafe
 // hop-by-hop headers are dropped and Content-Type is removed (the resolved
 // content_type wins). Applied as defense-in-depth even though writes are
