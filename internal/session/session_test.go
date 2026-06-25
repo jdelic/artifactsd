@@ -104,9 +104,21 @@ func TestCSRFToken_RejectsTamperedToken(t *testing.T) {
 	m := newManager(t)
 	id := &Identity{Subject: "u1", Expiry: time.Now().Add(time.Hour)}
 	token := m.CSRFToken(id)
-	if m.VerifyCSRFToken(id, "x"+token[1:]) {
+	if m.VerifyCSRFToken(id, tamperFirstByte(token)) {
 		t.Error("VerifyCSRFToken accepted a tampered token")
 	}
+}
+
+// tamperFirstByte flips the token's first character to a value guaranteed to
+// differ from the original, regardless of what that original character was
+// (base64url's 64-character alphabet includes both 'x' and 'y', so a fixed
+// replacement of "x" alone is occasionally a no-op when the token already
+// starts with 'x').
+func tamperFirstByte(s string) string {
+	if s[0] == 'x' {
+		return "y" + s[1:]
+	}
+	return "x" + s[1:]
 }
 
 func TestCSRFToken_RejectsDifferentIdentity(t *testing.T) {
