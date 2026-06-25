@@ -95,7 +95,7 @@ See [Configuration → TLS](configuration.md#tls) for the full matrix.
 ## Docker
 
 Each release publishes a multi-arch (`linux/amd64`, `linux/arm64`) server
-image to `ghcr.io/jdelic/artifactsd`, built from the repository's
+image to `registry.maurus.net/jdelic/artifactsd`, built from the repository's
 [`Dockerfile`](../Dockerfile) (a minimal, non-root, distroless-based image
 containing only the `artifactsd` binary):
 
@@ -105,7 +105,7 @@ $ docker run -d \
     -p 8080:8080 \
     -v artifactsd-data:/data \
     -e ARTIFACTSD_BASE_URL=https://artifacts.example.com \
-    ghcr.io/jdelic/artifactsd:latest
+    registry.maurus.net/jdelic/artifactsd:latest
 ```
 
 The image's entrypoint is `artifactsd`; its default command is
