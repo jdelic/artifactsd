@@ -1,10 +1,14 @@
 package meta
 
+import "net/http"
+
 // Merge applies a patch document onto the receiver in place, using the same
 // per-section semantics as inheritance resolution (design/03 §2): scalars
 // override when set in the patch, content.headers map-merge (empty value
 // removes), and access.auth replaces wholesale. Sections absent from the patch
-// are left untouched. Used by PATCH .../meta (own-metadata merge).
+// are left untouched. Header keys are matched in HTTP-canonical form so override
+// and removal are case-insensitive (design/03 §6). Used by PATCH .../meta
+// (own-metadata merge).
 func (d *Document) Merge(patch *Document) {
 	if patch == nil {
 		return
@@ -16,14 +20,20 @@ func (d *Document) Merge(patch *Document) {
 		if patch.Content.ContentType != nil {
 			d.Content.ContentType = patch.Content.ContentType
 		}
-		for k, v := range patch.Content.Headers {
+		if len(patch.Content.Headers) > 0 {
+			// Canonicalize the base so case-variant patch keys hit the existing
+			// entry; the merge then operates entirely in canonical form.
+			d.Content.Headers = canonicalHeaders(d.Content.Headers)
 			if d.Content.Headers == nil {
 				d.Content.Headers = map[string]string{}
 			}
-			if v == "" {
-				delete(d.Content.Headers, k)
-			} else {
-				d.Content.Headers[k] = v
+			for k, v := range patch.Content.Headers {
+				key := http.CanonicalHeaderKey(k)
+				if v == "" {
+					delete(d.Content.Headers, key)
+				} else {
+					d.Content.Headers[key] = v
+				}
 			}
 		}
 	}
