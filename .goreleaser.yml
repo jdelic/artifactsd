@@ -1,0 +1,79 @@
+version: 2
+
+project_name: artifactsd
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: artifactsd
+    main: ./cmd/artifactsd
+    binary: artifactsd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/jdelic/artifactsd/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/jdelic/artifactsd/internal/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/jdelic/artifactsd/internal/buildinfo.Date={{ .Date }}
+
+  - id: artifactctl
+    main: ./cmd/artifactctl
+    binary: artifactctl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/jdelic/artifactsd/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/jdelic/artifactsd/internal/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/jdelic/artifactsd/internal/buildinfo.Date={{ .Date }}
+
+archives:
+  - id: artifactsd
+    ids: [artifactsd]
+    name_template: "artifactsd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - src: packaging/systemd/artifactsd.service
+        dst: artifactsd.service
+      - src: packaging/systemd/artifactsd.env.example
+        dst: artifactsd.env.example
+
+  - id: artifactctl
+    ids: [artifactctl]
+    name_template: "artifactctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^beads:"
+
+release:
+  github:
+    owner: jdelic
+    name: artifactsd

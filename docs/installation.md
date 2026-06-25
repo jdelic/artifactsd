@@ -5,6 +5,22 @@
 - **`artifactsd`** — the server (and the `mcp` adapter subcommand).
 - **`artifactctl`** — the command-line client.
 
+## Download a release
+
+Each tagged release publishes static binaries for `linux`/`darwin` ×
+`amd64`/`arm64` as `.tar.gz` archives on the
+[GitHub releases page](https://github.com/jdelic/artifactsd/releases), built
+with [GoReleaser](https://goreleaser.com) (see [`.goreleaser.yml`](../.goreleaser.yml)).
+Each archive also bundles `LICENSE`, `README.md`, and — for `artifactsd` — an
+example [systemd unit](#systemd-service). Verify against `checksums.txt`:
+
+```console
+$ curl -LO https://github.com/jdelic/artifactsd/releases/download/vX.Y.Z/artifactsd_X.Y.Z_linux_amd64.tar.gz
+$ curl -LO https://github.com/jdelic/artifactsd/releases/download/vX.Y.Z/checksums.txt
+$ sha256sum --check --ignore-missing checksums.txt
+$ tar xzf artifactsd_X.Y.Z_linux_amd64.tar.gz
+```
+
 ## Build from source
 
 You need Go (see [`go.mod`](../go.mod) for the required version).
@@ -24,7 +40,9 @@ $ go install github.com/jdelic/artifactsd/cmd/artifactctl@latest
 ```
 
 The repository's [`Makefile`](../Makefile) wraps the common build, test, and lint
-targets.
+targets. `make release-snapshot` runs GoReleaser locally (`make release-tools`
+installs it) to produce the same archives as a real release, without
+publishing anything.
 
 ## Running the server
 
@@ -73,6 +91,37 @@ artifactsd-data/
   — automatic Let's Encrypt certificates, cached under `<data>/acme`.
 
 See [Configuration → TLS](configuration.md#tls) for the full matrix.
+
+## Docker
+
+Each release publishes a multi-arch (`linux/amd64`, `linux/arm64`) server
+image to `ghcr.io/jdelic/artifactsd`, built from the repository's
+[`Dockerfile`](../Dockerfile) (a minimal, non-root, distroless-based image
+containing only the `artifactsd` binary):
+
+```console
+$ docker run -d \
+    --name artifactsd \
+    -p 8080:8080 \
+    -v artifactsd-data:/data \
+    -e ARTIFACTSD_BASE_URL=https://artifacts.example.com \
+    ghcr.io/jdelic/artifactsd:latest
+```
+
+The image's entrypoint is `artifactsd`; its default command is
+`serve --listen :8080 --data /data`. Pass additional flags after the image
+name, or override settings with `ARTIFACTSD_*` environment variables (see
+[Configuration](configuration.md)) — `--base-url` (or
+`ARTIFACTSD_BASE_URL`) is the only one you must set. Build the image locally
+with `make docker-build` or `docker build .`.
+
+## systemd service
+
+For bare-metal/VM deployments, [`packaging/systemd/artifactsd.service`](../packaging/systemd/artifactsd.service)
+is an example unit that runs `artifactsd serve` as a dedicated `artifactsd`
+system user, with an `EnvironmentFile` for configuration — see
+[`packaging/systemd/artifactsd.env.example`](../packaging/systemd/artifactsd.env.example)
+and the install steps in the unit file's header comment.
 
 ## Next steps
 
