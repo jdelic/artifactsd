@@ -72,8 +72,46 @@ Two-step to avoid buffering huge bodies through the JSON API:
 
 Abandoned/expired sessions and their temp blobs are reaped by the janitor.
 
-Resumable/multipart chunked uploads are **out of scope for the first release**
-(single PUT stream) and scheduled on milestone M2 (decision F2).
+### Resumable / chunked uploads (M2, decision F2 — design agreed 2026-06-26)
+
+Extend the existing two-step session with `Content-Range` support. No new
+endpoints, no new HTTP methods. Backward-compatible: a PUT without
+`Content-Range` still streams the whole body as before.
+
+**Protocol (Content-Range append)**
+
+```
+POST /api/v1/collections/{c}/uploads             # unchanged — creates session
+PUT  /api/v1/uploads/{id}                        # single-PUT (no Content-Range) — unchanged
+PUT  /api/v1/uploads/{id}  Content-Range: bytes 0-4999999/10000000   # chunk 1
+PUT  /api/v1/uploads/{id}  Content-Range: bytes 5000000-9999999/10000000  # chunk 2 (last)
+HEAD /api/v1/uploads/{id}                        # returns Upload-Offset: <bytes_received>
+```
+
+The server completes the upload automatically when `bytes_received == total_size`
+(last chunk written).
+
+**Decisions**
+
+- **D-F2a**: Named temp file `data/tmp/upload-{upload_id}` (not the existing
+  random `blob-*` name) so it survives server restart.
+- **D-F2b**: `bytes_received` and `total_size` persisted in `upload_sessions`
+  so `HEAD` offset query is O(1) and survives restart.
+- **D-F2c**: Chunks must arrive sequentially (in order). The server validates
+  that `Content-Range` start == `bytes_received`; a gap or overlap is rejected
+  with 409 Conflict.
+- **D-F2d**: `blob.Resumable` optional interface (`WriteChunk`, `CommitChunked`,
+  `DiscardChunked`, `ChunkedOffset`) on `FSStore`; future non-FS backends may
+  delegate integrity to the object store and need not implement it.
+
+**DB schema change (migration 0002)**
+
+```sql
+ALTER TABLE upload_sessions ADD COLUMN bytes_received INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE upload_sessions ADD COLUMN total_size     INTEGER;  -- NULL until first Content-Range chunk
+```
+
+**Clients**: artifactctl CLI, any HTTP client (curl), browser/JS clients.
 
 ## 4. Folder & tree operations
 
