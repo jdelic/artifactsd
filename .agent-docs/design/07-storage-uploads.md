@@ -72,7 +72,17 @@ Two-step to avoid buffering huge bodies through the JSON API:
 
 Abandoned/expired sessions and their temp blobs are reaped by the janitor.
 
-### Resumable / chunked uploads (M2, decision F2 — design agreed 2026-06-26)
+### Resumable / chunked uploads — **NOT PLANNED** (decision F2, closed 2026-06-26)
+
+> **Decision**: will not be implemented unless requirements change significantly.
+> For large files, raise `limits.max_upload_size` or front artifactsd with S3/CDN.
+> If this is ever revisited, see the design notes below as a starting point.
+
+### Design notes (archived, not active)
+
+*The following was drafted when 90i was being considered. Kept for reference only.*
+
+### Archived design: resumable / chunked uploads (M2, decision F2)
 
 Extend the existing two-step session with `Content-Range` support. No new
 endpoints, no new HTTP methods. Backward-compatible: a PUT without
