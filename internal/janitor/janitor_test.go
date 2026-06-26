@@ -291,6 +291,59 @@ func TestJanitor_Reconcile(t *testing.T) {
 	}
 }
 
+func TestJanitor_Scrub_Clean(t *testing.T) {
+	j, st, bs, ctx := newTestJanitor(t)
+	c := mustCollection(t, st, ctx, "demo", nil)
+	mustFileNode(t, st, bs, ctx, c.ID, "a.bin", "clean content", nil)
+	mustFileNode(t, st, bs, ctx, c.ID, "b.bin", "other content", nil)
+
+	sum, err := j.Scrub(ctx)
+	if err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	if sum.BlobsVerified != 2 {
+		t.Errorf("BlobsVerified = %d, want 2", sum.BlobsVerified)
+	}
+	if sum.BlobsCorrupted != 0 || len(sum.Errors) != 0 {
+		t.Errorf("clean store reported corruption: %+v", sum)
+	}
+}
+
+func TestJanitor_Scrub_Bitrot(t *testing.T) {
+	j, st, bs, ctx, dir := newTestJanitorDir(t)
+	c := mustCollection(t, st, ctx, "demo", nil)
+
+	// Store one clean blob and one that we'll corrupt.
+	mustFileNode(t, st, bs, ctx, c.ID, "clean.bin", "untouched content", nil)
+	n := mustFileNode(t, st, bs, ctx, c.ID, "corrupt.bin", "content to corrupt", nil)
+
+	// Corrupt the blob by overwriting it on disk (bitrot simulation).
+	blobID := *n.BlobID
+	blobRef := blob.Ref(blobID)
+	sum, err := blobRef.Sum()
+	if err != nil {
+		t.Fatalf("ref.Sum: %v", err)
+	}
+	corruptPath := filepath.Join(dir, "blobs", "sha256", sum[0:2], sum[2:4], sum)
+	if err := os.WriteFile(corruptPath, []byte("corrupted bytes"), 0o600); err != nil {
+		t.Fatalf("corrupt blob file: %v", err)
+	}
+
+	result, err := j.Scrub(ctx)
+	if err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	if result.BlobsCorrupted != 1 {
+		t.Errorf("BlobsCorrupted = %d, want 1", result.BlobsCorrupted)
+	}
+	if result.BlobsVerified != 1 {
+		t.Errorf("BlobsVerified = %d, want 1 (the clean blob)", result.BlobsVerified)
+	}
+	if len(result.Errors) != 1 {
+		t.Errorf("Errors = %v, want exactly one corruption error", result.Errors)
+	}
+}
+
 func TestJanitor_LoopStopsOnContextCancel(t *testing.T) {
 	j, _, _, _ := newTestJanitor(t)
 	ctx, cancel := context.WithCancel(context.Background())
