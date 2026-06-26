@@ -65,6 +65,23 @@ func (s *Store) CreateShare(ctx context.Context, sh *Share) error {
 	return err
 }
 
+// ResolveShareTarget resolves the target kind for a share being created.
+// cleanedPath must already be validated and normalized (no leading slash, no
+// traversal). An empty cleanedPath targets the whole collection and returns
+// ("collection", nil). Otherwise the node at cleanedPath must exist; returns
+// ErrNotFound when it does not. This is the shared core for both the
+// management API and admin UI share-creation flows.
+func (s *Store) ResolveShareTarget(ctx context.Context, collectionID int64, cleanedPath string) (kind string, err error) {
+	if cleanedPath == "" {
+		return "collection", nil
+	}
+	node, err := s.GetNode(ctx, collectionID, cleanedPath)
+	if err != nil {
+		return "", err
+	}
+	return node.Kind, nil
+}
+
 // GetShare returns a share by its public share_id.
 func (s *Store) GetShare(ctx context.Context, shareID string) (*Share, error) {
 	row := s.db.sql.QueryRowContext(ctx,

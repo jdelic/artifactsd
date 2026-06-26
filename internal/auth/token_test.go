@@ -80,6 +80,58 @@ func TestTokenPrefix_Short(t *testing.T) {
 	}
 }
 
+func TestGenerateShareID(t *testing.T) {
+	id, err := GenerateShareID()
+	if err != nil {
+		t.Fatalf("GenerateShareID: %v", err)
+	}
+	if !strings.HasPrefix(id, SharePrefixValue) {
+		t.Errorf("share id %q lacks %q prefix", id, SharePrefixValue)
+	}
+	secret := strings.TrimPrefix(id, SharePrefixValue)
+	if len(secret) < 16 {
+		t.Errorf("share id secret too short (%d chars): %q", len(secret), id)
+	}
+
+	seen := map[string]bool{id: true}
+	for i := 0; i < 50; i++ {
+		s, err := GenerateShareID()
+		if err != nil {
+			t.Fatalf("GenerateShareID iter %d: %v", i, err)
+		}
+		if seen[s] {
+			t.Fatalf("duplicate share id: %q", s)
+		}
+		seen[s] = true
+	}
+}
+
+func TestGenerateUploadID(t *testing.T) {
+	id, err := GenerateUploadID()
+	if err != nil {
+		t.Fatalf("GenerateUploadID: %v", err)
+	}
+	if !strings.HasPrefix(id, UploadPrefixValue) {
+		t.Errorf("upload id %q lacks %q prefix", id, UploadPrefixValue)
+	}
+	secret := strings.TrimPrefix(id, UploadPrefixValue)
+	if len(secret) < 16 {
+		t.Errorf("upload id secret too short (%d chars): %q", len(secret), id)
+	}
+
+	seen := map[string]bool{id: true}
+	for i := 0; i < 50; i++ {
+		u, err := GenerateUploadID()
+		if err != nil {
+			t.Fatalf("GenerateUploadID iter %d: %v", i, err)
+		}
+		if seen[u] {
+			t.Fatalf("duplicate upload id: %q", u)
+		}
+		seen[u] = true
+	}
+}
+
 func TestArgon2Params_Updated(t *testing.T) {
 	// Reconciliation guard: design/06 §2 mandates t=2.
 	h, err := HashPassword("x")

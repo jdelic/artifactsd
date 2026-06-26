@@ -25,6 +25,12 @@ const defaultUploadTTL = time.Hour
 // Loop (design/08 §7's blob_gc_every; not yet exposed as its own config key).
 const reconcileEvery = 30
 
+// scrubEvery is how many RunOnce passes occur between integrity Scrub passes
+// in Loop. 300 passes makes it 10× less frequent than Reconcile — a full
+// re-hash of every blob is I/O-intensive and is only needed to surface bitrot
+// (design/07 §1).
+const scrubEvery = 300
+
 // Deps are the janitor's dependencies.
 type Deps struct {
 	Store     *store.Store
@@ -167,8 +173,56 @@ func (j *Janitor) Reconcile(ctx context.Context) (*ReconcileSummary, error) {
 	return sum, nil
 }
 
+// ScrubSummary reports one Scrub pass's results (design/07 §1).
+type ScrubSummary struct {
+	BlobsVerified  int      `json:"blobs_verified"`
+	BlobsCorrupted int      `json:"blobs_corrupted"`
+	Errors         []string `json:"errors,omitempty"`
+}
+
+// Scrub re-hashes every stored blob and reports any whose digest does not
+// match the hash embedded in their ref (bitrot detection, design/07 §1). It is
+// a no-op when the blob.Store does not implement both blob.Lister and
+// blob.Scrubber (e.g. a future S3 backend that delegates integrity to the
+// object store). Corruption is logged at ERROR level; the summary is returned
+// for the caller to surface to operators.
+func (j *Janitor) Scrub(ctx context.Context) (*ScrubSummary, error) {
+	sum := &ScrubSummary{}
+	lister, ok := j.blob.(blob.Lister)
+	if !ok {
+		return sum, nil
+	}
+	scrubber, ok := j.blob.(blob.Scrubber)
+	if !ok {
+		return sum, nil
+	}
+
+	refs, err := lister.ListRefs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("janitor: scrub list refs: %w", err)
+	}
+	for _, ref := range refs {
+		if err := scrubber.VerifyRef(ctx, ref); err != nil {
+			if j.log != nil {
+				j.log.Error("janitor: blob corruption detected", "ref", ref, "error", err)
+			}
+			sum.Errors = append(sum.Errors, err.Error())
+			sum.BlobsCorrupted++
+			continue
+		}
+		sum.BlobsVerified++
+	}
+	if j.log != nil {
+		j.log.Info("janitor: scrub complete",
+			"blobs_verified", sum.BlobsVerified, "blobs_corrupted", sum.BlobsCorrupted,
+			"errors", len(sum.Errors))
+	}
+	return sum, nil
+}
+
 // Loop runs RunOnce on a ticker until ctx is canceled, interleaving a less
-// frequent Reconcile pass every reconcileEvery ticks (design/08 §1/§7).
+// frequent Reconcile pass every reconcileEvery ticks and an integrity Scrub
+// every scrubEvery ticks (design/08 §1/§7, design/07 §1).
 func (j *Janitor) Loop(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -185,6 +239,11 @@ func (j *Janitor) Loop(ctx context.Context, interval time.Duration) {
 			if passes%reconcileEvery == 0 {
 				if _, err := j.Reconcile(ctx); err != nil && j.log != nil {
 					j.log.Error("janitor: reconcile failed", "error", err)
+				}
+			}
+			if passes%scrubEvery == 0 {
+				if _, err := j.Scrub(ctx); err != nil && j.log != nil {
+					j.log.Error("janitor: scrub failed", "error", err)
 				}
 			}
 		}

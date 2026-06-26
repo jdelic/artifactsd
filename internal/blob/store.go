@@ -77,6 +77,14 @@ type TempSweeper interface {
 	SweepTemp(ctx context.Context, olderThan time.Duration) (removed int, err error)
 }
 
+// Scrubber is an optional capability for blob stores that support per-ref
+// integrity verification (design/07 §1 "periodic scrub job re-hashes blobs").
+// VerifyRef re-reads and hashes the stored bytes for ref, returning a non-nil
+// error on corruption or read failure.
+type Scrubber interface {
+	VerifyRef(ctx context.Context, ref Ref) error
+}
+
 // FSStore is a filesystem-backed Store rooted at a data directory.
 type FSStore struct {
 	blobsDir string // <data>/blobs
@@ -259,4 +267,38 @@ func (s *FSStore) SweepTemp(_ context.Context, olderThan time.Duration) (int, er
 		}
 	}
 	return removed, nil
+}
+
+var _ Scrubber = (*FSStore)(nil)
+
+// VerifyRef re-reads the blob at ref and checks that its sha256 digest matches
+// the hash encoded in the ref, detecting silent on-disk corruption (bitrot).
+// Returns a non-nil error if the file cannot be read or the digest mismatches.
+func (s *FSStore) VerifyRef(ctx context.Context, ref Ref) error {
+	want, err := ref.Sum()
+	if err != nil {
+		return err
+	}
+	p, err := s.path(ref)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(p) //nolint:gosec // p derived from a validated content hash
+	if err != nil {
+		return fmt.Errorf("blob: scrub open %s: %w", ref, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("blob: scrub read %s: %w", ref, err)
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if got != want {
+		return fmt.Errorf("blob: checksum mismatch for %s: stored %s, computed %s", ref, want, got)
+	}
+	return nil
 }

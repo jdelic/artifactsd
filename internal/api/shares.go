@@ -166,14 +166,14 @@ func (h *Handler) deleteShare(w http.ResponseWriter, r *http.Request) {
 // resolveShareTarget cleans the requested target path and resolves its kind. An
 // empty path shares the whole collection; otherwise the target node must exist.
 func (h *Handler) resolveShareTarget(w http.ResponseWriter, r *http.Request, c *store.Collection, raw string) (path, kind string, ok bool) {
-	if strings.Trim(raw, "/") == "" {
-		return "", "collection", true
+	var p string
+	if strings.Trim(raw, "/") != "" {
+		p, ok = h.cleanPathStr(w, raw)
+		if !ok {
+			return "", "", false
+		}
 	}
-	p, ok := h.cleanPathStr(w, raw)
-	if !ok {
-		return "", "", false
-	}
-	node, err := h.store.GetNode(r.Context(), c.ID, p)
+	k, err := h.store.ResolveShareTarget(r.Context(), c.ID, p)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, CodeNotFound, "share target does not exist")
 		return "", "", false
@@ -182,7 +182,7 @@ func (h *Handler) resolveShareTarget(w http.ResponseWriter, r *http.Request, c *
 		h.internalServerError(w, "lookup share target", err)
 		return "", "", false
 	}
-	return p, node.Kind, true
+	return p, k, true
 }
 
 // lookupShare resolves {share_id} and its collection; writes 404 and returns

@@ -206,6 +206,53 @@ func TestListRefs(t *testing.T) {
 	}
 }
 
+func TestVerifyRef_Clean(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	ref, _, _, err := s.Put(ctx, strings.NewReader("some content"))
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := s.VerifyRef(ctx, ref); err != nil {
+		t.Errorf("VerifyRef on clean blob = %v, want nil", err)
+	}
+}
+
+func TestVerifyRef_Bitrot(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	ref, _, sum, err := s.Put(ctx, strings.NewReader("good content"))
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Corrupt the blob on disk while keeping its filename (simulates bitrot).
+	p := filepath.Join(s.blobsDir, "sha256", sum[0:2], sum[2:4], sum)
+	if err := os.WriteFile(p, []byte("corrupted!"), 0o600); err != nil {
+		t.Fatalf("corrupt blob: %v", err)
+	}
+
+	err = s.VerifyRef(ctx, ref)
+	if err == nil {
+		t.Fatal("VerifyRef returned nil on corrupted blob, want error")
+	}
+	if !strings.Contains(err.Error(), "mismatch") {
+		t.Errorf("error %q does not mention mismatch", err)
+	}
+}
+
+func TestVerifyRef_Missing(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	// A ref that was never Put — VerifyRef must return an error.
+	ref := RefFor(strings.Repeat("a", hexLen))
+	if err := s.VerifyRef(ctx, ref); err == nil {
+		t.Error("VerifyRef on missing blob returned nil, want error")
+	}
+}
+
 func TestSweepTemp(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
