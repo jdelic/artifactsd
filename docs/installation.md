@@ -125,7 +125,7 @@ and the install steps in the unit file's header comment.
 
 ## Nomad
 
-[`examples/nomad/artifactsd.nomad.hcl`](../examples/nomad/artifactsd.nomad.hcl)
+[`examples/nomad/artifactsd.nomad`](../examples/nomad/artifactsd.nomad)
 is an example job spec that runs the Docker image under Nomad with a host
 volume for persistent data. It includes Traefik tags for automatic routing and
 a Consul health check against `/healthz`.
