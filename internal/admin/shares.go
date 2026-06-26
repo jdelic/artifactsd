@@ -151,25 +151,25 @@ func (h *Handler) loadSharesPanel(r *http.Request, c *store.Collection, newURL, 
 	}, nil
 }
 
-// resolveShareTarget cleans the requested target path and resolves its kind,
-// mirroring the management API's logic (internal/api/shares.go): an empty
-// path shares the whole collection; otherwise the target node must exist.
+// resolveShareTarget cleans the requested target path and delegates to the
+// store's shared resolution logic. An empty path shares the whole collection;
+// otherwise the target node must exist.
 func (h *Handler) resolveShareTarget(ctx context.Context, c *store.Collection, raw string) (path, kind string, err error) {
-	if strings.Trim(raw, "/") == "" {
-		return "", "collection", nil
+	var p string
+	if strings.Trim(raw, "/") != "" {
+		p, err = paths.Clean(raw)
+		if err != nil {
+			return "", "", err
+		}
 	}
-	p, err := paths.Clean(raw)
-	if err != nil {
-		return "", "", err
-	}
-	node, err := h.store.GetNode(ctx, c.ID, p)
+	k, err := h.store.ResolveShareTarget(ctx, c.ID, p)
 	if errors.Is(err, store.ErrNotFound) {
 		return "", "", errors.New("share target does not exist")
 	}
 	if err != nil {
 		return "", "", err
 	}
-	return p, node.Kind, nil
+	return p, k, nil
 }
 
 func (h *Handler) shareURL(shareID string) string {
