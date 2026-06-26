@@ -1,0 +1,166 @@
+# Example Kubernetes / K3S manifests for artifactsd.
+#
+# This file contains four resources in order:
+#   1. Secret            — bootstrap token (create once, then rotate)
+#   2. PersistentVolumeClaim — data directory (SQLite + blobs)
+#   3. Deployment        — the artifactsd server (single replica)
+#   4. Service           — ClusterIP; wire up an Ingress in front of it
+#
+# Quick start (K3S or any cluster with a default StorageClass):
+#
+#   # 1. Put a real random token in the Secret (edit before applying):
+#   #    openssl rand -hex 32
+#   kubectl apply -f artifactsd.yaml
+#
+#   # 2. Check it came up:
+#   kubectl rollout status deployment/artifactsd
+#   kubectl logs -l app=artifactsd
+#
+#   # 3. Point an Ingress at the "artifactsd" Service (port 80).
+#
+# ─── IMPORTANT: replicas MUST be 1 ─────────────────────────────────────────
+#   artifactsd uses in-process SQLite with a local filesystem blob store.
+#   Running more than one replica would cause multiple pods to contend on the
+#   same database file via the shared PVC — the non-primary pod will
+#   error-loop. Horizontal scaling is explicitly not a design goal (SPEC §2).
+#   The Deployment uses strategy: Recreate so that a rolling update never
+#   spins up a second writer alongside the first.
+#
+#   For mass distribution, front with a CDN or object-storage proxy.
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Storage: the PVC requests the cluster's default StorageClass.
+#   K3S:  default is "local-path" (single-node, host directory).
+#   EKS / GKE / AKS: uses the cloud provider's default (gp3, pd-balanced, …).
+#   For production, explicitly set `storageClassName` to your preferred class.
+#
+# TLS: this example terminates TLS at the Ingress (ARTIFACTSD_TLS=off).
+#   To let the pod obtain Let's Encrypt certificates directly, set
+#   ARTIFACTSD_TLS=acme and configure ARTIFACTSD_ACME_DOMAINS /
+#   ARTIFACTSD_ACME_EMAIL, and expose port 80/443 via a LoadBalancer Service.
+
+---
+# Generate a real token before applying:
+#   kubectl create secret generic artifactsd-secrets \
+#     --from-literal=bootstrap-token=$(openssl rand -hex 32) \
+#     --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: artifactsd-secrets
+  labels:
+    app: artifactsd
+type: Opaque
+stringData:
+  bootstrap-token: "change-me"   # ← replace with a random value
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: artifactsd-data
+  labels:
+    app: artifactsd
+spec:
+  accessModes:
+    - ReadWriteOnce   # matches single-replica constraint; do not use ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: local-path   # uncomment to target a specific class
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: artifactsd
+  labels:
+    app: artifactsd
+spec:
+  # DO NOT increase replicas above 1 — see note at the top of this file.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: artifactsd
+  strategy:
+    # Recreate: stops the old pod before starting the new one.
+    # Required — RollingUpdate would briefly run two writers against the same DB.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: artifactsd
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534    # distroless "nonroot"
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: artifactsd
+          image: registry.maurus.net/agent-tools/artifactsd:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Required: the public URL clients use to reach this server.
+            - name: ARTIFACTSD_BASE_URL
+              value: "https://artifacts.example.com"   # ← set this
+            - name: ARTIFACTSD_LISTEN
+              value: ":8080"
+            - name: ARTIFACTSD_DATA_DIR
+              value: "/data"
+            # TLS terminated at the Ingress; change to "acme" for direct TLS.
+            - name: ARTIFACTSD_TLS
+              value: "off"
+            # Bootstrap token: seeds the first admin API token on first boot.
+            # Delete this env var (and rotate the Secret) once set up.
+            - name: ARTIFACTSD_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: artifactsd-secrets
+                  key: bootstrap-token
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              memory: "512Mi"   # no CPU limit — avoid throttling on bursty downloads
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: artifactsd-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifactsd
+  labels:
+    app: artifactsd
+spec:
+  type: ClusterIP
+  selector:
+    app: artifactsd
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

@@ -123,6 +123,48 @@ system user, with an `EnvironmentFile` for configuration — see
 [`packaging/systemd/artifactsd.env.example`](../packaging/systemd/artifactsd.env.example)
 and the install steps in the unit file's header comment.
 
+## Nomad
+
+[`examples/nomad/artifactsd.nomad.hcl`](../examples/nomad/artifactsd.nomad.hcl)
+is an example job spec that runs the Docker image under Nomad with a host
+volume for persistent data. It includes Traefik tags for automatic routing and
+a Consul health check against `/healthz`.
+
+**Before submitting the job**, configure a `host_volume "artifactsd-data"`
+block on your Nomad client(s) pointing at a directory owned by `nobody`
+(uid 65534, which the distroless image runs as), then set `ARTIFACTSD_BASE_URL`
+and replace `ARTIFACTSD_BOOTSTRAP_TOKEN` with a real random value.
+
+> **count must stay at 1.** artifactsd uses in-process SQLite; multiple
+> allocations would race on the same database file. For mass distribution,
+> front with a CDN or object-storage proxy.
+
+## Kubernetes / K3S
+
+[`examples/k8s/artifactsd.yaml`](../examples/k8s/artifactsd.yaml) is a
+single-file manifest containing a Secret, PersistentVolumeClaim, Deployment,
+and ClusterIP Service. It works on any cluster with a default StorageClass
+(K3S ships `local-path`; managed clouds use their own default).
+
+```console
+# Generate a real bootstrap token first:
+kubectl create secret generic artifactsd-secrets \
+  --from-literal=bootstrap-token=$(openssl rand -hex 32) \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Then deploy:
+kubectl apply -f examples/k8s/artifactsd.yaml
+kubectl rollout status deployment/artifactsd
+```
+
+Set `ARTIFACTSD_BASE_URL` in the Deployment env before applying, then wire up
+an Ingress controller of your choice to the `artifactsd` Service on port 80.
+
+> **replicas must stay at 1** and the Deployment strategy is set to `Recreate`
+> (not `RollingUpdate`) to ensure no two pods ever write to the database
+> simultaneously. For mass distribution, front with a CDN or object-storage
+> proxy.
+
 ## Next steps
 
 - [Quickstart](quickstart.md) — publish your first artifact.
