@@ -58,7 +58,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           {
             echo "version=$version"
-            echo "tags=registry.maurus.net/${{ github.repository }}:$version,registry.maurus.net/${{ github.repository }}:latest"
+            echo "tags=registry.maurus.net/agent-tools/artifactsd:$version,registry.maurus.net/agent-tools/artifactsd:latest"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and push
