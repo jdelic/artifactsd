@@ -75,7 +75,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	parentID, err := h.ensureParents(r.Context(), c.ID, p)
 	if err != nil {
-		h.internalServerError(w, "materialize folders", err)
+		h.storeWriteError(w, "materialize folders", err)
 		return
 	}
 	folder := &store.Node{
@@ -83,7 +83,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 		Kind: store.KindFolder, Metadata: merged,
 	}
 	if err := h.store.UpsertNode(r.Context(), folder); err != nil {
-		h.internalServerError(w, "upsert folder", err)
+		h.storeWriteError(w, "upsert folder", err)
 		return
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), folder.ID); err != nil {

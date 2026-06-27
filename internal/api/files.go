@@ -65,7 +65,7 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 
 	parentID, err := h.ensureParents(r.Context(), c.ID, p)
 	if err != nil {
-		h.internalServerError(w, "materialize folders", err)
+		h.storeWriteError(w, "materialize folders", err)
 		return
 	}
 
@@ -80,7 +80,7 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	if err := h.store.UpsertNode(r.Context(), node); err != nil {
-		h.internalServerError(w, "upsert node", err)
+		h.storeWriteError(w, "upsert node", err)
 		return
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), node.ID); err != nil {
@@ -180,6 +180,17 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---------------------------------------------------------------
 
+// storeWriteError maps a node-write error to a response: a file/folder tree
+// kind conflict (artifactsd-2bw) becomes a 409, anything else a 500.
+func (h *Handler) storeWriteError(w http.ResponseWriter, what string, err error) {
+	if errors.Is(err, store.ErrKindConflict) {
+		writeError(w, http.StatusConflict, CodeConflict,
+			"path conflicts with an existing file or folder of a different kind")
+		return
+	}
+	h.internalServerError(w, what, err)
+}
+
 func (h *Handler) cleanPathStr(w http.ResponseWriter, raw string) (string, bool) {
 	p, err := paths.Clean(raw)
 	if err != nil {
@@ -258,6 +269,9 @@ func (h *Handler) ensureParents(ctx context.Context, collectionID int64, p strin
 		}
 		existing, err := h.store.GetNode(ctx, collectionID, prefix)
 		if err == nil {
+			if existing.Kind != store.KindFolder {
+				return nil, store.ErrKindConflict // an existing ancestor must be a folder
+			}
 			parentID = &existing.ID
 			continue
 		}

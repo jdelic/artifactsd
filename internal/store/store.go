@@ -10,6 +10,11 @@ import (
 // ErrNotFound is returned by lookups when no matching row exists.
 var ErrNotFound = errors.New("store: not found")
 
+// ErrKindConflict is returned by UpsertNode when a write would violate the
+// file/folder tree invariants: a path's kind cannot flip between file and
+// folder in place, and a node's parent must be a folder (artifactsd-2bw).
+var ErrKindConflict = errors.New("store: path kind conflict")
+
 // Clock returns the current time; injectable so tests can use a fixed clock.
 type Clock func() time.Time
 

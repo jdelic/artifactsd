@@ -142,7 +142,7 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	parentID, err := h.ensureParents(r.Context(), c.ID, session.TargetPath)
 	if err != nil {
-		h.internalServerError(w, "materialize folders", err)
+		h.storeWriteError(w, "materialize folders", err)
 		return
 	}
 	existing, _ := h.store.GetNode(r.Context(), c.ID, session.TargetPath)
@@ -156,7 +156,7 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	if err := h.store.UpsertNode(r.Context(), node); err != nil {
-		h.internalServerError(w, "upsert node", err)
+		h.storeWriteError(w, "upsert node", err)
 		return
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), node.ID); err != nil {
