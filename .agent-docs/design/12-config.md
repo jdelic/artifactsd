@@ -41,13 +41,28 @@ env for deployment.
 | OIDC client id / secret | `ARTIFACTSD_OIDC_CLIENT_ID` / `..._CLIENT_SECRET` | |
 | OIDC redirect URL | `ARTIFACTSD_OIDC_REDIRECT_URL` | `<base_url>/auth/oidc/callback` |
 | Admin group claim | `ARTIFACTSD_ADMIN_GROUP_CLAIM` | `groups` |
-| Required admin group | `ARTIFACTSD_ADMIN_GROUP` | |
+| Admin group | `ARTIFACTSD_ADMIN_GROUP` (unset → fail closed · `*` → any authenticated · else require that group) | |
 | Basic admin fallback | `ARTIFACTSD_ADMIN_BASIC_USER`, `ARTIFACTSD_ADMIN_BASIC_PASSWORD` (or `_HASH`) | |
 | Admin UI path | `ARTIFACTSD_ADMIN_PATH` | `/admin` |
 
-Admin access is granted only when the OIDC token carries the required group
-(or via the basic fallback). Secrets are read from env; a cleartext basic
-password is hashed at startup and never persisted.
+Secrets are read from env; a cleartext basic password is hashed at startup and
+never persisted.
+
+### The admin group (`ARTIFACTSD_ADMIN_GROUP`)
+
+This selects who is authorized for admin **after** a successful OIDC login, in
+three modes:
+
+| Value | Meaning |
+|-------|---------|
+| *unset* (default) | **Fail closed** — OIDC admin is disabled; no one is granted admin via OIDC (the basic fallback, if configured, still works). |
+| `*` | **Any authenticated user** is an admin. A deliberate opt-out of group gating — only safe when the OIDC issuer admits only trusted users (a private/staff IdP), since it grants admin to anyone who can log in there. |
+| any group name | Authorize only logins whose `ARTIFACTSD_ADMIN_GROUP_CLAIM` contains that group. |
+
+Empty is intentionally fail-closed rather than "allow everyone" so a forgotten
+variable never silently opens admin to the whole IdP; choosing `*` makes the
+open-to-all decision explicit. The effective mode is logged once at startup
+(a `*` configuration logs a warning).
 
 ### The OIDC redirect URL
 

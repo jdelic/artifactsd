@@ -111,9 +111,12 @@ completion), size limits. See [07](07-storage-uploads.md).
 ## 7. Admin authentication & authorization (decisions A1, D1)
 
 - **Admin UI is OIDC-gated** and additionally may use basic/htaccess.
-- **Authorization for admin is by a required group claim**: admin access is
-  granted only when the OIDC token carries a configured group. Configured via
-  **environment variables**:
+- **Authorization for admin is by group claim, in three modes** keyed on
+  `ARTIFACTSD_ADMIN_GROUP`: *unset* → fail closed (OIDC admin disabled, nobody
+  authorized); `*` → any authenticated user is an admin (explicit opt-out of
+  group gating, safe only behind a trusted issuer); any other value → require
+  that group. Empty is fail-closed by design so a forgotten variable never opens
+  admin to the whole IdP. Configured via **environment variables**:
   - `ARTIFACTSD_OIDC_ISSUER`, `ARTIFACTSD_OIDC_CLIENT_ID`,
     `ARTIFACTSD_OIDC_CLIENT_SECRET`
   - `ARTIFACTSD_OIDC_REDIRECT_URL` — the full callback URL the provider
@@ -121,7 +124,7 @@ completion), size limits. See [07](07-storage-uploads.md).
     the provider). Defaults to `<base_url>/auth/oidc/callback`; see
     [12 §2](12-config.md) for the full explanation and when to override.
   - `ARTIFACTSD_ADMIN_GROUP_CLAIM` (default `groups`)
-  - `ARTIFACTSD_ADMIN_GROUP` (required group value; presence gates admin)
+  - `ARTIFACTSD_ADMIN_GROUP` (unset → fail closed · `*` → any authenticated · else require that group)
   - optional `ARTIFACTSD_ADMIN_BASIC_USER` / `ARTIFACTSD_ADMIN_BASIC_PASSWORD`
     (or `_HASH`) for an htaccess fallback admin login.
 - Successful admin login → secure session cookie (HttpOnly, SameSite, Secure

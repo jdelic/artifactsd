@@ -149,6 +149,8 @@ func (s *Server) Run(ctx context.Context) error {
 		}()
 	}
 
+	s.logAdminMode()
+
 	errCh := make(chan error, 1)
 	go func() {
 		s.log.Info("http server listening",
