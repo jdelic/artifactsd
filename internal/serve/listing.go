@@ -83,7 +83,7 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 	case policy.RedirectOIDC:
 		http.Redirect(w, r, "/auth/oidc/login?return_to="+url.QueryEscape(r.URL.Path), http.StatusFound)
 	case policy.Serve:
-		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, sh != nil)
+		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, expiry, sh != nil)
 	case policy.NotFound:
 		// Decide returns NotFound here for one of: private/under-private-
 		// ancestor, expired, or (only reachable once those are ruled out)
@@ -156,7 +156,14 @@ func (h *Handler) serveIndexOrNotFound(w http.ResponseWriter, r *http.Request, c
 // share already grants access to the whole subtree); a child explicitly
 // marked "unlisted" is always hidden regardless (SPEC §8.1's "don't list me"
 // is independent of the share/private non-disclosure mechanism).
-func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *store.Collection, dirPath string, dirNode *store.Node, layers []*meta.Document, dirEff *meta.Effective, sharePrivateBypass bool) {
+//
+// dirExpiry is the directory's own effective expiry (earliest in its chain,
+// already folding in a share's expiry when present). Each child's effective
+// expiry is the earlier of that and the child's own ExpiresAt; expired children
+// are skipped so a listing never discloses names/metadata for content that a
+// direct fetch already 404s during the window between expiry and janitor
+// deletion (design/05, mirrors the crawl API's filter in internal/api/crawl.go).
+func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *store.Collection, dirPath string, dirNode *store.Node, layers []*meta.Document, dirEff *meta.Effective, dirExpiry *time.Time, sharePrivateBypass bool) {
 	var parentID *int64
 	if dirNode != nil {
 		id := dirNode.ID
@@ -168,8 +175,12 @@ func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *st
 		return
 	}
 
+	now := time.Now()
 	view := listingView{Collection: coll.Name, Path: dirPath, Entries: []listingEntry{}}
 	for _, c := range children {
+		if childExpiry := meta.Earliest(dirExpiry, c.ExpiresAt); childExpiry != nil && !now.Before(*childExpiry) {
+			continue // expired: never disclosed, matching the direct-fetch 404
+		}
 		childLayers := append(append([]*meta.Document{}, layers...), docOf(c.Metadata))
 		childEff := meta.Resolve(h.defaults(), childLayers...)
 		hidePrivate := childEff.Visibility == meta.VisibilityPrivate && !sharePrivateBypass

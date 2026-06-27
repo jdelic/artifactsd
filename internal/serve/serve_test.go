@@ -468,6 +468,47 @@ func TestServeDirectory_HidesPrivateAndUnlisted(t *testing.T) {
 	}
 }
 
+func TestServeDirectory_HidesExpiredChildren(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
+	h.file(t, c, "live.txt", "x", `{}`, "text/plain")
+	h.file(t, c, "gone.txt", "x", `{"expiry":{"expires_at":"2000-01-01T00:00:00Z"}}`, "text/plain")
+
+	rec := h.get("/c/demo/?format=json", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("listing = %d (%s)", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "live.txt") {
+		t.Errorf("listing missing live.txt: %s", rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "gone.txt") {
+		t.Errorf("listing leaked an expired child: %s", rec.Body)
+	}
+	// The listing must agree with the direct fetch, which already 404s.
+	if rec := h.get("/c/demo/gone.txt", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("expired direct fetch = %d, want 404", rec.Code)
+	}
+}
+
+func TestServeShare_DirectoryListingHidesExpired(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "run-9c", `{"access":{"visibility":"private"}}`)
+	h.file(t, c, "outputs/new.json", `{"ok":true}`, `{}`, "application/json")
+	h.file(t, c, "outputs/old.json", `{"ok":false}`, `{"expiry":{"expires_at":"2000-01-01T00:00:00Z"}}`, "application/json")
+	h.share(t, c, "shr_x", "outputs", "folder", `{"access":{"directory_listing":true}}`)
+
+	rec := h.get("/s/shr_x/?format=json", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("share listing = %d (%s)", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "new.json") {
+		t.Errorf("share listing missing new.json: %s", rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "old.json") {
+		t.Errorf("share listing leaked an expired child: %s", rec.Body)
+	}
+}
+
 func TestServeDirectory_IndexFallbackWhenListingOff(t *testing.T) {
 	h := newHarness(t)
 	c := h.collection(t, "demo", `{"access":{"visibility":"public"}}`) // directory_listing defaults false
