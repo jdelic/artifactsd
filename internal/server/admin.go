@@ -164,6 +164,24 @@ func (s *Server) clearFlowCookie(w http.ResponseWriter) {
 // fallback carries no session cookie at all, and a freshly re-derived
 // per-call identity for it could disagree across requests (breaking anything,
 // like CSRF tokens, that needs the same identity to round-trip — design/09 §5).
+// adminSecurityHeaders sets browser-isolation headers on every admin response
+// as defense-in-depth for the same-origin artifact threat (design/14 §7,
+// artifactsd-c63): the admin UI must never be framable, must not be sniffed
+// into another content type, and must not be cached (its pages embed CSRF
+// tokens and one-time secrets). The primary boundary remains sandboxing active
+// artifact responses; these headers harden the admin side regardless.
+func (s *Server) adminSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		h.Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) adminGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, err := s.session.FromRequest(r); err == nil && s.isAdmin(id) {

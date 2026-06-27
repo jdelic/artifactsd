@@ -56,9 +56,9 @@ func (s *Server) routes() http.Handler {
 	// (design/09 §5) protects its mutating routes once a session exists.
 	if s.adminUI != nil {
 		stripped := http.StripPrefix(strings.TrimSuffix(s.cfg.Admin.Path, "/"), s.adminUI.Routes())
-		mux.Handle(s.cfg.Admin.Path+"/", s.adminGate(s.csrfGate(stripped)))
+		mux.Handle(s.cfg.Admin.Path+"/", s.adminSecurityHeaders(s.adminGate(s.csrfGate(stripped))))
 	} else {
-		mux.Handle(s.cfg.Admin.Path+"/", s.adminGate(notImplemented("admin UI")))
+		mux.Handle(s.cfg.Admin.Path+"/", s.adminSecurityHeaders(s.adminGate(notImplemented("admin UI"))))
 	}
 
 	mux.HandleFunc("/", s.handleRoot)

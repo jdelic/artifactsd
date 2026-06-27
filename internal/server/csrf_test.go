@@ -113,6 +113,49 @@ func TestCSRFGate_AllowsSameOrigin(t *testing.T) {
 	}
 }
 
+func TestCSRFGate_RejectsCrossSiteFetchMetadata(t *testing.T) {
+	s, id := csrfTestServer(t)
+	token := s.session.CSRFToken(id)
+
+	r := withIdentity(httptest.NewRequest(http.MethodPost, "/admin/maintenance/cleanup", http.NoBody), id)
+	r.Header.Set("X-CSRF-Token", token)
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	s.csrfGate(http.HandlerFunc(csrfOK)).ServeHTTP(rec, r)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-site Sec-Fetch-Site = %d, want 403", rec.Code)
+	}
+
+	// same-origin Sec-Fetch-Site with a valid token is allowed.
+	r = withIdentity(httptest.NewRequest(http.MethodPost, "/admin/maintenance/cleanup", http.NoBody), id)
+	r.Header.Set("X-CSRF-Token", token)
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	rec = httptest.NewRecorder()
+	s.csrfGate(http.HandlerFunc(csrfOK)).ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Errorf("same-origin Sec-Fetch-Site = %d, want 200", rec.Code)
+	}
+}
+
+func TestAdminSecurityHeaders(t *testing.T) {
+	s, _ := csrfTestServer(t)
+	r := httptest.NewRequest(http.MethodGet, "/admin/", http.NoBody)
+	rec := httptest.NewRecorder()
+	s.adminSecurityHeaders(http.HandlerFunc(csrfOK)).ServeHTTP(rec, r)
+
+	want := map[string]string{
+		"X-Frame-Options":         "DENY",
+		"Content-Security-Policy": "frame-ancestors 'none'",
+		"X-Content-Type-Options":  "nosniff",
+		"Cache-Control":           "no-store",
+	}
+	for k, v := range want {
+		if got := rec.Header().Get(k); got != v {
+			t.Errorf("admin header %s = %q, want %q", k, got, v)
+		}
+	}
+}
+
 func TestCSRFGate_AllowsFormFieldToken(t *testing.T) {
 	s, id := csrfTestServer(t)
 	token := s.session.CSRFToken(id)
