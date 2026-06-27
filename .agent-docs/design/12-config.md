@@ -83,6 +83,7 @@ overrides them via the API/CLI.
 | Default directory listing | `ARTIFACTSD_DEFAULT_DIRECTORY_LISTING` | `false` |
 | Default crawlable | `ARTIFACTSD_DEFAULT_CRAWLABLE` | `false` |
 | Default indexable | `ARTIFACTSD_DEFAULT_INDEXABLE` | `false` |
+| Default sandbox | `ARTIFACTSD_DEFAULT_SANDBOX` | `true` |
 | Default expiry | `ARTIFACTSD_DEFAULT_DELETE_AFTER_CREATION` | (unset) |
 
 Per-object robots blocks and headers are richer than env can express; they are

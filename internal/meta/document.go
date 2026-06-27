@@ -43,6 +43,12 @@ type Document struct {
 type Content struct {
 	ContentType *string           `json:"content_type,omitempty" yaml:"content_type,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	// Sandbox overrides the server default for whether this object is served
+	// with a CSP sandbox (design/14 §7, artifactsd-c63). Pointer so "unset"
+	// (inherit the default) is distinct from an explicit false (trusted content
+	// served on its real origin) or true. Set false only for content you trust:
+	// it regains same-origin powers on the shared admin/artifact origin.
+	Sandbox *bool `json:"sandbox,omitempty" yaml:"sandbox,omitempty"`
 }
 
 // Access holds visibility, directory listing, and the auth requirement list.

@@ -8,6 +8,7 @@ same shape (SPEC §6). All sections are optional; absent fields inherit.
 ```yaml
 content:
   content_type: text/html; charset=utf-8
+  sandbox: true | false       # default true: serve active content in a CSP sandbox
   headers:
     cache-control: no-store
     access-control-allow-origin: "*"
@@ -76,6 +77,7 @@ Later layers override earlier ones. Merge semantics per section:
 | Section | Merge rule |
 |---------|-----------|
 | `content.content_type` | scalar override (last wins) |
+| `content.sandbox` | scalar override (last wins) |
 | `content.headers` | **map merge** by header name; child overrides same key; empty string value removes an inherited header |
 | `access.visibility` | scalar override |
 | `access.directory_listing` | scalar override |
@@ -176,9 +178,29 @@ before the decision.
 `content.headers` is filtered before emission. Rejected (hop-by-hop / unsafe,
 SPEC §7.2): `connection`, `transfer-encoding`, `content-length`, `host`,
 `keep-alive`, `upgrade`, `te`, `trailer`, `proxy-authenticate`,
-`proxy-authorization`. `content-type` from headers is ignored in favor of the
-resolved `content.content_type`. Setting these via API/CLI is rejected at write
-time with a 400, and re-filtered at serve time as defense in depth.
+`proxy-authorization`, and `set-cookie` (an artifact must not plant cookies on
+the shared admin/artifact origin — artifactsd-c63). `content-type` from headers
+is ignored in favor of the resolved `content.content_type`. Setting these via
+API/CLI is rejected at write time with a 400, and re-filtered at serve time as
+defense in depth.
+
+Author-supplied `content-security-policy` is **allowed**: the server emits its
+own sandbox CSP as a separate header (§ below), and because browsers intersect
+`sandbox` policies an author CSP can only add restrictions, never relax the
+sandbox.
+
+### Artifact sandboxing (artifactsd-c63)
+
+Active artifact responses are served with `Content-Security-Policy: sandbox
+allow-scripts allow-downloads` by default, giving the artifact an opaque origin
+so its JavaScript cannot drive or read the same-origin admin UI. The default is
+`content.sandbox` (resolved like any other field; server default from
+`ARTIFACTSD_DEFAULT_SANDBOX`, true). Set `content.sandbox: false` only for
+trusted content that needs its real origin back (e.g. an interactive SPA that
+must reach its own-origin storage or a credentialed/allow-listed third-party
+API) — note this is settable by whoever writes the object, so deployments that
+accept untrusted uploads should use the separate-admin-origin layout
+([14 §7](14-access-control.md)) rather than relying on per-object opt-out.
 
 ## 7. Crawler/indexing headers at serve time
 

@@ -22,6 +22,9 @@ Steps:
 6. **Emit headers** then body:
    - `Content-Type` = resolved `content.content_type` (else detected).
    - Safe `content.headers` (filtered, [03 §6](03-metadata-policy.md)).
+   - `Content-Security-Policy: sandbox …` unless opted out, isolating active
+     artifacts from the admin origin ([03 §6](03-metadata-policy.md),
+     [14 §10](14-access-control.md)).
    - `X-Robots-Tag: noindex` when not indexable (+ configured tags).
    - `ETag` (from checksum), `Last-Modified`, `Accept-Ranges: bytes`,
      conditional/range support via `http.ServeContent`.

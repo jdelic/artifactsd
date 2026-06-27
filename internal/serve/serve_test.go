@@ -264,6 +264,57 @@ func TestServe_CustomHeadersFiltered(t *testing.T) {
 	}
 }
 
+func TestServe_SandboxByDefault(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public"}}`)
+	h.file(t, c, "report.html", "<h1>hi</h1>", `{}`, "text/html")
+
+	rec := h.get("/c/demo/report.html", nil)
+	if got := rec.Header().Get("Content-Security-Policy"); got != "sandbox allow-scripts allow-downloads" {
+		t.Errorf("CSP = %q, want the default sandbox", got)
+	}
+}
+
+func TestServe_SandboxOptOut(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public"}}`)
+	h.file(t, c, "trusted.html", "<h1>hi</h1>", `{"content":{"sandbox":false}}`, "text/html")
+
+	rec := h.get("/c/demo/trusted.html", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("serve = %d", rec.Code)
+	}
+	for _, v := range rec.Header().Values("Content-Security-Policy") {
+		if strings.Contains(v, "sandbox") {
+			t.Errorf("opted-out content still sandboxed: %q", v)
+		}
+	}
+}
+
+// TestServe_SandboxLayersWithAuthorCSP confirms an author-supplied CSP is kept
+// alongside (not replaced by) the server's sandbox CSP — both are emitted, and
+// the browser intersects them so the author CSP can only tighten the sandbox.
+func TestServe_SandboxLayersWithAuthorCSP(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public"}}`)
+	h.file(t, c, "x.html", "<h1>hi</h1>", `{"content":{"headers":{"Content-Security-Policy":"default-src 'none'"}}}`, "text/html")
+
+	rec := h.get("/c/demo/x.html", nil)
+	vals := rec.Header().Values("Content-Security-Policy")
+	var hasSandbox, hasAuthor bool
+	for _, v := range vals {
+		if strings.Contains(v, "sandbox") {
+			hasSandbox = true
+		}
+		if strings.Contains(v, "default-src 'none'") {
+			hasAuthor = true
+		}
+	}
+	if !hasSandbox || !hasAuthor {
+		t.Errorf("want both sandbox and author CSP headers, got %q", vals)
+	}
+}
+
 func TestServe_AuditOnProtectedAccess(t *testing.T) {
 	h := newHarness(t)
 	c := h.collection(t, "demo", `{"access":{"visibility":"public"}}`)

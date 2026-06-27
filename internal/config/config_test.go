@@ -29,6 +29,9 @@ func TestDefaults(t *testing.T) {
 	if c.Policy.Visibility != VisibilityPublic {
 		t.Errorf("default Visibility = %q, want public", c.Policy.Visibility)
 	}
+	if !c.Policy.Sandbox {
+		t.Errorf("default Sandbox = false, want true (artifact isolation on by default)")
+	}
 	if c.Limits.MaxUploadSize != 1<<30 {
 		t.Errorf("MaxUploadSize = %d, want %d", c.Limits.MaxUploadSize, 1<<30)
 	}
@@ -40,6 +43,16 @@ func TestDefaults(t *testing.T) {
 	}
 	if c.TLS.ACMECacheDir != defaultDataDir+"/acme" {
 		t.Errorf("ACMECacheDir = %q, want %q", c.TLS.ACMECacheDir, defaultDataDir+"/acme")
+	}
+}
+
+func TestDefaultSandboxToggle(t *testing.T) {
+	c, err := Load(nil, envMap(map[string]string{"ARTIFACTSD_DEFAULT_SANDBOX": "false"}), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Policy.Sandbox {
+		t.Error("ARTIFACTSD_DEFAULT_SANDBOX=false should disable the default sandbox")
 	}
 }
 

@@ -7,6 +7,11 @@ import (
 
 // unsafeHeaders are hop-by-hop or otherwise unsafe response headers that must
 // never be set from metadata (design/03 §6, SPEC §7.2). Keyed in canonical form.
+//
+// Set-Cookie is rejected so an artifact cannot plant cookies on the shared
+// admin/artifact origin (session fixation / pollution); author-supplied
+// Content-Security-Policy is intentionally NOT rejected — it can only add
+// restrictions on top of the sandbox CSP the server emits (artifactsd-c63).
 var unsafeHeaders = map[string]bool{
 	"Connection":          true,
 	"Transfer-Encoding":   true,
@@ -18,6 +23,7 @@ var unsafeHeaders = map[string]bool{
 	"Trailer":             true,
 	"Proxy-Authenticate":  true,
 	"Proxy-Authorization": true,
+	"Set-Cookie":          true,
 }
 
 // IsUnsafeHeader reports whether a header name is rejected from metadata.
