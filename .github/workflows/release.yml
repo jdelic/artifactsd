@@ -24,12 +24,50 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Generate release notes
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Visible release message = the annotated tag's own message; the commit
+          # list goes into a collapsible below it, each commit linked by its short
+          # id (artifactsd-60i). The exclude set mirrors .goreleaser.yml's
+          # changelog filters. Written to a gitignored file so goreleaser's
+          # dirty-tree check still passes; passed to it via --release-notes.
+          subject="$(git tag -l --format='%(contents:subject)' "$TAG")"
+          body="$(git tag -l --format='%(contents:body)' "$TAG")"
+          {
+            printf '%s\n' "$subject"
+            if [ -n "$body" ]; then printf '\n%s\n' "$body"; fi
+          } > release-notes.md
+
+          prev="$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)"
+          if [ -n "$prev" ]; then range="${prev}..${TAG}"; else range="$TAG"; fi
+
+          commits="$(git log --no-merges --reverse --pretty=format:'%H%x09%h%x09%s' "$range" \
+            | grep -vE $'\t(docs|test|beads):' \
+            | awk -F'\t' -v repo="$REPO" \
+                '{printf "- [%s](https://github.com/%s/commit/%s) %s\n", $2, repo, $1, $3}' \
+            || true)"
+
+          if [ -n "$commits" ]; then
+            count="$(printf '%s\n' "$commits" | grep -c '^-' || true)"
+            {
+              printf '\n<details>\n<summary>%s commits in this release</summary>\n\n' "$count"
+              printf '%s\n' "$commits"
+              printf '\n</details>\n'
+            } >> release-notes.md
+          fi
+
+          echo '----- release-notes.md -----'
+          cat release-notes.md
+
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes=release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
