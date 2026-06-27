@@ -35,19 +35,39 @@ env for deployment.
 
 ## 2. Admin & OIDC (decisions A1, D1; see [14](14-access-control.md))
 
-| Concern | Env |
-|---------|-----|
-| OIDC issuer | `ARTIFACTSD_OIDC_ISSUER` |
-| OIDC client id / secret | `ARTIFACTSD_OIDC_CLIENT_ID` / `..._CLIENT_SECRET` |
-| OIDC redirect URL | `ARTIFACTSD_OIDC_REDIRECT_URL` |
-| Admin group claim | `ARTIFACTSD_ADMIN_GROUP_CLAIM` (default `groups`) |
-| Required admin group | `ARTIFACTSD_ADMIN_GROUP` |
-| Basic admin fallback | `ARTIFACTSD_ADMIN_BASIC_USER`, `ARTIFACTSD_ADMIN_BASIC_PASSWORD` (or `_HASH`) |
-| Admin UI path | `ARTIFACTSD_ADMIN_PATH` (default `/admin`) |
+| Concern | Env | Default |
+|---------|-----|---------|
+| OIDC issuer | `ARTIFACTSD_OIDC_ISSUER` | |
+| OIDC client id / secret | `ARTIFACTSD_OIDC_CLIENT_ID` / `..._CLIENT_SECRET` | |
+| OIDC redirect URL | `ARTIFACTSD_OIDC_REDIRECT_URL` | `<base_url>/auth/oidc/callback` |
+| Admin group claim | `ARTIFACTSD_ADMIN_GROUP_CLAIM` | `groups` |
+| Required admin group | `ARTIFACTSD_ADMIN_GROUP` | |
+| Basic admin fallback | `ARTIFACTSD_ADMIN_BASIC_USER`, `ARTIFACTSD_ADMIN_BASIC_PASSWORD` (or `_HASH`) | |
+| Admin UI path | `ARTIFACTSD_ADMIN_PATH` | `/admin` |
 
 Admin access is granted only when the OIDC token carries the required group
 (or via the basic fallback). Secrets are read from env; a cleartext basic
 password is hashed at startup and never persisted.
+
+### The OIDC redirect URL
+
+`ARTIFACTSD_OIDC_REDIRECT_URL` is the **full, absolute URL** the OIDC provider
+sends the browser back to after login. artifactsd passes it verbatim to the
+provider as the OAuth2 `redirect_uri` in both the authorization request and the
+token exchange, so two things must hold:
+
+1. It must resolve to artifactsd's callback route, **`/auth/oidc/callback`**.
+2. The **same exact URL must be registered as an allowed redirect URI at your
+   OIDC provider** (most providers reject any `redirect_uri` not on that list).
+
+You normally **do not set it**: when left unset it defaults to
+`<base_url>/auth/oidc/callback` (e.g. base URL `https://artifacts.example.com`
+→ `https://artifacts.example.com/auth/oidc/callback`). So the only thing you
+have to do at the provider is whitelist that one URL. Override it only when
+artifactsd's callback is reached at a different external URL than `base_url` —
+for example behind a proxy that terminates on another hostname, or a
+separate-admin-origin deployment ([14 §7/§10](14-access-control.md)). When set,
+it is validated to be an absolute `http(s)` URL at startup.
 
 ### 2.1 Bootstrap admin token
 

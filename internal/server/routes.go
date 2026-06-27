@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"strings"
+
+	"github.com/jdelic/artifactsd/internal/config"
 )
 
 // routes builds the route mux with the health endpoints and stubs for the route
@@ -14,9 +16,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 
-	// OIDC admin login flow (design/14 §7).
+	// OIDC admin login flow (design/14 §7). The callback path is the single
+	// source of truth behind the default redirect URL (config.OIDCCallbackPath).
 	mux.HandleFunc("GET /auth/oidc/login", s.handleOIDCLogin)
-	mux.HandleFunc("GET /auth/oidc/callback", s.handleOIDCCallback)
+	mux.HandleFunc("GET "+config.OIDCCallbackPath, s.handleOIDCCallback)
 
 	// Public serving (design/05).
 	if s.serve != nil {

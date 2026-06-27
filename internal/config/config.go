@@ -74,12 +74,25 @@ type Admin struct {
 	BasicPasswordHash string // argon2id hash (preferred over cleartext)
 }
 
+// OIDCCallbackPath is the route the OIDC provider redirects back to after admin
+// login (Authorization Code + PKCE). The redirect URL defaults to the public
+// base URL joined with this path, and this exact URL is what must be registered
+// as an allowed redirect URI at the OIDC provider.
+const OIDCCallbackPath = "/auth/oidc/callback"
+
 // OIDC holds OpenID Connect settings for admin login.
 type OIDC struct {
 	Issuer       string
 	ClientID     string
 	ClientSecret string
-	RedirectURL  string
+	// RedirectURL is the full absolute URL the provider redirects back to after
+	// login. It is sent verbatim as the OAuth2 redirect_uri in both the
+	// authorization request and the token exchange, so it must (a) resolve to
+	// artifactsd's OIDCCallbackPath route and (b) be whitelisted at the provider.
+	// When left unset it defaults to <base_url>+OIDCCallbackPath (see Load);
+	// override it only when artifactsd's callback is reached at a different
+	// external URL than base_url (e.g. behind a proxy or a separate admin origin).
+	RedirectURL string
 }
 
 // Enabled reports whether enough OIDC configuration is present to attempt

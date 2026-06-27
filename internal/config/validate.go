@@ -83,11 +83,19 @@ func (c *Config) validateAdmin(add func(string, ...any)) {
 		if c.OIDC.ClientID == "" {
 			missing = append(missing, "ARTIFACTSD_OIDC_CLIENT_ID")
 		}
-		if c.OIDC.RedirectURL == "" {
-			missing = append(missing, "ARTIFACTSD_OIDC_REDIRECT_URL")
-		}
 		if len(missing) > 0 {
+			// The redirect URL is not listed: it defaults to <base_url> +
+			// OIDCCallbackPath (see Load), so it is only ever empty here when
+			// base_url itself is missing — which is reported separately.
 			add("OIDC is partially configured; missing: %s", strings.Join(missing, ", "))
+		}
+		// When set (explicitly or via the default), the redirect URL must be an
+		// absolute http(s) URL — it is sent verbatim to the provider as
+		// redirect_uri and must be whitelisted there.
+		if u, err := url.Parse(c.OIDC.RedirectURL); c.OIDC.RedirectURL != "" &&
+			(err != nil || !u.IsAbs() || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https")) {
+			add("OIDC redirect URL %q must be an absolute http(s) URL (e.g. %s%s)",
+				c.OIDC.RedirectURL, "https://your-artifactsd-domain", OIDCCallbackPath)
 		}
 	}
 

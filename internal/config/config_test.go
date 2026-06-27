@@ -174,6 +174,61 @@ func TestValidate_PartialOIDC(t *testing.T) {
 	}
 }
 
+func TestOIDCRedirectURLDefault(t *testing.T) {
+	base := []string{"--base-url", "https://artifacts.example.com", "--data", t.TempDir()}
+	oidcEnv := map[string]string{
+		"ARTIFACTSD_OIDC_ISSUER":        "https://idp.example.com",
+		"ARTIFACTSD_OIDC_CLIENT_ID":     "artifactsd",
+		"ARTIFACTSD_OIDC_CLIENT_SECRET": "s3cret",
+		"ARTIFACTSD_ADMIN_GROUP":        "admins",
+	}
+
+	// Unset redirect URL → defaulted to <base_url> + OIDCCallbackPath, and valid.
+	c, err := Load(base, envMap(oidcEnv), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if want := "https://artifacts.example.com" + OIDCCallbackPath; c.OIDC.RedirectURL != want {
+		t.Errorf("redirect URL = %q, want default %q", c.OIDC.RedirectURL, want)
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("config with a defaulted redirect URL should validate: %v", err)
+	}
+
+	// An explicit redirect URL wins (the override case).
+	override := map[string]string{"ARTIFACTSD_OIDC_REDIRECT_URL": "https://admin.example.com/auth/oidc/callback"}
+	for k, v := range oidcEnv {
+		override[k] = v
+	}
+	c, _ = Load(base, envMap(override), io.Discard)
+	if c.OIDC.RedirectURL != "https://admin.example.com/auth/oidc/callback" {
+		t.Errorf("explicit redirect URL not preserved: %q", c.OIDC.RedirectURL)
+	}
+
+	// No OIDC configured → redirect URL stays empty (the default never fires).
+	c, _ = Load(base, envMap(nil), io.Discard)
+	if c.OIDC.RedirectURL != "" {
+		t.Errorf("redirect URL defaulted without any OIDC config: %q", c.OIDC.RedirectURL)
+	}
+}
+
+func TestOIDCRedirectURLMustBeAbsolute(t *testing.T) {
+	base := []string{"--base-url", "https://x.example.com", "--data", t.TempDir()}
+	env := map[string]string{
+		"ARTIFACTSD_OIDC_ISSUER":       "https://idp.example.com",
+		"ARTIFACTSD_OIDC_CLIENT_ID":    "artifactsd",
+		"ARTIFACTSD_OIDC_REDIRECT_URL": "/auth/oidc/callback", // a bare path, not absolute
+		"ARTIFACTSD_ADMIN_GROUP":       "admins",
+	}
+	c, err := Load(base, envMap(env), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "redirect URL") {
+		t.Fatalf("expected an absolute-URL error for a bare path, got %v", err)
+	}
+}
+
 func TestValidate_BasicFallbackNeedsUserAndSecret(t *testing.T) {
 	c := validBase(t)
 	c.Admin.BasicPassword = "hunter2"
