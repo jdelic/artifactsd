@@ -23,6 +23,11 @@ type Clock func() time.Time
 type Store struct {
 	db  *DB
 	now Clock
+	// defaultDeleteAfterCreation is the server-wide default object expiry
+	// (ARTIFACTSD_DEFAULT_DELETE_AFTER_CREATION). When non-zero it is applied
+	// during denormalization to any collection/node whose own metadata sets no
+	// expiry, so new content inherits the configured default (artifactsd-8yy).
+	defaultDeleteAfterCreation time.Duration
 }
 
 // New returns a Store backed by db, using the wall clock (UTC).
@@ -34,6 +39,23 @@ func New(db *DB) *Store {
 func (s *Store) WithClock(c Clock) *Store {
 	s.now = c
 	return s
+}
+
+// WithDefaultDeleteAfterCreation sets the server-wide default object expiry
+// applied during denormalization when an object sets no expiry of its own.
+func (s *Store) WithDefaultDeleteAfterCreation(d time.Duration) *Store {
+	s.defaultDeleteAfterCreation = d
+	return s
+}
+
+// applyDefaultExpiry returns exp unchanged when it is already set or no default
+// is configured; otherwise it is createdAt + the configured default.
+func (s *Store) applyDefaultExpiry(exp *time.Time, createdAt time.Time) *time.Time {
+	if exp != nil || s.defaultDeleteAfterCreation <= 0 {
+		return exp
+	}
+	t := createdAt.Add(s.defaultDeleteAfterCreation).UTC()
+	return &t
 }
 
 // DB exposes the underlying database handle.

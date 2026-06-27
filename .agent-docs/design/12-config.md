@@ -88,6 +88,11 @@ overrides them via the API/CLI.
 Per-object robots blocks and headers are richer than env can express; they are
 set through the metadata API/CLI, not server config.
 
+`ARTIFACTSD_DEFAULT_DELETE_AFTER_CREATION` is a creation-relative default object
+expiry (e.g. `30d`). When set, it is applied during denormalization to any
+collection or node whose own metadata sets no expiry, so new content expires by
+default; an explicit per-object expiry always wins over it (artifactsd-8yy).
+
 ## 4. Limits, janitor, uploads
 
 | Concern | Env | Default |
