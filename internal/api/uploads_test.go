@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
@@ -54,6 +57,64 @@ func TestUploads_BeginPutStatus(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &status)
 	if status.Status != "completed" || status.CompletedAt == nil {
 		t.Errorf("status view = %+v", status)
+	}
+}
+
+// TestUploads_ConcurrentPutIsSingleUse fires two PUTs at the same upload URL
+// concurrently. The capability is single-use, so exactly one must win and the
+// other must be rejected with 409 — and crucially the visible content must be
+// the winner's body, never the loser's. Before the fix the loser could overwrite
+// the target node before its session claim was rejected (artifactsd-ku3).
+func TestUploads_ConcurrentPutIsSingleUse(t *testing.T) {
+	h := newHarness(t)
+	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
+
+	rec := h.do(t, h.token, http.MethodPost, "/api/v1/collections/demo/uploads", []byte(`{"path":"race.bin"}`), nil)
+	var sess uploadSessionView
+	_ = json.Unmarshal(rec.Body.Bytes(), &sess)
+
+	bodies := [][]byte{[]byte("AAAAAAAAAA"), []byte("BBBBBBBBBBBBBBBBBBBB")}
+	codes := make([]int, len(bodies))
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range bodies {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start // line both PUTs up so they race
+			r := httptest.NewRequest(http.MethodPut, "/api/v1/uploads/"+sess.UploadID, bytes.NewReader(bodies[i]))
+			w := httptest.NewRecorder()
+			h.h.ServeHTTP(w, r)
+			codes[i] = w.Code
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	won, conflicts := -1, 0
+	for i, code := range codes {
+		switch code {
+		case http.StatusCreated, http.StatusOK:
+			if won != -1 {
+				t.Fatalf("both PUTs succeeded: %v", codes)
+			}
+			won = i
+		case http.StatusConflict:
+			conflicts++
+		default:
+			t.Fatalf("put %d unexpected code %d", i, code)
+		}
+	}
+	if won == -1 || conflicts != 1 {
+		t.Fatalf("want exactly one winner + one 409, got codes %v", codes)
+	}
+
+	got := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/files/race.bin", nil, nil)
+	if got.Code != http.StatusOK {
+		t.Fatalf("get = %d (%s)", got.Code, got.Body)
+	}
+	if !bytes.Equal(got.Body.Bytes(), bodies[won]) {
+		t.Errorf("served content = %q, want the winner's %q", got.Body.Bytes(), bodies[won])
 	}
 }
 

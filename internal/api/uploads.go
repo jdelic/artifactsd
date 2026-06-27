@@ -97,7 +97,11 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 
 // putUpload streams a large-upload PUT to the session's target. No bearer
 // token is required: possession of the unguessable upload_id is the capability
-// (decision D2). The session is single-use, consumed atomically on completion.
+// (decision D2). The session is single-use: it is claimed atomically (a
+// conditional pending→completed transition) BEFORE the target node is written,
+// so two concurrent PUTs to the same upload URL can never both mutate the
+// target — the loser is rejected with 409 before touching any node, leaving
+// exactly one content body visible (artifactsd-ku3).
 func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.lookupUploadSession(w, r)
 	if !ok {
@@ -115,6 +119,21 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "store blob", err)
 		return
 	}
+	refStr := string(ref)
+
+	// Claim the session first. The blob above is content-addressed and not yet
+	// referenced by any node, so storing it has no visible effect; committing the
+	// node only happens once this PUT has won the single-use race. A concurrent
+	// PUT that lost leaves an orphan blob (the same outcome as any aborted
+	// upload) but never overwrites the winner's node.
+	if err := h.store.CompleteUploadSession(r.Context(), session.UploadID, refStr, time.Now().UTC()); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusConflict, CodeConflict, "upload session already consumed")
+			return
+		}
+		h.internalServerError(w, "complete upload session", err)
+		return
+	}
 
 	c, err := h.store.GetCollection(r.Context(), session.CollectionID)
 	if err != nil {
@@ -127,7 +146,6 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	existing, _ := h.store.GetNode(r.Context(), c.ID, session.TargetPath)
-	refStr := string(ref)
 	node := &store.Node{
 		CollectionID: c.ID, ParentID: parentID, Path: session.TargetPath, Name: lastSegment(session.TargetPath),
 		Kind: store.KindFile, BlobID: &refStr, Size: &size, ContentType: strPtrOrNil(contentType),
@@ -143,15 +161,6 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), node.ID); err != nil {
 		h.internalServerError(w, "recompute node", err)
-		return
-	}
-
-	if err := h.store.CompleteUploadSession(r.Context(), session.UploadID, refStr, time.Now().UTC()); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusConflict, CodeConflict, "upload session already consumed")
-			return
-		}
-		h.internalServerError(w, "complete upload session", err)
 		return
 	}
 
