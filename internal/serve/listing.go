@@ -65,7 +65,7 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 	if sh != nil && eff.Visibility == meta.VisibilityPrivate {
 		eff.Visibility = meta.VisibilityUnlisted
 	}
-	expired := expiry != nil && !time.Now().Before(*expiry)
+	expired := expiry != nil && !h.now().Before(*expiry)
 
 	decision := policy.Decide(policy.Input{
 		Effective: eff, Expired: expired, AncestorPrivate: ancestorPrivate,
@@ -175,7 +175,7 @@ func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *st
 		return
 	}
 
-	now := time.Now()
+	now := h.now()
 	view := listingView{Collection: coll.Name, Path: dirPath, Entries: []listingEntry{}}
 	for _, c := range children {
 		if childExpiry := meta.Earliest(dirExpiry, c.ExpiresAt); childExpiry != nil && !now.Before(*childExpiry) {
