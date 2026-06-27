@@ -66,6 +66,13 @@ func validateAuthEntry(i int, e *AuthEntry, add func(string, ...any)) {
 		if e.Issuer == "" {
 			add("auth[%d] (oidc) requires issuer", i)
 		}
+		// Audience (aud) must be verified so a token minted for another client at
+		// the same issuer cannot satisfy this entry. Require an explicit audience
+		// unless the operator deliberately opts out (design/06 §1.3, design/14
+		// §2.3; artifactsd-bhq).
+		if e.Audience == "" && !e.InsecureSkipAudienceCheck {
+			add("auth[%d] (oidc) requires audience (or insecure_skip_audience_check)", i)
+		}
 		if len(e.AllowedSubjects) == 0 && len(e.AllowedGroups) == 0 && !e.AnyAuthenticated {
 			add("auth[%d] (oidc) requires allowed_subjects, allowed_groups, or any_authenticated", i)
 		}

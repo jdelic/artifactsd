@@ -150,12 +150,13 @@ func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCach
 		case meta.AuthOIDC:
 			if oidcCache != nil && e.Issuer != "" {
 				verifiers = append(verifiers, auth.NewOIDCVerifier(&auth.OIDCConfig{
-					Issuer:           e.Issuer,
-					Audience:         e.Audience,
-					AllowedSubjects:  e.AllowedSubjects,
-					AllowedGroups:    e.AllowedGroups,
-					GroupClaim:       e.GroupClaim,
-					AnyAuthenticated: e.AnyAuthenticated,
+					Issuer:                    e.Issuer,
+					Audience:                  e.Audience,
+					AllowedSubjects:           e.AllowedSubjects,
+					AllowedGroups:             e.AllowedGroups,
+					GroupClaim:                e.GroupClaim,
+					InsecureSkipAudienceCheck: e.InsecureSkipAudienceCheck,
+					AnyAuthenticated:          e.AnyAuthenticated,
 				}, oidcCache))
 			}
 		}

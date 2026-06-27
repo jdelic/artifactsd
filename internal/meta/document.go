@@ -72,12 +72,18 @@ type AuthEntry struct {
 	HasPassword  bool   `json:"has_password,omitempty" yaml:"-"`
 
 	// oidc
-	Issuer           string   `json:"issuer,omitempty" yaml:"issuer,omitempty"`
-	Audience         string   `json:"audience,omitempty" yaml:"audience,omitempty"`
-	AllowedSubjects  []string `json:"allowed_subjects,omitempty" yaml:"allowed_subjects,omitempty"`
-	AllowedGroups    []string `json:"allowed_groups,omitempty" yaml:"allowed_groups,omitempty"`
-	GroupClaim       string   `json:"group_claim,omitempty" yaml:"group_claim,omitempty"`
-	AnyAuthenticated bool     `json:"any_authenticated,omitempty" yaml:"any_authenticated,omitempty"`
+	Issuer          string   `json:"issuer,omitempty" yaml:"issuer,omitempty"`
+	Audience        string   `json:"audience,omitempty" yaml:"audience,omitempty"`
+	AllowedSubjects []string `json:"allowed_subjects,omitempty" yaml:"allowed_subjects,omitempty"`
+	AllowedGroups   []string `json:"allowed_groups,omitempty" yaml:"allowed_groups,omitempty"`
+	GroupClaim      string   `json:"group_claim,omitempty" yaml:"group_claim,omitempty"`
+	// InsecureSkipAudienceCheck disables ID-token audience (aud) verification.
+	// Audience is required on OIDC entries (design/06 §1.3, design/14 §2.3); this
+	// flag is the explicit, loud opt-out for the rare issuer that mints tokens
+	// without a usable audience. It must be set deliberately — an empty audience
+	// no longer silently skips the check (artifactsd-bhq).
+	InsecureSkipAudienceCheck bool `json:"insecure_skip_audience_check,omitempty" yaml:"insecure_skip_audience_check,omitempty"`
+	AnyAuthenticated          bool `json:"any_authenticated,omitempty" yaml:"any_authenticated,omitempty"`
 }
 
 // Crawl holds crawl/index directives.

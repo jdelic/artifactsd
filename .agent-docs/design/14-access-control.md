@@ -48,16 +48,21 @@ verify on username miss). **Unauthenticated/invalid → 401
 ```yaml
 - type: oidc
   issuer: https://accounts.example.com
-  audience: artifactsd
+  audience: artifactsd                    # REQUIRED: expected aud claim
   allowed_subjects: [user@example.com]   # whitelist by sub/email
   allowed_groups: [staff]                # whitelist by group claim
   group_claim: groups                    # which claim holds groups (default: groups)
   any_authenticated: false               # true => any valid token from issuer
+  # insecure_skip_audience_check: true   # opt-out; accepts ANY aud at the issuer
 ```
 Authorization is granted if the validated token satisfies **any** of:
 `sub`/email ∈ `allowed_subjects`, a group in the `group_claim` ∈
 `allowed_groups`, or `any_authenticated: true`. Token validation: fetch issuer
-JWKS (cached), verify signature, `exp`, `aud`. Challenge behavior:
+JWKS (cached), verify signature, `exp`, `aud`. `audience` is **required** so a
+token minted for a different client at the same issuer cannot satisfy the entry;
+write-time validation rejects an OIDC entry that has neither `audience` nor the
+explicit `insecure_skip_audience_check: true` opt-out (artifactsd-bhq).
+Challenge behavior:
 - **Browser** (`Accept: text/html`) → **302** to the issuer's authorization
   endpoint (Authorization Code + PKCE), callback at `/auth/oidc/callback`,
   result stored in a session cookie.
