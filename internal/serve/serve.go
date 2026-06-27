@@ -45,6 +45,10 @@ type Handler struct {
 	lastAccess   *lastAccessUpdater
 	robotsCache  *robotsCache
 	sitemapCache *sitemapCache
+	// now is the clock used for effective-expiry decisions; injectable so tests
+	// are deterministic rather than depending on the wall clock relative to the
+	// expiry timestamps they set up.
+	now func() time.Time
 }
 
 // New builds a serving handler.
@@ -54,12 +58,15 @@ func New(d Deps) *Handler {
 		lastAccess:   newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, d.Logger),
 		robotsCache:  newRobotsCache(),
 		sitemapCache: newSitemapCache(),
+		now:          time.Now,
 	}
 }
 
-// WithClock overrides the last-access throttle's clock (for tests).
+// WithClock overrides the handler's clock — both the last-access throttle and
+// the effective-expiry checks — for tests.
 func (h *Handler) WithClock(now func() time.Time) *Handler {
 	h.lastAccess.withClock(now)
+	h.now = now
 	return h
 }
 
@@ -164,7 +171,7 @@ func (h *Handler) lookupActiveShare(w http.ResponseWriter, r *http.Request) (*st
 		h.serverError(w, "lookup share", err)
 		return nil, nil, false
 	}
-	if sh.RevokedAt != nil || (sh.ExpiresAt != nil && !time.Now().Before(*sh.ExpiresAt)) {
+	if sh.RevokedAt != nil || (sh.ExpiresAt != nil && !h.now().Before(*sh.ExpiresAt)) {
 		http.NotFound(w, r)
 		return nil, nil, false
 	}
@@ -221,7 +228,7 @@ func (h *Handler) serveShareFile(w http.ResponseWriter, r *http.Request, sh *sto
 	layers, chainExpiry, _ := h.resolveChain(r.Context(), coll, p)
 	layers = append(layers, docOf(sh.Metadata))
 	expiry := meta.Earliest(chainExpiry, sh.ExpiresAt)
-	expired := expiry != nil && !time.Now().Before(*expiry)
+	expired := expiry != nil && !h.now().Before(*expiry)
 
 	eff := meta.Resolve(h.defaults(), layers...)
 	if eff.Visibility == meta.VisibilityPrivate {
@@ -238,7 +245,7 @@ func (h *Handler) serveShareFile(w http.ResponseWriter, r *http.Request, sh *sto
 func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, p string) {
 	layers, expiry, ancestorPrivate := h.resolveChain(r.Context(), coll, p)
 	eff := meta.Resolve(h.defaults(), layers...)
-	expired := expiry != nil && !time.Now().Before(*expiry)
+	expired := expiry != nil && !h.now().Before(*expiry)
 
 	decision := policy.Decide(policy.Input{
 		Effective: eff, Expired: expired, AncestorPrivate: ancestorPrivate,
