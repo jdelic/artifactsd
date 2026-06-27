@@ -196,14 +196,42 @@ func (s *Server) adminGate(next http.Handler) http.Handler {
 	})
 }
 
-// isAdmin reports whether the session identity carries the required admin group.
+// logAdminMode reports the effective admin-authorization mode once at startup,
+// so a disabled or wide-open OIDC admin setup is visible in the logs (design/14 §7).
+func (s *Server) logAdminMode() {
+	if s.cfg.OIDC.Enabled() {
+		switch s.cfg.Admin.Group {
+		case "":
+			s.log.Warn("OIDC admin disabled: ARTIFACTSD_ADMIN_GROUP is unset, so no one is granted admin via OIDC; set a group name, or \"*\" to admit any authenticated user")
+		case "*":
+			s.log.Warn("OIDC admin granted to ANY authenticated user (ARTIFACTSD_ADMIN_GROUP=*); ensure the issuer only admits trusted users")
+		default:
+			s.log.Info("OIDC admin restricted to a group", "group", s.cfg.Admin.Group)
+		}
+	}
+	if s.cfg.Admin.BasicUser != "" {
+		s.log.Info("admin basic-auth fallback enabled", "user", s.cfg.Admin.BasicUser)
+	}
+}
+
+// isAdmin reports whether an authenticated OIDC identity is authorized for admin
+// (design/14 §7). ARTIFACTSD_ADMIN_GROUP selects the mode:
+//   - "" (unset): fail closed — OIDC admin is disabled, nobody is authorized.
+//   - "*": any authenticated user is an admin (explicit, deliberate opt-out of
+//     group gating — only safe when the issuer is trusted to admit only staff).
+//   - any other value: authorize only identities carrying that group.
+//
+// The caller (adminGate) only invokes this with an already-authenticated
+// identity, so "*" means "authentication alone suffices".
 func (s *Server) isAdmin(id *session.Identity) bool {
-	group := s.cfg.Admin.Group
-	if group == "" {
-		return false // OIDC admin requires a configured group (fail closed)
+	switch s.cfg.Admin.Group {
+	case "":
+		return false
+	case "*":
+		return true
 	}
 	for _, g := range id.Groups {
-		if g == group {
+		if g == s.cfg.Admin.Group {
 			return true
 		}
 	}
