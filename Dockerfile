@@ -6,7 +6,7 @@
 #   docker build -t artifactsd .
 #   docker buildx build --platform linux/amd64,linux/arm64 -t artifactsd .
 
-FROM golang:1.25-bookworm AS build
+FROM golang:1.25-trixie AS build
 WORKDIR /src
 ARG TARGETOS
 ARG TARGETARCH
@@ -19,7 +19,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
       -ldflags "-s -w -X github.com/jdelic/artifactsd/internal/buildinfo.Version=$VERSION" \
       -o /out/artifactsd ./cmd/artifactsd
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/artifactsd /usr/local/bin/artifactsd
 
 VOLUME ["/data"]
