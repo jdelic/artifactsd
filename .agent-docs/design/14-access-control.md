@@ -115,7 +115,11 @@ completion), size limits. See [07](07-storage-uploads.md).
   granted only when the OIDC token carries a configured group. Configured via
   **environment variables**:
   - `ARTIFACTSD_OIDC_ISSUER`, `ARTIFACTSD_OIDC_CLIENT_ID`,
-    `ARTIFACTSD_OIDC_CLIENT_SECRET`, `ARTIFACTSD_OIDC_REDIRECT_URL`
+    `ARTIFACTSD_OIDC_CLIENT_SECRET`
+  - `ARTIFACTSD_OIDC_REDIRECT_URL` — the full callback URL the provider
+    redirects back to (sent verbatim as `redirect_uri`, must be whitelisted at
+    the provider). Defaults to `<base_url>/auth/oidc/callback`; see
+    [12 §2](12-config.md) for the full explanation and when to override.
   - `ARTIFACTSD_ADMIN_GROUP_CLAIM` (default `groups`)
   - `ARTIFACTSD_ADMIN_GROUP` (required group value; presence gates admin)
   - optional `ARTIFACTSD_ADMIN_BASIC_USER` / `ARTIFACTSD_ADMIN_BASIC_PASSWORD`

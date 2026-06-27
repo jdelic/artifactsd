@@ -91,6 +91,13 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 		ClientSecret: getenv("ARTIFACTSD_OIDC_CLIENT_SECRET"),
 		RedirectURL:  getenv("ARTIFACTSD_OIDC_REDIRECT_URL"),
 	}
+	// Default the OIDC redirect URL to <base_url>/auth/oidc/callback when OIDC is
+	// configured but the redirect URL was left unset, so operators only have to
+	// whitelist that URL at their provider instead of also restating it here.
+	if c.OIDC.RedirectURL == "" && c.Server.BaseURL != "" &&
+		(c.OIDC.Issuer != "" || c.OIDC.ClientID != "" || c.OIDC.ClientSecret != "") {
+		c.OIDC.RedirectURL = strings.TrimRight(c.Server.BaseURL, "/") + OIDCCallbackPath
+	}
 
 	// Default object policy: env-only (design/12 §3).
 	dap, err := loadDefaultPolicy(getenv)
