@@ -17,6 +17,7 @@ import (
 // runServe opens storage, applies pending migrations (when auto-migrate is on),
 // and runs the HTTP server until SIGINT/SIGTERM triggers graceful shutdown.
 func runServe(parent context.Context, cfg *config.Config, stderr io.Writer) error {
+	printBanner(stderr, cfg)
 	log := audit.NewAppLogger(stderr, cfg.Server.LogLevel)
 	access := audit.NewAccessLogger(os.Stdout)
 
