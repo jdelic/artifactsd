@@ -171,6 +171,28 @@ func TestOIDCVerifier_RejectsBadToken(t *testing.T) {
 	})
 }
 
+// TestOIDCVerifier_EmptyAudienceFailsClosed proves that an empty Audience no
+// longer silently disables aud verification (artifactsd-bhq): without the
+// explicit opt-out the verifier rejects every token, and only the loud
+// InsecureSkipAudienceCheck flag restores the skip behavior.
+func TestOIDCVerifier_EmptyAudienceFailsClosed(t *testing.T) {
+	mi := newMockIssuer(t)
+	cache := NewOIDCProviderCache(mi.server.Client())
+
+	// Empty audience, no opt-out: a perfectly valid token is still rejected,
+	// because aud verification is not skipped just because Audience is unset.
+	closed := NewOIDCVerifier(&OIDCConfig{Issuer: mi.url, AnyAuthenticated: true}, cache)
+	if ok, _ := closed.Verify(oidcReq(mi.sign(t, mi.baseClaims("some-client"), nil))); ok {
+		t.Error("empty audience without opt-out must not accept a foreign-audience token")
+	}
+
+	// Explicit opt-out: the same token is now accepted.
+	open := NewOIDCVerifier(&OIDCConfig{Issuer: mi.url, AnyAuthenticated: true, InsecureSkipAudienceCheck: true}, cache)
+	if ok, _ := open.Verify(oidcReq(mi.sign(t, mi.baseClaims("some-client"), nil))); !ok {
+		t.Error("insecure_skip_audience_check should accept any audience")
+	}
+}
+
 func TestParseGroups(t *testing.T) {
 	if g := parseGroups(json.RawMessage(`["a","b"]`)); len(g) != 2 {
 		t.Errorf("array groups = %v", g)

@@ -48,16 +48,21 @@ verify on username miss). **Unauthenticated/invalid → 401
 ```yaml
 - type: oidc
   issuer: https://accounts.example.com
-  audience: artifactsd
+  audience: artifactsd                    # REQUIRED: expected aud claim
   allowed_subjects: [user@example.com]   # whitelist by sub/email
   allowed_groups: [staff]                # whitelist by group claim
   group_claim: groups                    # which claim holds groups (default: groups)
   any_authenticated: false               # true => any valid token from issuer
+  # insecure_skip_audience_check: true   # opt-out; accepts ANY aud at the issuer
 ```
 Authorization is granted if the validated token satisfies **any** of:
 `sub`/email ∈ `allowed_subjects`, a group in the `group_claim` ∈
 `allowed_groups`, or `any_authenticated: true`. Token validation: fetch issuer
-JWKS (cached), verify signature, `exp`, `aud`. Challenge behavior:
+JWKS (cached), verify signature, `exp`, `aud`. `audience` is **required** so a
+token minted for a different client at the same issuer cannot satisfy the entry;
+write-time validation rejects an OIDC entry that has neither `audience` nor the
+explicit `insecure_skip_audience_check: true` opt-out (artifactsd-bhq).
+Challenge behavior:
 - **Browser** (`Accept: text/html`) → **302** to the issuer's authorization
   endpoint (Authorization Code + PKCE), callback at `/auth/oidc/callback`,
   result stored in a session cookie.
@@ -135,3 +140,46 @@ Table-driven tests for: any-of evaluation across all three types; challenge
 precedence × browser/API matrix; bearer→404 vs basic→401 vs oidc→redirect;
 OIDC group/subject/any-authenticated whitelisting; admin group-claim gating;
 share/upload capability (no token) + expiry; private/expired→404.
+
+## 10. Browser isolation of active artifacts (artifactsd-c63)
+
+Artifacts are intentionally allowed to be active browser content (HTML reports,
+SPAs, SVG). By default they are served from `/c` and `/s` on the **same origin**
+as the cookie-authenticated admin UI, so without isolation a malicious artifact
+opened by an admin could `fetch("/admin/…")`, read the same-origin CSRF token,
+mint an admin API token, and exfiltrate it — same-origin script defeats CSRF,
+SameSite, and HttpOnly.
+
+**Primary boundary — sandbox the artifact (the deployment-simple default).**
+Active artifact responses carry `Content-Security-Policy: sandbox allow-scripts
+allow-downloads` (no `allow-same-origin`), so the artifact runs in an *opaque*
+origin and cannot read/drive the admin origin. This is on by default
+(`ARTIFACTSD_DEFAULT_SANDBOX`, per-object `content.sandbox`). Server-emitted as
+its own CSP header so author CSPs only tighten it; `Set-Cookie` is stripped from
+artifact metadata. Tradeoff: a sandboxed page has a `null` origin, so it loses
+its own-origin storage/cookies and presents `Origin: null` to third-party APIs
+(only `*`-CORS APIs work) — trusted interactive content opts out with
+`content.sandbox: false`, regaining the real origin.
+
+**Defense in depth on the admin side.** Every admin response sets
+`X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, and
+`Cache-Control: no-store`; mutating admin requests labeled `Sec-Fetch-Site:
+cross-site` are rejected (on top of the existing same-origin + CSRF-token check).
+
+**Stronger boundary — separate admin origin (optional, recommended at scale).**
+artifactsd supports **both** topologies:
+
+- *Single domain (default, easy):* admin and artifacts share one origin; the
+  sandbox is the boundary. Good for simple deployments and trusted content.
+- *Separate admin origin (hardened):* host the cookie-authenticated admin UI
+  (and its `/auth/oidc/callback`) on its own origin, e.g. `admin.example.com`,
+  while artifacts stay on the public origin. The admin session cookie is then
+  scoped to a host artifact JS cannot reach, so artifact→admin theft is
+  prevented *structurally* — independent of the sandbox. In this mode
+  `content.sandbox: false` is safe (it hands the artifact only the public
+  origin, where no admin credentials live), making it the right home for rich
+  interactive SPAs that need a stable, allow-listable origin. The management
+  API is bearer-token (no ambient cookie) so it is not same-origin-exploitable;
+  it may ride with admin or stay public. *(Host-based routing for this mode is
+  tracked as a follow-up; the single-domain sandbox ships first.)*

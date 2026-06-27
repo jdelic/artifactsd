@@ -71,7 +71,7 @@ func New(t *testing.T) *Server {
 		_ = ln.Close()
 		t.Fatalf("testserver: migrate: %v", err)
 	}
-	st := store.New(db)
+	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation)
 
 	bs, err := blob.NewFSStore(cfg.Server.DataDir)
 	if err != nil {

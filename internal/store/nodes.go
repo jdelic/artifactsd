@@ -61,7 +61,16 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 // UpsertNode inserts a node or updates the existing one with the same
 // (collection_id, path), preserving created_at and last_access_at on update.
 // The node's ID is populated on return.
+//
+// It enforces the tree's kind invariants (artifactsd-2bw): the parent (when
+// set) must be a folder, and a path's kind may not change between file and
+// folder in place — replacing one with the other requires an explicit
+// delete/recreate. Violations return ErrKindConflict without mutating any row.
 func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
+	if err := s.checkKindInvariants(ctx, n); err != nil {
+		return err
+	}
+
 	now := s.now()
 	if n.CreatedAt.IsZero() {
 		n.CreatedAt = now
@@ -92,6 +101,38 @@ func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
 		fmtTimePtr(n.LastAccessAt), n.Visibility, fmtTimePtr(n.ExpiresAt),
 	).Scan(&n.ID)
 	return err
+}
+
+// checkKindInvariants verifies, before an upsert, that the parent is a folder
+// and that an existing node at the same path is not flipping kind (artifactsd-2bw).
+func (s *Store) checkKindInvariants(ctx context.Context, n *Node) error {
+	if n.ParentID != nil {
+		var parentKind string
+		err := s.db.sql.QueryRowContext(ctx, `SELECT kind FROM nodes WHERE id = ?`, *n.ParentID).Scan(&parentKind)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrKindConflict // parent vanished; treat as a structural conflict
+		}
+		if err != nil {
+			return err
+		}
+		if parentKind != KindFolder {
+			return ErrKindConflict // a file cannot be a parent
+		}
+	}
+
+	var existingKind string
+	err := s.db.sql.QueryRowContext(ctx,
+		`SELECT kind FROM nodes WHERE collection_id = ? AND path = ?`, n.CollectionID, n.Path).Scan(&existingKind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil // new path, no conflict
+	}
+	if err != nil {
+		return err
+	}
+	if existingKind != n.Kind {
+		return ErrKindConflict // file<->folder replacement is not allowed in place
+	}
+	return nil
 }
 
 // GetNode returns a node by (collection, path).

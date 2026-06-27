@@ -108,6 +108,7 @@ func (s *Store) RecomputeCollectionDenormalized(ctx context.Context, id int64, d
 	if vis == "" {
 		vis = defaultVisibility
 	}
+	exp = s.applyDefaultExpiry(exp, c.CreatedAt)
 	_, err = s.db.sql.ExecContext(ctx,
 		`UPDATE collections SET visibility = ?, expires_at = ? WHERE id = ?`,
 		vis, fmtTimePtr(exp), id)
@@ -129,6 +130,7 @@ func (s *Store) RecomputeNodeDenormalized(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
+	exp = s.applyDefaultExpiry(exp, n.CreatedAt)
 	var visArg any
 	if vis != "" {
 		visArg = vis

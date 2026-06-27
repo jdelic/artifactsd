@@ -7,13 +7,14 @@ import (
 )
 
 func TestIsUnsafeHeader(t *testing.T) {
-	unsafe := []string{"Connection", "connection", "Transfer-Encoding", "content-length", "Host", "TE", "Proxy-Authorization"}
+	unsafe := []string{"Connection", "connection", "Transfer-Encoding", "content-length", "Host", "TE", "Proxy-Authorization", "Set-Cookie", "set-cookie"}
 	for _, h := range unsafe {
 		if !IsUnsafeHeader(h) {
 			t.Errorf("IsUnsafeHeader(%q) = false, want true", h)
 		}
 	}
-	safe := []string{"Cache-Control", "X-Custom", "Access-Control-Allow-Origin"}
+	// Author CSP stays allowed: it can only tighten the server's sandbox CSP.
+	safe := []string{"Cache-Control", "X-Custom", "Access-Control-Allow-Origin", "Content-Security-Policy"}
 	for _, h := range safe {
 		if IsUnsafeHeader(h) {
 			t.Errorf("IsUnsafeHeader(%q) = true, want false", h)

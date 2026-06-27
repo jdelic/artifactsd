@@ -8,6 +8,7 @@ import "net/http"
 type Effective struct {
 	ContentType      string
 	Headers          map[string]string
+	Sandbox          bool
 	Visibility       string
 	DirectoryListing bool
 	Auth             []AuthEntry
@@ -24,12 +25,14 @@ type Defaults struct {
 	DirectoryListing bool
 	Crawlable        bool
 	Indexable        bool
+	Sandbox          bool
 }
 
 // Resolve merges the layers in increasing precedence onto the server defaults
 // (design/03 §2): collection → folders (outermost→innermost) → file → share.
 // Nil layers are skipped. Section merge rules:
 //   - content.content_type: scalar override (last wins)
+//   - content.sandbox: scalar override (last wins)
 //   - content.headers: map-merge by canonical name; "" value removes inherited
 //   - access.visibility / directory_listing: scalar override
 //   - access.auth: replace (any level that sets auth replaces the list; an
@@ -42,6 +45,7 @@ func Resolve(d Defaults, layers ...*Document) *Effective {
 		DirectoryListing: d.DirectoryListing,
 		Crawlable:        d.Crawlable,
 		Indexable:        d.Indexable,
+		Sandbox:          d.Sandbox,
 		Headers:          map[string]string{},
 	}
 	for _, layer := range layers {
@@ -59,6 +63,9 @@ func (eff *Effective) apply(d *Document) {
 	if d.Content != nil {
 		if d.Content.ContentType != nil {
 			eff.ContentType = *d.Content.ContentType
+		}
+		if d.Content.Sandbox != nil {
+			eff.Sandbox = *d.Content.Sandbox
 		}
 		for k, v := range d.Content.Headers {
 			key := http.CanonicalHeaderKey(k)

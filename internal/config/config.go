@@ -107,6 +107,11 @@ type DefaultPolicy struct {
 	Crawlable           bool
 	Indexable           bool
 	DeleteAfterCreation time.Duration // zero = unset
+	// Sandbox is the default for whether active artifact responses are served
+	// with a CSP sandbox (an opaque origin) so artifact JavaScript cannot drive
+	// or read the same-origin admin UI (design/14 §7, artifactsd-c63). Default
+	// true; a per-object content.sandbox overrides it.
+	Sandbox bool
 }
 
 // Limits holds size/rate/janitor/upload knobs (design/12 §4).

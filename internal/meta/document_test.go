@@ -174,9 +174,21 @@ func TestRedacted(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	ok, _ := FromJSON([]byte(`{"access":{"visibility":"public","auth":[{"type":"oidc","issuer":"https://idp","any_authenticated":true}]},"expiry":{"delete_after_creation":"7d"}}`))
+	ok, _ := FromJSON([]byte(`{"access":{"visibility":"public","auth":[{"type":"oidc","issuer":"https://idp","audience":"my-app","any_authenticated":true}]},"expiry":{"delete_after_creation":"7d"}}`))
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("valid doc rejected: %v", err)
+	}
+
+	// An OIDC entry without an audience is rejected: otherwise a token minted for
+	// any other client at the same issuer would satisfy it (artifactsd-bhq).
+	noAud, _ := FromJSON([]byte(`{"access":{"auth":[{"type":"oidc","issuer":"https://idp","any_authenticated":true}]}}`))
+	if err := noAud.Validate(); err == nil || !strings.Contains(err.Error(), "audience") {
+		t.Fatalf("missing-audience oidc entry not rejected: %v", err)
+	}
+	// The explicit, loud opt-out is accepted.
+	skip, _ := FromJSON([]byte(`{"access":{"auth":[{"type":"oidc","issuer":"https://idp","insecure_skip_audience_check":true,"any_authenticated":true}]}}`))
+	if err := skip.Validate(); err != nil {
+		t.Fatalf("insecure_skip_audience_check opt-out rejected: %v", err)
 	}
 
 	bad := &Document{

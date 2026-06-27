@@ -282,6 +282,17 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Col
 	for k, v := range meta.FilterHeaders(eff.Headers) {
 		w.Header().Set(k, v)
 	}
+	// Sandbox artifact-controlled content into an opaque origin so its JavaScript
+	// cannot drive or read the same-origin admin UI (design/14 §7, artifactsd-c63).
+	// Added (not Set) as our own CSP header so any author-supplied CSP is layered
+	// on top — sandbox policies are intersected by the browser, so an author CSP
+	// can only tighten, never loosen, this. Harmless on non-document responses
+	// (the directive only constrains browsing contexts), so applied broadly to
+	// also cover content the browser would otherwise sniff as HTML. Trusted
+	// content opts out via content.sandbox=false (then it keeps its real origin).
+	if eff.Sandbox {
+		w.Header().Add("Content-Security-Policy", "sandbox allow-scripts allow-downloads")
+	}
 	if ct := detectContentType(eff, node); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
@@ -343,6 +354,7 @@ func (h *Handler) defaults() meta.Defaults {
 		DirectoryListing: h.cfg.Policy.DirectoryListing,
 		Crawlable:        h.cfg.Policy.Crawlable,
 		Indexable:        h.cfg.Policy.Indexable,
+		Sandbox:          h.cfg.Policy.Sandbox,
 	}
 }
 

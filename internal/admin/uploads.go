@@ -64,6 +64,10 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	parentID, err := h.ensureParents(ctx, c.ID, p)
 	if err != nil {
+		if errors.Is(err, store.ErrKindConflict) {
+			h.renderTreePanel(w, r, c, dir, "a path segment already exists as a file, not a folder")
+			return
+		}
 		h.renderTreePanel(w, r, c, dir, "materializing folders: "+err.Error())
 		return
 	}
@@ -74,6 +78,10 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		Metadata: json.RawMessage(`{}`),
 	}
 	if err := h.store.UpsertNode(ctx, node); err != nil {
+		if errors.Is(err, store.ErrKindConflict) {
+			h.renderTreePanel(w, r, c, dir, "a folder already exists at that path")
+			return
+		}
 		h.renderTreePanel(w, r, c, dir, "saving file: "+err.Error())
 		return
 	}
@@ -181,6 +189,9 @@ func (h *Handler) ensureParents(ctx context.Context, collectionID int64, p strin
 		}
 		existing, err := h.store.GetNode(ctx, collectionID, prefix)
 		if err == nil {
+			if existing.Kind != store.KindFolder {
+				return nil, store.ErrKindConflict // an existing ancestor must be a folder
+			}
 			parentID = &existing.ID
 			continue
 		}

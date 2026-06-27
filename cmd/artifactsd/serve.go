@@ -38,7 +38,7 @@ func runServe(parent context.Context, cfg *config.Config, stderr io.Writer) erro
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	st := store.New(db)
+	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation)
 	if err := seedBootstrapToken(ctx, st, cfg.Bootstrap.Token, log); err != nil {
 		_ = db.Close()
 		return err

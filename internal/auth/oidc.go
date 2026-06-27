@@ -16,12 +16,16 @@ import (
 // token is authorized if it satisfies ANY of: sub/email in AllowedSubjects, a
 // group in GroupClaim within AllowedGroups, or AnyAuthenticated.
 type OIDCConfig struct {
-	Issuer           string
-	Audience         string
-	AllowedSubjects  []string
-	AllowedGroups    []string
-	GroupClaim       string // default "groups"
-	AnyAuthenticated bool
+	Issuer          string
+	Audience        string
+	AllowedSubjects []string
+	AllowedGroups   []string
+	GroupClaim      string // default "groups"
+	// InsecureSkipAudienceCheck disables audience (aud) verification. It is the
+	// explicit opt-out for issuers without a usable audience; an empty Audience
+	// alone no longer disables the check (artifactsd-bhq).
+	InsecureSkipAudienceCheck bool
+	AnyAuthenticated          bool
 }
 
 func (c *OIDCConfig) groupClaim() string {
@@ -92,7 +96,11 @@ func (c *OIDCProviderCache) verifyToken(ctx context.Context, cfg *OIDCConfig, ra
 		return nil, err
 	}
 	oc := &oidc.Config{ClientID: cfg.Audience}
-	if cfg.Audience == "" {
+	// Only skip the aud check when the operator explicitly opted out. An empty
+	// audience without that flag would otherwise silently accept any client's
+	// token from this issuer (artifactsd-bhq); metadata validation rejects that
+	// combination, and this is the matching defense at verification time.
+	if cfg.InsecureSkipAudienceCheck {
 		oc.SkipClientIDCheck = true
 	}
 	idToken, err := provider.Verifier(oc).Verify(c.clientContext(ctx), rawToken)

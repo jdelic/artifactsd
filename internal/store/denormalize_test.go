@@ -147,6 +147,54 @@ func TestRecomputeDenormalized_PersistsColumns(t *testing.T) {
 	}
 }
 
+// TestDefaultDeleteAfterCreation covers artifactsd-8yy: the configured default
+// object expiry is applied during denormalization to collections and nodes that
+// set no expiry of their own, but never overrides an explicit per-object expiry.
+func TestDefaultDeleteAfterCreation(t *testing.T) {
+	s, ctx := newStore(t)
+	s.WithDefaultDeleteAfterCreation(7 * 24 * time.Hour)
+	wantDefault := fixedNow.Add(7 * 24 * time.Hour)
+
+	// Collection with no expiry of its own → gets the default.
+	c := &Collection{Name: "demo", Metadata: []byte(`{"access":{"visibility":"public"}}`)}
+	if err := s.CreateCollection(ctx, c); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if err := s.RecomputeCollectionDenormalized(ctx, c.ID, "public"); err != nil {
+		t.Fatalf("RecomputeCollectionDenormalized: %v", err)
+	}
+	got, _ := s.GetCollection(ctx, c.ID)
+	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(wantDefault) {
+		t.Errorf("collection expires_at = %v, want default %v", got.ExpiresAt, wantDefault)
+	}
+
+	// Node with no expiry → gets the default.
+	n := &Node{CollectionID: c.ID, Path: "f", Name: "f", Kind: KindFile, Metadata: []byte(`{}`)}
+	if err := s.UpsertNode(ctx, n); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+	if err := s.RecomputeNodeDenormalized(ctx, n.ID); err != nil {
+		t.Fatalf("RecomputeNodeDenormalized: %v", err)
+	}
+	gotNode, _ := s.GetNodeByID(ctx, n.ID)
+	if gotNode.ExpiresAt == nil || !gotNode.ExpiresAt.Equal(wantDefault) {
+		t.Errorf("node expires_at = %v, want default %v", gotNode.ExpiresAt, wantDefault)
+	}
+
+	// Node with its OWN (sooner) expiry → keeps its own; the default never wins.
+	own := &Node{CollectionID: c.ID, Path: "g", Name: "g", Kind: KindFile, Metadata: []byte(`{"expiry":{"delete_after_creation":"2d"}}`)}
+	if err := s.UpsertNode(ctx, own); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+	if err := s.RecomputeNodeDenormalized(ctx, own.ID); err != nil {
+		t.Fatalf("RecomputeNodeDenormalized: %v", err)
+	}
+	gotOwn, _ := s.GetNodeByID(ctx, own.ID)
+	if gotOwn.ExpiresAt == nil || !gotOwn.ExpiresAt.Equal(fixedNow.Add(48*time.Hour)) {
+		t.Errorf("node with own expiry = %v, want its own 2d", gotOwn.ExpiresAt)
+	}
+}
+
 func TestRecomputeAllDenormalized(t *testing.T) {
 	s, ctx := newStore(t)
 	c := &Collection{Name: "demo", Metadata: []byte(`{"access":{"visibility":"public"}}`)}

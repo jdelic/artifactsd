@@ -133,6 +133,7 @@ func loadDefaultPolicy(getenv Getenv) (DefaultPolicy, error) {
 		DirectoryListing: envBool(getenv, "ARTIFACTSD_DEFAULT_DIRECTORY_LISTING", false),
 		Crawlable:        envBool(getenv, "ARTIFACTSD_DEFAULT_CRAWLABLE", false),
 		Indexable:        envBool(getenv, "ARTIFACTSD_DEFAULT_INDEXABLE", false),
+		Sandbox:          envBool(getenv, "ARTIFACTSD_DEFAULT_SANDBOX", true),
 	}
 	d, err := envDuration(getenv, "ARTIFACTSD_DEFAULT_DELETE_AFTER_CREATION", 0)
 	if err != nil {

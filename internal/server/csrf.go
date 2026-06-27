@@ -25,6 +25,15 @@ func (s *Server) csrfGate(next http.Handler) http.Handler {
 			http.Error(w, "cross-origin request rejected", http.StatusForbidden)
 			return
 		}
+		// Fetch Metadata defense-in-depth (design/14 §7): a browser labels a
+		// request triggered by a cross-site (e.g. sandboxed-artifact) context as
+		// Sec-Fetch-Site: cross-site. Reject those outright. Same-origin,
+		// same-site, and user-initiated ("none") are allowed; an absent header
+		// (older clients, curl) falls through to the token check below.
+		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+			http.Error(w, "cross-site request rejected", http.StatusForbidden)
+			return
+		}
 		id := session.FromContext(r.Context())
 		if id == nil {
 			http.Error(w, "admin authentication required", http.StatusUnauthorized)
