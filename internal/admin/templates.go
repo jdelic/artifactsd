@@ -108,6 +108,8 @@ func navSection(page string) string {
 		return "files"
 	case "allshares":
 		return "shares"
+	case "uploadrequests":
+		return "uploadrequests"
 	default:
 		return page
 	}

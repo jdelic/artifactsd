@@ -1,0 +1,51 @@
+{{define "uploadrequests"}}
+{{template "uploadrequests_panel" .}}
+{{end}}
+
+{{define "uploadrequests_panel"}}
+<div id="uploadrequests-panel">
+  <div class="nc-panel" data-label="Create upload request link">
+    <form class="nc-form" hx-post="{{.AdminPath}}/upload-requests" hx-target="#uploadrequests-panel" hx-swap="outerHTML">
+      <label>Collection
+        <select name="collection" required data-shortcut="c" data-shortcut-action="focus">
+          <option value="">— select —</option>
+          {{range .Collections}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+      </label>
+      <label>Target folder <input type="text" name="target_folder" placeholder="uploads (optional)"></label>
+      <label>Label <input type="text" name="label" placeholder="e.g. Client deliverables (optional)"></label>
+      <label>Expires in <input type="text" name="expires_in" placeholder="7d or 2026-12-31T00:00:00Z (optional)"></label>
+      <label class="nc-scope"><input type="checkbox" name="single_use" value="on"> Single-use (auto-close after first upload)</label>
+      <button class="nc-button" type="submit">Create</button>
+    </form>
+    {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+    {{if .NewURL}}<div class="nc-saved">created: <a href="{{.NewURL}}" target="_blank" rel="noopener">{{.NewURL}}</a></div>{{end}}
+  </div>
+  <div class="nc-panel" data-label="Upload request links">
+    <table class="nc-table">
+      <tr><th>Collection</th><th>Link URL</th><th>Label</th><th>Folder</th><th>Status</th><th>Uploaded</th><th>Expires</th><th></th></tr>
+      {{range .Requests}}
+      <tr>
+        <td>{{.Collection}}</td>
+        <td><a href="{{.URL}}" target="_blank" rel="noopener">{{.RequestID}}</a>{{if .SingleUse}} <span title="single-use">[1×]</span>{{end}}</td>
+        <td>{{if .Label}}{{.Label}}{{else}}—{{end}}</td>
+        <td>{{if .TargetFolder}}{{.TargetFolder}}{{else}}(root){{end}}</td>
+        <td>{{.Status}}</td>
+        <td>{{.FilesUploaded}}</td>
+        <td>{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}—{{end}}</td>
+        <td>
+          {{if eq .Status "active"}}
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/upload-requests/{{.RequestID}}/revoke"
+                hx-target="#uploadrequests-panel" hx-swap="outerHTML" hx-confirm="Revoke upload request {{.RequestID}}?">
+            <button class="nc-button" type="submit">Revoke</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="8">No upload request links yet.</td></tr>
+      {{end}}
+    </table>
+  </div>
+</div>
+{{end}}
