@@ -3,7 +3,9 @@ package server
 import (
 	"net/http"
 	"net/url"
+	"strings"
 
+	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/session"
 )
 
@@ -62,9 +64,13 @@ func isMutating(method string) bool {
 }
 
 // sameOrigin reports whether the request's Origin header (when present)
-// matches the server's own base URL host. Requests without an Origin header
-// (e.g. same-site form posts in older browsers) are not rejected here — the
-// CSRF token check below is the primary defense.
+// matches an origin the admin UI is served from. Requests without an Origin
+// header (e.g. same-site form posts in older browsers) are not rejected here —
+// the CSRF token check below is the primary defense.
+//
+// In the separate-admin-origin topology (design/14 §10) the admin UI lives on
+// ARTIFACTSD_ADMIN_HOST, so admin form posts carry that Origin rather than the
+// public base-URL host; both are accepted.
 func (s *Server) sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -74,9 +80,12 @@ func (s *Server) sameOrigin(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	base, err := url.Parse(s.cfg.Server.BaseURL)
-	if err != nil {
-		return true // base_url is validated at startup; a parse failure here can't happen
+	if base, err := url.Parse(s.cfg.Server.BaseURL); err == nil && o.Host == base.Host {
+		return true // base_url is validated at startup; a parse failure can't happen
 	}
-	return o.Host == base.Host
+	if s.cfg.Server.AdminHost != "" &&
+		strings.EqualFold(config.HostOnly(o.Host), config.HostOnly(s.cfg.Server.AdminHost)) {
+		return true
+	}
+	return false
 }

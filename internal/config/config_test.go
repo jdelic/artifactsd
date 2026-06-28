@@ -330,3 +330,73 @@ func TestBootstrapToken(t *testing.T) {
 		t.Errorf("Bootstrap.Token = %q, want tok_ci-secret", c.Bootstrap.Token)
 	}
 }
+
+func TestAdminHostIsolation(t *testing.T) {
+	base := []string{"--base-url", "https://artifacts.example.com", "--data", t.TempDir()}
+
+	// Default: no admin host → single-domain; AdminBaseURL is the base URL.
+	c, err := Load(base, envMap(nil), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Server.AdminHost != "" {
+		t.Errorf("AdminHost = %q, want empty by default", c.Server.AdminHost)
+	}
+	if got := c.Server.AdminBaseURL(); got != "https://artifacts.example.com" {
+		t.Errorf("AdminBaseURL (single domain) = %q, want the base URL", got)
+	}
+
+	// With an admin host set, AdminBaseURL carries the base scheme + admin host,
+	// and the OIDC redirect default lands on the admin host (the callback runs
+	// there, so that is what must be whitelisted at the provider).
+	env := map[string]string{
+		"ARTIFACTSD_ADMIN_HOST":     "admin.example.com",
+		"ARTIFACTSD_OIDC_ISSUER":    "https://idp.example.com",
+		"ARTIFACTSD_OIDC_CLIENT_ID": "artifactsd",
+		"ARTIFACTSD_ADMIN_GROUP":    "admins",
+	}
+	c, err = Load(base, envMap(env), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := c.Server.AdminBaseURL(); got != "https://admin.example.com" {
+		t.Errorf("AdminBaseURL = %q, want https://admin.example.com", got)
+	}
+	if want := "https://admin.example.com" + OIDCCallbackPath; c.OIDC.RedirectURL != want {
+		t.Errorf("OIDC redirect default = %q, want %q (on the admin host)", c.OIDC.RedirectURL, want)
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("valid admin-host config should validate: %v", err)
+	}
+}
+
+func TestAdminHostValidation(t *testing.T) {
+	base := []string{"--base-url", "https://artifacts.example.com", "--data", t.TempDir()}
+	cases := []struct {
+		name      string
+		adminHost string
+		wantErr   string
+	}{
+		{"url not host", "https://admin.example.com/admin", "bare host"},
+		{"same as base host", "artifacts.example.com", "must differ"},
+		{"ok distinct host", "admin.example.com", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := Load(base, envMap(map[string]string{"ARTIFACTSD_ADMIN_HOST": tc.adminHost}), io.Discard)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			err = c.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Validate() = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}

@@ -6,7 +6,25 @@
 // methodology. Precedence is flags > env > built-in defaults.
 package config
 
-import "time"
+import (
+	"net"
+	"strings"
+	"time"
+)
+
+// HostOnly strips an optional :port from a host[:port] string, returning the
+// bare host. It is host-comparison's normalizer for admin-origin isolation
+// (design/14 §10): a request's Host header and the configured admin host may or
+// may not carry a port, and they must compare equal regardless.
+func HostOnly(host string) string {
+	if host == "" {
+		return ""
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
+}
 
 // TLSMode selects how the server terminates TLS.
 type TLSMode string
@@ -45,12 +63,36 @@ type Config struct {
 
 // Server holds core HTTP/server settings.
 type Server struct {
-	Listen      string
-	BaseURL     string
+	Listen  string
+	BaseURL string
+	// AdminHost optionally isolates the admin control plane on its own host
+	// (design/14 §10, artifactsd-1it). When set to a bare host[:port] (e.g.
+	// "admin.example.com"), the admin UI and OIDC login/callback are served ONLY
+	// on that host, while public artifacts (/c, /s, robots, sitemap) are served
+	// ONLY on the BaseURL host. The admin session cookie is then scoped to a host
+	// that artifact JS on the public origin cannot reach, preventing
+	// artifact→admin credential theft structurally. Empty (default) keeps the
+	// single-domain topology where admin and artifacts share one origin.
+	AdminHost   string
 	DataDir     string
 	AutoMigrate bool
 	TrustProxy  bool
 	LogLevel    string
+}
+
+// AdminBaseURL returns the external base URL of the admin control plane: the
+// BaseURL with its host replaced by AdminHost when host isolation is enabled,
+// or BaseURL itself in the single-domain topology. It is used to default the
+// OIDC redirect URL onto the admin host (design/14 §10).
+func (s *Server) AdminBaseURL() string {
+	if s.AdminHost == "" {
+		return s.BaseURL
+	}
+	scheme := "https"
+	if strings.HasPrefix(s.BaseURL, "http://") {
+		scheme = "http"
+	}
+	return scheme + "://" + s.AdminHost
 }
 
 // TLS holds TLS termination settings (decision D4).

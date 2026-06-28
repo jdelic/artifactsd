@@ -30,6 +30,18 @@ func (c *Config) Validate() error {
 		add("listen address must not be empty")
 	}
 
+	// admin-host isolation (design/14 §10): when set it must be a bare host[:port]
+	// (not a URL), and must differ from the public base-url host — sharing the
+	// host would provide no isolation, so it is almost certainly a misconfiguration.
+	if c.Server.AdminHost != "" {
+		if strings.ContainsAny(c.Server.AdminHost, "/ ") {
+			add("admin-host %q must be a bare host[:port], not a URL (e.g. admin.example.com)", c.Server.AdminHost)
+		} else if base, err := url.Parse(c.Server.BaseURL); err == nil && base.Host != "" &&
+			strings.EqualFold(HostOnly(c.Server.AdminHost), HostOnly(base.Host)) {
+			add("admin-host %q must differ from the base-url host to isolate the admin origin", c.Server.AdminHost)
+		}
+	}
+
 	if !validLogLevel(c.Server.LogLevel) {
 		add("log-level %q must be one of debug, info, warn, error", c.Server.LogLevel)
 	}
@@ -84,8 +96,9 @@ func (c *Config) validateAdmin(add func(string, ...any)) {
 			missing = append(missing, "ARTIFACTSD_OIDC_CLIENT_ID")
 		}
 		if len(missing) > 0 {
-			// The redirect URL is not listed: it defaults to <base_url> +
-			// OIDCCallbackPath (see Load), so it is only ever empty here when
+			// The redirect URL is not listed: it defaults to <admin_base> +
+			// OIDCCallbackPath (see Load; admin_base is the admin host when host
+			// isolation is on, else base_url), so it is only ever empty here when
 			// base_url itself is missing — which is reported separately.
 			add("OIDC is partially configured; missing: %s", strings.Join(missing, ", "))
 		}

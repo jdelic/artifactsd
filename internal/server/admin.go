@@ -230,6 +230,10 @@ func (s *Server) logAdminMode() {
 	if s.cfg.Admin.BasicUser != "" {
 		s.log.Info("admin basic-auth fallback enabled", "user", s.cfg.Admin.BasicUser)
 	}
+	if s.cfg.Server.AdminHost != "" {
+		s.log.Info("admin UI isolated on a separate host; public artifacts are not served there",
+			"admin_host", s.cfg.Server.AdminHost)
+	}
 }
 
 // isAdmin reports whether an authenticated OIDC identity is authorized for admin

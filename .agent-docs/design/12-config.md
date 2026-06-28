@@ -16,10 +16,19 @@ env for deployment.
 |---------|------|-----|---------|
 | Listen address | `--listen` | `ARTIFACTSD_LISTEN` | `:8080` |
 | Public base URL | `--base-url` | `ARTIFACTSD_BASE_URL` | (required) |
+| Admin host (separate-origin isolation) | `--admin-host` | `ARTIFACTSD_ADMIN_HOST` | (unset → single domain) |
 | Data directory | `--data` | `ARTIFACTSD_DATA_DIR` | `./artifactsd-data` |
 | Auto-migrate on boot | `--auto-migrate` | `ARTIFACTSD_AUTO_MIGRATE` | `true` |
 | Trust proxy headers | `--trust-proxy` | `ARTIFACTSD_TRUST_PROXY` | `false` |
 | Log level | `--log-level` | `ARTIFACTSD_LOG_LEVEL` | `info` |
+
+`ARTIFACTSD_ADMIN_HOST` opts into the hardened **separate-admin-origin**
+topology: the admin UI (and its OIDC login/callback) is served only on that
+host, while public artifacts stay on the base-URL host, so the admin session
+cookie lives on a host artifact JavaScript cannot reach. Leave it unset for the
+default single-domain deployment. It must be a bare host (e.g.
+`admin.example.com`), distinct from the base-URL host. See
+[14 §10](14-access-control.md) for the full behavior and threat model.
 
 ### TLS (decision D4)
 | Concern | Flag | Env | Default |
