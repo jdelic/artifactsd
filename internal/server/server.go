@@ -22,6 +22,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/serve"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
+	"github.com/jdelic/artifactsd/internal/uploadrequest"
 )
 
 // shutdownGrace is how long in-flight requests get to drain on shutdown.
@@ -54,10 +55,11 @@ type Server struct {
 	db      *store.DB
 	limiter *ratelimit.Limiter
 	http    *http.Server
-	api     *api.Handler
-	serve   *serve.Handler
-	adminUI *admin.Handler
-	janitor *janitor.Janitor
+	api       *api.Handler
+	serve     *serve.Handler
+	adminUI   *admin.Handler
+	uploadReq *uploadrequest.Handler
+	janitor   *janitor.Janitor
 
 	oidcCache *auth.OIDCProviderCache
 	session   *session.Manager
@@ -118,6 +120,14 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 			Cleaner: s.janitor,
 			Session: s.session,
 			Logger:  opts.Logger,
+		})
+		s.uploadReq = uploadrequest.New(uploadrequest.Deps{
+			Store:   opts.Store,
+			Blob:    opts.Blob,
+			Config:  opts.Config,
+			Audit:   audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
+			Logger:  opts.Logger,
+			BaseURL: opts.Config.Server.BaseURL,
 		})
 	}
 	handler := opts.Handler

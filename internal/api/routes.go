@@ -50,6 +50,14 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("PATCH /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.patchShare))
 	mux.Handle("DELETE /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.deleteShare))
 
+	// Upload request links (design/15, admin-scoped).
+	mux.Handle("POST /api/v1/upload-requests", h.requireScope(auth.ScopeAdmin, h.createUploadRequest))
+	mux.Handle("GET /api/v1/upload-requests", h.requireScope(auth.ScopeAdmin, h.listUploadRequests))
+	mux.Handle("GET /api/v1/upload-requests/{request_id}", h.requireScope(auth.ScopeAdmin, h.getUploadRequest))
+	mux.Handle("PATCH /api/v1/upload-requests/{request_id}", h.requireScope(auth.ScopeAdmin, h.patchUploadRequest))
+	mux.Handle("DELETE /api/v1/upload-requests/{request_id}", h.requireScope(auth.ScopeAdmin, h.deleteUploadRequest))
+	mux.Handle("GET /api/v1/upload-requests/{request_id}/submissions", h.requireScope(auth.ScopeAdmin, h.listUploadRequestSubmissions))
+
 	// Tokens, audit, stats & maintenance (design/04 §8, admin-scoped).
 	mux.Handle("GET /api/v1/tokens", h.requireScope(auth.ScopeAdmin, h.listTokens))
 	mux.Handle("POST /api/v1/tokens", h.requireScope(auth.ScopeAdmin, h.createToken))

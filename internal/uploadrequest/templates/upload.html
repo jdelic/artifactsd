@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{if .Label}}{{.Label}}{{else}}Upload files{{end}}</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0;margin:0;padding:2rem;min-height:100vh}
+.card{background:#16213e;border:1px solid #0f3460;border-radius:8px;max-width:600px;margin:2rem auto;padding:2rem}
+h1{color:#e94560;margin:0 0 0.5rem;font-size:1.4rem}
+p.desc{color:#aaa;margin:0 0 1.5rem;font-size:0.95rem}
+.drop-zone{border:2px dashed #0f3460;border-radius:6px;padding:2rem;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:1rem}
+.drop-zone:hover,.drop-zone.dragover{border-color:#e94560;background:#0f1e3d}
+.drop-zone p{margin:0;color:#888;font-size:0.9rem}
+input[type=file]{display:none}
+.btn{background:#e94560;color:#fff;border:none;border-radius:4px;padding:0.6rem 1.4rem;font-size:1rem;cursor:pointer;transition:background .2s}
+.btn:hover{background:#c73652}
+.btn:disabled{background:#555;cursor:default}
+.file-list{margin:0.5rem 0 1rem;font-size:0.85rem;color:#aaa}
+.file-list li{padding:0.2rem 0}
+.result{margin-top:1.5rem;padding:1rem;border-radius:6px;font-size:0.9rem}
+.result.success{background:#0d3320;border:1px solid #2d9e5c;color:#7ee8a2}
+.result.error{background:#3a0d1a;border:1px solid #9e2d44;color:#e87e95}
+.result a{color:#7ee8a2;word-break:break-all}
+.result ul{margin:0.5rem 0 0;padding-left:1.2rem}
+.hint{font-size:0.75rem;color:#666;margin-top:0.3rem}
+progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>{{if .Label}}{{.Label}}{{else}}Upload files{{end}}</h1>
+  {{if .Description}}<p class="desc">{{.Description}}</p>{{end}}
+
+  <div id="content">
+    <form id="upload-form" enctype="multipart/form-data">
+      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <p>Click to choose files or drag &amp; drop here</p>
+        {{if .MaxFileSize}}<p class="hint">Max file size: {{.MaxFileSizeHuman}}</p>{{end}}
+      </div>
+      <input type="file" id="file-input" name="file" multiple>
+      <ul class="file-list" id="file-list"></ul>
+      <button class="btn" type="submit" id="submit-btn">Upload</button>
+      <progress id="progress-bar"></progress>
+    </form>
+  </div>
+
+  <div id="result" class="result" style="display:none"></div>
+</div>
+
+<script>
+(function(){
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const fileList = document.getElementById('file-list');
+  const submitBtn = document.getElementById('submit-btn');
+  const progress  = document.getElementById('progress-bar');
+  const result    = document.getElementById('result');
+
+  function updateList(files) {
+    fileList.innerHTML = '';
+    Array.from(files).forEach(f => {
+      const li = document.createElement('li');
+      li.textContent = f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
+      fileList.appendChild(li);
+    });
+  }
+
+  fileInput.addEventListener('change', () => updateList(fileInput.files));
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const dt = new DataTransfer();
+    Array.from(e.dataTransfer.files).forEach(f => dt.items.add(f));
+    fileInput.files = dt.files;
+    updateList(fileInput.files);
+  });
+
+  document.getElementById('upload-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    if (!fileInput.files.length) { alert('Please select at least one file.'); return; }
+
+    const fd = new FormData();
+    Array.from(fileInput.files).forEach(f => fd.append('file', f));
+
+    submitBtn.disabled = true;
+    progress.style.display = 'block';
+    progress.removeAttribute('value');
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', window.location.pathname);
+    xhr.upload.onprogress = ev => {
+      if (ev.lengthComputable) { progress.value = ev.loaded; progress.max = ev.total; }
+    };
+    xhr.onload = () => {
+      progress.style.display = 'none';
+      result.style.display = 'block';
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status === 200) {
+          let html = '<strong>Files uploaded successfully!</strong>';
+          if (data.files && data.uploader_access) {
+            html += '<ul>';
+            data.files.forEach(f => {
+              if (f.url) {
+                html += '<li><a href="' + f.url + '" target="_blank" rel="noopener">' + f.filename + '</a></li>';
+              } else {
+                html += '<li>' + f.filename + '</li>';
+              }
+            });
+            html += '</ul>';
+          }
+          result.className = 'result success';
+          result.innerHTML = html;
+          document.getElementById('content').style.display = 'none';
+        } else {
+          result.className = 'result error';
+          result.textContent = (data.error && data.error.message) || 'Upload failed. Please try again.';
+          submitBtn.disabled = false;
+        }
+      } catch(_) {
+        result.className = 'result error';
+        result.textContent = xhr.status === 410
+          ? 'This upload link is no longer active.'
+          : 'Upload failed. Please try again.';
+        submitBtn.disabled = false;
+      }
+    };
+    xhr.onerror = () => {
+      progress.style.display = 'none';
+      result.style.display = 'block';
+      result.className = 'result error';
+      result.textContent = 'Network error. Please check your connection and try again.';
+      submitBtn.disabled = false;
+    };
+    xhr.send(fd);
+  });
+})();
+</script>
+</body>
+</html>
