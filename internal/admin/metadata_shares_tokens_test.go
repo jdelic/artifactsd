@@ -228,3 +228,32 @@ func TestMetadata_RawErrorAndPolicyRename(t *testing.T) {
 		t.Errorf("operator's unsaved JSON text was not preserved")
 	}
 }
+
+// TestQuickShare covers artifactsd-jaj: the one-click Share endpoint mints a
+// share link for a file, a folder, or the whole collection, and rejects a
+// non-existent path.
+func TestQuickShare(t *testing.T) {
+	ha := newFullHarness(t)
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
+	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "report.txt", "hi")
+	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": "", "subdir": "reports"}, "data.txt", "x")
+
+	for _, target := range []string{"report.txt", "reports", ""} {
+		rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/share", strings.NewReader(url.Values{"target_path": {target}}.Encode()), "application/x-www-form-urlencoded")
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "/s/") {
+			t.Fatalf("quick share target=%q = %d: %s", target, rec.Code, rec.Body.String())
+		}
+	}
+
+	// All three appear in the global shares overview.
+	rec := doReq(t, ha, http.MethodGet, "/shares", http.NoBody, "")
+	if n := strings.Count(rec.Body.String(), "/s/"); n < 3 {
+		t.Errorf("global shares should list the 3 new shares, found %d /s/ links", n)
+	}
+
+	// Sharing a path that does not exist is rejected (no link minted).
+	rec = doReq(t, ha, http.MethodPost, "/collections/demo-run/share", strings.NewReader(url.Values{"target_path": {"missing.txt"}}.Encode()), "application/x-www-form-urlencoded")
+	if strings.Contains(rec.Body.String(), "/s/") {
+		t.Errorf("a missing path should not produce a share link: %s", rec.Body.String())
+	}
+}

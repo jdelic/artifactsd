@@ -44,10 +44,10 @@ decision E1 ("simple beats complex here").
 | Screen | Function |
 |--------|----------|
 | Dashboard | counts, storage usage, recent deletions, janitor status, "Run cleanup" button |
-| Collections | list/create/delete collections; visibility & crawl badges |
+| Collections | list/create/delete collections; visibility & crawl badges; one-click **Share** (whole collection) |
 | Files (all) | cross-collection file browser showing size/created/**expiry**, with sorting (largest-first default, **expiring-next**, by-name, newest), linking to each object and its metadata editor |
 | Shares (all) | cross-collection overview of every share; revoke in place |
-| Collection detail / tree | browse file tree, upload (with an optional destination subfolder that creates nested folders), delete, drill into folders |
+| Collection detail / tree | browse file tree, upload (with an optional destination subfolder that creates nested folders), delete, drill into folders; one-click **Share** on any file/folder (and the current folder) that mints a /s/ link inline |
 | File detail | view/download, edit metadata (content-type, headers, access, crawl, expiry) |
 | Metadata editor | structured form per section (incl. visibility, directory listing, crawl/index, **sandbox** tri-state, expiry with per-mechanism enable toggles + effective-expiry banner) with per-field info tooltips, plus the full **JSON policy document** editor; save errors render inline next to the section that produced them |
 | Shares | list/create/revoke share URLs; copy link; set expiry & policy |
