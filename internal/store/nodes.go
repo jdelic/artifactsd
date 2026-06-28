@@ -156,6 +156,81 @@ func (s *Store) GetNodeByID(ctx context.Context, id int64) (*Node, error) {
 	return n, err
 }
 
+// FileWithCollection is a file node plus its collection name, for the admin
+// cross-collection file browser (artifactsd-0ab).
+type FileWithCollection struct {
+	CollectionName string
+	Path           string
+	Name           string
+	Size           int64
+	ContentType    string
+	CreatedAt      time.Time
+}
+
+// FileSort selects the ordering of ListAllFiles.
+type FileSort string
+
+const (
+	// FileSortSize orders by descending size (largest first) — the default.
+	FileSortSize FileSort = "size"
+	// FileSortName orders by collection then path.
+	FileSortName FileSort = "name"
+	// FileSortCreated orders by newest first.
+	FileSortCreated FileSort = "created"
+)
+
+// allFilesQuery selects a complete, constant SQL string per sort order, so the
+// ORDER BY is never built from a runtime value (no injection surface). SQLite
+// treats LIMIT -1 as "no limit", so the caller can pass a negative limit for an
+// uncapped listing.
+const allFilesQueryBase = `SELECT c.name, n.path, n.name, COALESCE(n.size, 0), COALESCE(n.content_type, ''), n.created_at
+	FROM nodes n JOIN collections c ON c.id = n.collection_id
+	WHERE n.kind = ? ORDER BY `
+
+const (
+	allFilesBySize    = allFilesQueryBase + "n.size DESC, c.name, n.path LIMIT ?"
+	allFilesByName    = allFilesQueryBase + "c.name, n.path LIMIT ?"
+	allFilesByCreated = allFilesQueryBase + "n.created_at DESC LIMIT ?"
+)
+
+// ListAllFiles returns every file node (folders excluded) across all
+// collections, ordered per sort (default: largest first), up to limit rows
+// (limit <= 0 means no cap). Each row carries its collection name.
+func (s *Store) ListAllFiles(ctx context.Context, sortBy FileSort, limit int) ([]*FileWithCollection, error) {
+	query := allFilesBySize
+	switch sortBy {
+	case FileSortName:
+		query = allFilesByName
+	case FileSortCreated:
+		query = allFilesByCreated
+	}
+	if limit <= 0 {
+		limit = -1 // SQLite: no limit
+	}
+	rows, err := s.db.sql.QueryContext(ctx, query, KindFile, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []*FileWithCollection
+	for rows.Next() {
+		var (
+			f       FileWithCollection
+			created string
+		)
+		if err := rows.Scan(&f.CollectionName, &f.Path, &f.Name, &f.Size, &f.ContentType, &created); err != nil {
+			return nil, err
+		}
+		var perr error
+		if f.CreatedAt, perr = parseTime(created); perr != nil {
+			return nil, perr
+		}
+		out = append(out, &f)
+	}
+	return out, rows.Err()
+}
+
 // ListChildren returns the direct children of a parent node within a
 // collection. A nil parentID lists the collection's root-level nodes.
 func (s *Store) ListChildren(ctx context.Context, collectionID int64, parentID *int64) ([]*Node, error) {

@@ -45,7 +45,9 @@ decision E1 ("simple beats complex here").
 |--------|----------|
 | Dashboard | counts, storage usage, recent deletions, janitor status, "Run cleanup" button |
 | Collections | list/create/delete collections; visibility & crawl badges |
-| Collection detail / tree | browse file tree, upload, delete, drill into folders |
+| Files (all) | cross-collection file browser with sorting (largest-first default), linking to each object and its metadata editor |
+| Shares (all) | cross-collection overview of every share; revoke in place |
+| Collection detail / tree | browse file tree, upload (with an optional destination subfolder that creates nested folders), delete, drill into folders |
 | File detail | view/download, edit metadata (content-type, headers, access, crawl, expiry) |
 | Metadata editor | structured form per section + raw YAML/JSON view |
 | Shares | list/create/revoke share URLs; copy link; set expiry & policy |

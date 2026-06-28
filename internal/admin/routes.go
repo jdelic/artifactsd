@@ -14,6 +14,11 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("POST /logout", http.HandlerFunc(h.logout))
 	mux.Handle("POST /maintenance/cleanup", http.HandlerFunc(h.maintenanceCleanup))
 
+	// Cross-collection overviews reachable from the top nav (artifactsd-rmn/0ab).
+	mux.Handle("GET /files", http.HandlerFunc(h.allFiles))
+	mux.Handle("GET /shares", http.HandlerFunc(h.allShares))
+	mux.Handle("POST /shares/{share_id}/revoke", http.HandlerFunc(h.revokeShareGlobal))
+
 	mux.Handle("GET /collections", http.HandlerFunc(h.collectionsList))
 	mux.Handle("POST /collections", http.HandlerFunc(h.createCollection))
 	mux.Handle("POST /collections/{name}/delete", http.HandlerFunc(h.deleteCollection))

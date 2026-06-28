@@ -15,8 +15,8 @@
   <div class="nc-topbar">
     <a class="nc-nav{{if eq .Active "dashboard"}} nc-nav-active{{end}}" href="{{.AdminPath}}/"><u>D</u>ashboard</a>
     <a class="nc-nav{{if eq .Active "collections"}} nc-nav-active{{end}}" href="{{.AdminPath}}/collections"><u>C</u>ollections</a>
-    <span class="nc-nav"><u>F</u>iles</span>
-    <span class="nc-nav"><u>S</u>hares</span>
+    <a class="nc-nav{{if eq .Active "files"}} nc-nav-active{{end}}" href="{{.AdminPath}}/files"><u>F</u>iles</a>
+    <a class="nc-nav{{if eq .Active "shares"}} nc-nav-active{{end}}" href="{{.AdminPath}}/shares"><u>S</u>hares</a>
     <a class="nc-nav{{if eq .Active "tools"}} nc-nav-active{{end}}" href="{{.AdminPath}}/tokens"><u>T</u>ools</a>
     <span class="nc-nav"><u>H</u>elp</span>
     <div class="nc-spacer"></div>

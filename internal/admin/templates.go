@@ -104,6 +104,10 @@ func navSection(page string) string {
 		return "collections"
 	case "tokens", "audit":
 		return "tools"
+	case "allfiles":
+		return "files"
+	case "allshares":
+		return "shares"
 	default:
 		return page
 	}

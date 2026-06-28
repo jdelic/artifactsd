@@ -11,13 +11,16 @@
   </div>
 
   <div class="nc-panel" data-label="Upload">
+    <p class="nc-sortbar">Uploading into <b>{{if .Dir}}{{.Dir}}/{{else}}(collection root){{end}}</b>. Add a subfolder to create it — intermediate folders are created automatically.</p>
     <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/upload"
           hx-target="#tree-panel" hx-swap="outerHTML" hx-encoding="multipart/form-data">
       <input type="hidden" name="dir" value="{{.Dir}}">
+      <label>Subfolder <input type="text" name="subdir" placeholder="(optional) reports/q3"></label>
       <input type="file" name="file" required data-shortcut="u" data-shortcut-action="focus">
       <button class="nc-button" type="submit">Upload</button>
     </form>
     <form class="nc-form nc-large-upload" data-admin-path="{{.AdminPath}}" data-collection="{{.Collection}}" data-dir="{{.Dir}}">
+      <label>Subfolder <input type="text" name="subdir" placeholder="(optional) reports/q3"></label>
       <input type="file" name="file" required>
       <button class="nc-button" type="submit">Upload large (with progress)</button>
       <progress class="nc-upload-progress" value="0" max="100" hidden></progress>

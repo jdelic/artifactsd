@@ -113,6 +113,62 @@ func (s *Store) ListSharesByCollection(ctx context.Context, collectionID int64) 
 	return out, rows.Err()
 }
 
+// ShareWithCollection is a share plus its owning collection's name, for the
+// admin cross-collection shares overview (artifactsd-rmn).
+type ShareWithCollection struct {
+	Share
+	CollectionName string
+}
+
+// ListAllShares returns every share across all collections, newest first, each
+// carrying its collection's name.
+func (s *Store) ListAllShares(ctx context.Context) ([]*ShareWithCollection, error) {
+	rows, err := s.db.sql.QueryContext(ctx,
+		`SELECT sh.id, sh.share_id, sh.collection_id, sh.target_path, sh.target_kind, sh.metadata,
+			sh.created_at, sh.expires_at, sh.revoked_at, sh.last_access_at, c.name
+		 FROM shares sh JOIN collections c ON c.id = sh.collection_id
+		 ORDER BY sh.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []*ShareWithCollection
+	for rows.Next() {
+		var (
+			sh         Share
+			meta       string
+			created    string
+			expires    sql.NullString
+			revoked    sql.NullString
+			lastAccess sql.NullString
+			collName   string
+		)
+		if err := rows.Scan(
+			&sh.ID, &sh.ShareID, &sh.CollectionID, &sh.TargetPath, &sh.TargetKind,
+			&meta, &created, &expires, &revoked, &lastAccess, &collName,
+		); err != nil {
+			return nil, err
+		}
+		sh.Metadata = []byte(meta)
+		var perr error
+		if sh.CreatedAt, perr = parseTime(created); perr != nil {
+			return nil, perr
+		}
+		if sh.ExpiresAt, perr = parseTimePtr(expires); perr != nil {
+			return nil, perr
+		}
+		if sh.RevokedAt, perr = parseTimePtr(revoked); perr != nil {
+			return nil, perr
+		}
+		if sh.LastAccessAt, perr = parseTimePtr(lastAccess); perr != nil {
+			return nil, perr
+		}
+		out = append(out, &ShareWithCollection{Share: sh, CollectionName: collName})
+	}
+	return out, rows.Err()
+}
+
 // UpdateShare replaces a share's metadata and re-derives its denormalized
 // expires_at from the new metadata (PATCH). The share's original created_at is
 // used as the basis for any creation-relative expiry.

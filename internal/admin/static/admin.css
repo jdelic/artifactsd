@@ -313,3 +313,30 @@ body {
   display: flex;
   align-items: center;
 }
+
+/* In-panel links (artifactsd-4b5): the UA default blue (and lilac :visited)
+   are illegible on the blue panel background. Use the retro yellow for both
+   normal and visited; underline only on hover/focus. The more specific
+   .nc-table / .nc-breadcrumb link rules above already use yellow, so this is
+   consistent rather than a regression. */
+.nc-panel a,
+.nc-panel a:visited {
+  color: var(--nc-yellow);
+  text-decoration: none;
+}
+
+.nc-panel a:hover,
+.nc-panel a:focus {
+  text-decoration: underline;
+}
+
+/* Sort bar on the cross-collection file browser (artifactsd-0ab). */
+.nc-sortbar {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: var(--nc-grey);
+}
+
+.nc-sortbar a {
+  color: var(--nc-cyan-bright);
+}
