@@ -20,6 +20,7 @@ is enabled, durations/sizes must parse).
 |---------|------|-----|---------|
 | Listen address | `--listen` | `ARTIFACTSD_LISTEN` | `:8080` |
 | Public base URL | `--base-url` | `ARTIFACTSD_BASE_URL` | **(required)** |
+| Admin host (separate origin) | `--admin-host` | `ARTIFACTSD_ADMIN_HOST` | (unset → single domain) |
 | Data directory | `--data` | `ARTIFACTSD_DATA_DIR` | `./artifactsd-data` |
 | Auto-migrate on boot | `--auto-migrate` | `ARTIFACTSD_AUTO_MIGRATE` | `true` |
 | Trust proxy headers | `--trust-proxy` | `ARTIFACTSD_TRUST_PROXY` | `false` |
@@ -28,6 +29,31 @@ is enabled, durations/sizes must parse).
 `--base-url` is the public origin used to build links about the server (`/c`,
 `/s`, upload URLs); it must be an absolute URL. Set `--trust-proxy` only when
 running behind a proxy you control, so `X-Forwarded-*` headers are honored.
+
+### Admin origin: single-domain vs. separate host
+
+By default the admin UI and public artifacts share one origin, and a malicious
+artifact is contained by the per-object sandbox (`ARTIFACTSD_DEFAULT_SANDBOX`).
+For a stronger, structural boundary, set **`ARTIFACTSD_ADMIN_HOST`** to a
+separate bare host (e.g. `admin.example.com`, distinct from the base-URL host):
+
+- The admin UI and its OIDC login/callback are then served **only** on the admin
+  host; public artifacts (`/c`, `/s`, `robots.txt`, `sitemap.xml`) **only** on
+  the base-URL host. Requests to the wrong plane get `404`.
+- The admin session cookie is host-only, so it is never sent to the public
+  origin — artifact JavaScript there cannot reach it even if you disable the
+  sandbox (`content.sandbox: false`), which makes this the right setup for rich
+  interactive SPAs that need a stable origin.
+- Point both hostnames at artifactsd (same process/listener). If a reverse proxy
+  terminates them, set `--trust-proxy` so the admin/public split honors
+  `X-Forwarded-Host`, and ensure the proxy forwards the original `Host`.
+- Whitelist `https://<admin-host>/auth/oidc/callback` at your IdP — that is the
+  redirect URL artifactsd defaults to in this mode.
+- The bearer-token management API (`/api/v1`) and health checks have no ambient
+  cookie, so they stay reachable on both hosts.
+
+See [design/14 §10](../.agent-docs/design/14-access-control.md) for the threat
+model behind this.
 
 ## TLS
 

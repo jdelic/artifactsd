@@ -51,6 +51,7 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 	// Server flags: default taken from env so flag > env > builtin holds.
 	fs.StringVar(&c.Server.Listen, "listen", envStr(getenv, "ARTIFACTSD_LISTEN", defaultListen), "listen address")
 	fs.StringVar(&c.Server.BaseURL, "base-url", envStr(getenv, "ARTIFACTSD_BASE_URL", ""), "public base URL (required)")
+	fs.StringVar(&c.Server.AdminHost, "admin-host", envStr(getenv, "ARTIFACTSD_ADMIN_HOST", ""), "isolate the admin UI on this host (separate-admin-origin topology; design/14 §10)")
 	fs.StringVar(&c.Server.DataDir, "data", envStr(getenv, "ARTIFACTSD_DATA_DIR", defaultDataDir), "data directory")
 	fs.BoolVar(&c.Server.AutoMigrate, "auto-migrate", envBool(getenv, "ARTIFACTSD_AUTO_MIGRATE", true), "apply pending migrations on boot")
 	fs.BoolVar(&c.Server.TrustProxy, "trust-proxy", envBool(getenv, "ARTIFACTSD_TRUST_PROXY", false), "trust X-Forwarded-* proxy headers")
@@ -93,12 +94,14 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 		RedirectURL:  getenv("ARTIFACTSD_OIDC_REDIRECT_URL"),
 		Scopes:       splitScopes(getenv("ARTIFACTSD_OIDC_SCOPES")),
 	}
-	// Default the OIDC redirect URL to <base_url>/auth/oidc/callback when OIDC is
-	// configured but the redirect URL was left unset, so operators only have to
-	// whitelist that URL at their provider instead of also restating it here.
+	// Default the OIDC redirect URL to <admin_base>/auth/oidc/callback when OIDC
+	// is configured but the redirect URL was left unset, so operators only have
+	// to whitelist that URL at their provider instead of also restating it here.
+	// In the separate-admin-origin topology the callback runs on the admin host,
+	// so the default targets that host (AdminBaseURL), not the public base URL.
 	if c.OIDC.RedirectURL == "" && c.Server.BaseURL != "" &&
 		(c.OIDC.Issuer != "" || c.OIDC.ClientID != "" || c.OIDC.ClientSecret != "") {
-		c.OIDC.RedirectURL = strings.TrimRight(c.Server.BaseURL, "/") + OIDCCallbackPath
+		c.OIDC.RedirectURL = strings.TrimRight(c.Server.AdminBaseURL(), "/") + OIDCCallbackPath
 	}
 
 	// Default object policy: env-only (design/12 §3).

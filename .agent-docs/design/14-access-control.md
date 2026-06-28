@@ -239,5 +239,31 @@ artifactsd supports **both** topologies:
   origin, where no admin credentials live), making it the right home for rich
   interactive SPAs that need a stable, allow-listable origin. The management
   API is bearer-token (no ambient cookie) so it is not same-origin-exploitable;
-  it may ride with admin or stay public. *(Host-based routing for this mode is
-  tracked as a follow-up; the single-domain sandbox ships first.)*
+  it may ride with admin or stay public.
+
+**How the separate-admin-origin topology works (artifactsd-1it).** Set
+`ARTIFACTSD_ADMIN_HOST` to the bare admin host (e.g. `admin.example.com`); leave
+it unset for single-domain (the default). When set:
+
+- A host-isolation gate dispatches by the request's host: the **admin control
+  plane** (the admin UI under `ARTIFACTSD_ADMIN_PATH`, plus `/auth/oidc/login`
+  and `/auth/oidc/callback`) is served **only** on the admin host; the **public
+  artifact plane** (`/c`, `/s`, `/robots.txt`, `/sitemap.xml`) **only** on the
+  public (base-URL) host. Cross-plane requests get `404` (not a redirect), so
+  neither host reveals what lives on the other. Behind a trusted proxy
+  (`ARTIFACTSD_TRUST_PROXY`) the gate honors `X-Forwarded-Host`.
+- The admin **session cookie is host-only** (no `Domain` attribute) and is set
+  during the OIDC callback, which runs on the admin host — so the cookie is
+  never even sent to the public origin. That is the structural boundary.
+- The **OIDC redirect URL** defaults to `<admin_base>/auth/oidc/callback` (the
+  admin host), which is what must be whitelisted at the provider. The admin UI's
+  own links are host-relative, and the artifact/share URLs it shows use the
+  public base URL — so each plane keeps its correct origin automatically.
+- The **management API** (`/api/v1`) and health checks are bearer-token /
+  cookie-less, so they carry no same-origin risk and remain reachable on **both**
+  hosts (convenient for CLIs pointed at either name).
+- CSRF's same-origin check accepts **both** the public and admin origins, since
+  admin form posts legitimately carry the admin-host `Origin`.
+
+Startup validation rejects an `ARTIFACTSD_ADMIN_HOST` that is a URL rather than a
+bare host, or that equals the base-URL host (which would provide no isolation).

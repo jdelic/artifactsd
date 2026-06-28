@@ -65,7 +65,11 @@ func (s *Server) routes() http.Handler {
 	}
 
 	mux.HandleFunc("/", s.handleRoot)
-	return mux
+
+	// Separate-admin-origin isolation (design/14 §10): a no-op unless
+	// ARTIFACTSD_ADMIN_HOST is set, in which case it dispatches the admin and
+	// public planes by host.
+	return s.hostIsolationGate(mux)
 }
 
 // handleRoot returns 404 for unmatched paths (the catch-all).
