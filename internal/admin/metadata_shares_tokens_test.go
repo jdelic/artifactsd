@@ -145,3 +145,93 @@ func TestAuditLog_RecordsAndFilters(t *testing.T) {
 		t.Fatalf("filtered audit log should be empty: %s", rec.Body.String())
 	}
 }
+
+// TestMetadata_SandboxToggle covers artifactsd-a8p: content.sandbox is settable
+// from the structured fields form (tri-state) and round-trips to JSON, with a
+// cautionary note when off.
+func TestMetadata_SandboxToggle(t *testing.T) {
+	ha := newFullHarness(t)
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
+
+	fields := url.Values{"sandbox": {"false"}}
+	rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/meta/fields", strings.NewReader(fields.Encode()), "application/x-www-form-urlencoded")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "saved") {
+		t.Fatalf("save sandbox = %d: %s", rec.Code, body)
+	}
+	if !strings.Contains(body, "selected>off (trusted)") {
+		t.Errorf("sandbox=off not persisted/selected: %s", body)
+	}
+	if !strings.Contains(body, "Sandbox is off") {
+		t.Errorf("missing sandbox-off warning: %s", body)
+	}
+	// Reload from storage: the select must come back selected on "off".
+	rec = doReq(t, ha, http.MethodGet, "/collections/demo-run/meta", http.NoBody, "")
+	if !strings.Contains(rec.Body.String(), "selected>off (trusted)") {
+		t.Errorf("sandbox=off did not persist across reload: %s", rec.Body.String())
+	}
+}
+
+// TestMetadata_ExpiryEnableAndBanner covers artifactsd-a0f: a mechanism is only
+// saved when its enable checkbox is on, and an active expiry shows the banner.
+func TestMetadata_ExpiryEnableAndBanner(t *testing.T) {
+	ha := newFullHarness(t)
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
+	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "report.txt", "hello")
+
+	// Enabled: value is honored and the effective-expiry banner appears.
+	on := url.Values{"delete_after_creation_enabled": {"on"}, "delete_after_creation": {"30d"}}
+	rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/meta/fields?path=report.txt", strings.NewReader(on.Encode()), "application/x-www-form-urlencoded")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "saved") {
+		t.Fatalf("save expiry = %d: %s", rec.Code, body)
+	}
+	if !strings.Contains(body, "set to expire on") {
+		t.Errorf("missing effective-expiry banner: %s", body)
+	}
+
+	// A value submitted WITHOUT its enable checkbox must be ignored (off).
+	off := url.Values{"delete_after_creation": {"99d"}} // no _enabled
+	doReq(t, ha, http.MethodPost, "/collections/demo-run/meta/fields?path=report.txt", strings.NewReader(off.Encode()), "application/x-www-form-urlencoded")
+	rec = doReq(t, ha, http.MethodGet, "/collections/demo-run/meta?path=report.txt", http.NoBody, "")
+	if strings.Contains(rec.Body.String(), "99d") {
+		t.Errorf("expiry saved despite its enable checkbox being off: %s", rec.Body.String())
+	}
+}
+
+// TestMetadata_RawErrorScopedAndPolicyRename covers artifactsd-3aw and 23u: a
+// raw-JSON error renders inside the JSON-policy section (not detached at top),
+// the panel is renamed, and links to the explainer.
+func TestMetadata_RawErrorScopedAndPolicyRename(t *testing.T) {
+	ha := newFullHarness(t)
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
+
+	rec := doReq(t, ha, http.MethodGet, "/collections/demo-run/meta", http.NoBody, "")
+	body := rec.Body.String()
+	if !strings.Contains(body, "JSON Policy document") {
+		t.Errorf("Raw JSON panel not renamed: %s", body)
+	}
+	if !strings.Contains(body, "03-metadata-policy.md") {
+		t.Errorf("missing explainer link: %s", body)
+	}
+	if !strings.Contains(body, `class="nc-info"`) {
+		t.Errorf("missing per-field info icons")
+	}
+
+	bad := url.Values{"raw": {`{ not valid json`}}
+	rec = doReq(t, ha, http.MethodPost, "/collections/demo-run/meta/raw", strings.NewReader(bad.Encode()), "application/x-www-form-urlencoded")
+	body = rec.Body.String()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("raw save = %d: %s", rec.Code, body)
+	}
+	policyIdx := strings.Index(body, "JSON Policy document")
+	if policyIdx < 0 || !strings.Contains(body[policyIdx:], "nc-error") {
+		t.Errorf("raw error not rendered inside the JSON-policy section: %s", body)
+	}
+	if strings.Contains(body[:policyIdx], "nc-error") {
+		t.Errorf("raw error leaked into an earlier section: %s", body[:policyIdx])
+	}
+	if !strings.Contains(body, "not valid json") {
+		t.Errorf("operator's unsaved JSON text was not preserved")
+	}
+}

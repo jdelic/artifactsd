@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/internal/store"
@@ -30,15 +31,24 @@ type metaPanelData struct {
 	DirectoryListing      string
 	Crawlable             string
 	Indexable             string
+	Sandbox               string
 	ContentType           string
 	Headers               string
 	ExpiresAt             string
 	DeleteAfterCreation   string
 	DeleteAfterLastAccess string
+	// EffectiveExpiry is the resolved absolute expiry (denormalized) for this
+	// object, formatted for display, or "" when the object never expires. It
+	// drives the "this item is set to expire on …" banner (artifactsd-a0f).
+	EffectiveExpiry string
 
 	AuthEntries []authEntryRow
 	RawJSON     string
-	Error       string
+	// FieldsError and RawError are scoped to the form that produced them so the
+	// message renders next to that section rather than detached at the top
+	// (artifactsd-3aw).
+	FieldsError string
+	RawError    string
 	Saved       bool
 }
 
@@ -65,7 +75,7 @@ func (h *Handler) editMetadata(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "loading metadata: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data, err := buildMetaPanelData(h.cfg.Admin.Path, name, p, raw, "")
+	data, err := h.metaPanel(r.Context(), c, p, raw)
 	if err != nil {
 		http.Error(w, "loading metadata: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -105,26 +115,26 @@ func (h *Handler) saveMetaFields(w http.ResponseWriter, r *http.Request) {
 
 	headers, err := parseHeaders(r.FormValue("headers"))
 	if err != nil {
-		h.renderMetaPanelError(w, name, p, raw, "invalid headers: "+err.Error())
+		h.renderFieldsError(ctx, w, c, p, raw, "invalid headers: "+err.Error())
 		return
 	}
 	doc := &meta.Document{
-		Content: buildContent(r.FormValue("content_type"), headers),
+		Content: buildContent(r.FormValue("content_type"), headers, triStatePtr(r.FormValue("sandbox"))),
 		Access:  buildAccess(r.FormValue("visibility"), r.FormValue("directory_listing"), existingAuth(existing)),
 		Crawl:   buildCrawl(r.FormValue("crawlable"), r.FormValue("indexable"), existingRobots(existing)),
 		Expiry: buildExpiry(
-			r.FormValue("expires_at"), r.FormValue("delete_after_creation"), r.FormValue("delete_after_last_access"),
+			expiryField(r, "expires_at"), expiryField(r, "delete_after_creation"), expiryField(r, "delete_after_last_access"),
 		),
 	}
 	if err := doc.Validate(); err != nil {
-		h.renderMetaPanelError(w, name, p, raw, err.Error())
+		h.renderFieldsError(ctx, w, c, p, raw, err.Error())
 		return
 	}
 	if err := h.saveMetaDoc(ctx, c, p, doc); err != nil {
-		h.renderMetaPanelError(w, name, p, raw, "saving metadata: "+err.Error())
+		h.renderFieldsError(ctx, w, c, p, raw, "saving metadata: "+err.Error())
 		return
 	}
-	h.renderMetaPanelSaved(w, name, p, doc)
+	h.renderMetaSaved(ctx, w, c, p, doc)
 }
 
 // saveMetaRaw handles the raw-JSON form: the document is replaced wholesale,
@@ -140,25 +150,26 @@ func (h *Handler) saveMetaRaw(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	ctx := r.Context()
 	body := r.FormValue("raw")
 	doc, err := meta.FromJSON([]byte(body))
 	if err != nil {
-		h.renderMetaRawError(w, name, p, body, err.Error())
+		h.renderRawError(ctx, w, c, p, body, err.Error())
 		return
 	}
 	if err := doc.Validate(); err != nil {
-		h.renderMetaRawError(w, name, p, body, err.Error())
+		h.renderRawError(ctx, w, c, p, body, err.Error())
 		return
 	}
 	if err := doc.HashSecrets(); err != nil {
-		h.renderMetaRawError(w, name, p, body, "hashing secrets: "+err.Error())
+		h.renderRawError(ctx, w, c, p, body, "hashing secrets: "+err.Error())
 		return
 	}
-	if err := h.saveMetaDoc(r.Context(), c, p, doc); err != nil {
-		h.renderMetaRawError(w, name, p, body, "saving metadata: "+err.Error())
+	if err := h.saveMetaDoc(ctx, c, p, doc); err != nil {
+		h.renderRawError(ctx, w, c, p, body, "saving metadata: "+err.Error())
 		return
 	}
-	h.renderMetaPanelSaved(w, name, p, doc)
+	h.renderMetaSaved(ctx, w, c, p, doc)
 }
 
 func (h *Handler) saveMetaDoc(ctx context.Context, c *store.Collection, p string, doc *meta.Document) error {
@@ -203,22 +214,67 @@ func (h *Handler) saveOwnMetadata(ctx context.Context, c *store.Collection, p st
 	return h.store.RecomputeNodeDenormalized(ctx, node.ID)
 }
 
-func (h *Handler) renderMetaPanelError(w http.ResponseWriter, name, p string, raw json.RawMessage, errMsg string) {
-	data, err := buildMetaPanelData(h.cfg.Admin.Path, name, p, raw, errMsg)
+// metaPanel builds the panel data for c/p, attaching the resolved effective
+// expiry (the denormalized absolute expiry the janitor will act on).
+func (h *Handler) metaPanel(ctx context.Context, c *store.Collection, p string, raw json.RawMessage) (metaPanelData, error) {
+	data, err := buildMetaPanelData(h.cfg.Admin.Path, c.Name, p, raw)
+	if err != nil {
+		return metaPanelData{}, err
+	}
+	if exp := h.effectiveExpiry(ctx, c, p); exp != nil {
+		data.EffectiveExpiry = exp.UTC().Format("2006-01-02 15:04:05 UTC")
+	}
+	return data, nil
+}
+
+// effectiveExpiry returns the resolved absolute expiry (denormalized column)
+// for the collection (p == "") or node, or nil when it never expires.
+func (h *Handler) effectiveExpiry(ctx context.Context, c *store.Collection, p string) *time.Time {
+	if p == "" {
+		col, err := h.store.GetCollection(ctx, c.ID)
+		if err != nil {
+			return nil
+		}
+		return col.ExpiresAt
+	}
+	node, err := h.store.GetNode(ctx, c.ID, p)
+	if err != nil {
+		return nil
+	}
+	return node.ExpiresAt
+}
+
+func (h *Handler) renderFieldsError(ctx context.Context, w http.ResponseWriter, c *store.Collection, p string, raw json.RawMessage, errMsg string) {
+	data, err := h.metaPanel(ctx, c, p, raw)
 	if err != nil {
 		http.Error(w, "loading metadata: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	data.FieldsError = errMsg
 	h.renderPartial(w, "meta_panel", data)
 }
 
-func (h *Handler) renderMetaPanelSaved(w http.ResponseWriter, name, p string, doc *meta.Document) {
+// renderRawError re-renders the panel with the operator's unsaved raw text
+// preserved (instead of reloading the last-saved value, so a typo doesn't
+// discard their edit), with the error scoped to the JSON-policy section.
+func (h *Handler) renderRawError(ctx context.Context, w http.ResponseWriter, c *store.Collection, p, rawText, errMsg string) {
+	data, err := h.metaPanel(ctx, c, p, json.RawMessage(`{}`))
+	if err != nil {
+		http.Error(w, "loading metadata: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data.RawJSON = rawText
+	data.RawError = errMsg
+	h.renderPartial(w, "meta_panel", data)
+}
+
+func (h *Handler) renderMetaSaved(ctx context.Context, w http.ResponseWriter, c *store.Collection, p string, doc *meta.Document) {
 	raw, err := doc.JSON()
 	if err != nil {
 		http.Error(w, "encoding metadata: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data, err := buildMetaPanelData(h.cfg.Admin.Path, name, p, raw, "")
+	data, err := h.metaPanel(ctx, c, p, raw)
 	if err != nil {
 		http.Error(w, "loading metadata: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -227,20 +283,7 @@ func (h *Handler) renderMetaPanelSaved(w http.ResponseWriter, name, p string, do
 	h.renderPartial(w, "meta_panel", data)
 }
 
-// renderMetaRawError re-renders the panel with the operator's unsaved raw
-// text preserved, instead of reloading the last-saved value, so a typo
-// doesn't discard their edit.
-func (h *Handler) renderMetaRawError(w http.ResponseWriter, name, p, rawText, errMsg string) {
-	data, err := buildMetaPanelData(h.cfg.Admin.Path, name, p, json.RawMessage(`{}`), errMsg)
-	if err != nil {
-		http.Error(w, "loading metadata: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	data.RawJSON = rawText
-	h.renderPartial(w, "meta_panel", data)
-}
-
-func buildMetaPanelData(adminPath, collection, p string, raw json.RawMessage, errMsg string) (metaPanelData, error) {
+func buildMetaPanelData(adminPath, collection, p string, raw json.RawMessage) (metaPanelData, error) {
 	doc, err := meta.FromJSON(raw)
 	if err != nil {
 		return metaPanelData{}, err
@@ -260,12 +303,12 @@ func buildMetaPanelData(adminPath, collection, p string, raw json.RawMessage, er
 		Path:       p,
 		Label:      label,
 		RawJSON:    string(pretty),
-		Error:      errMsg,
 	}
 	if doc.Content != nil {
 		if doc.Content.ContentType != nil {
 			data.ContentType = *doc.Content.ContentType
 		}
+		data.Sandbox = triStateString(doc.Content.Sandbox)
 		data.Headers = formatHeaders(doc.Content.Headers)
 	}
 	if doc.Access != nil {
@@ -323,15 +366,26 @@ func existingRobots(d *meta.Document) *meta.Robots {
 	return d.Crawl.Robots
 }
 
-func buildContent(contentType string, headers map[string]string) *meta.Content {
-	if contentType == "" && len(headers) == 0 {
+func buildContent(contentType string, headers map[string]string, sandbox *bool) *meta.Content {
+	if contentType == "" && len(headers) == 0 && sandbox == nil {
 		return nil
 	}
-	c := &meta.Content{Headers: headers}
+	c := &meta.Content{Headers: headers, Sandbox: sandbox}
 	if contentType != "" {
 		c.ContentType = &contentType
 	}
 	return c
+}
+
+// expiryField returns an expiry value only when its enable checkbox is checked,
+// so an operator can toggle a mechanism off without clearing the text first and
+// it is unambiguous which mechanisms are active (artifactsd-a0f). An unchecked
+// HTML checkbox submits nothing, so the "_enabled" companion is empty when off.
+func expiryField(r *http.Request, name string) string {
+	if r.FormValue(name+"_enabled") == "" {
+		return ""
+	}
+	return strings.TrimSpace(r.FormValue(name))
 }
 
 func buildAccess(visibility, directoryListing string, auth *[]meta.AuthEntry) *meta.Access {
