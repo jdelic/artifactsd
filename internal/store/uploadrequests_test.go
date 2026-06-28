@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-
 func TestUploadRequests_CRUD(t *testing.T) {
 	s, ctx := newStore(t)
 	c := mustCollection(t, s, ctx, "inbox")
