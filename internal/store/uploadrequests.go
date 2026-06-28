@@ -68,7 +68,8 @@ func (s *Store) CreateUploadRequest(ctx context.Context, ur *UploadRequest) erro
 	if ur.Status == "" {
 		ur.Status = UploadRequestActive
 	}
-	res, err := s.db.sql.ExecContext(ctx,
+	res, err := s.db.sql.ExecContext(
+		ctx,
 		`INSERT INTO upload_requests
 			(request_id, collection_id, target_folder, label, description, file_metadata,
 			 allow_uploader_access, single_use, use_submission_folders,
@@ -143,7 +144,8 @@ func (s *Store) ListUploadRequests(ctx context.Context, collectionID *int64) ([]
 // UpdateUploadRequest saves mutable fields of an upload request (label,
 // description, status, expires_at).
 func (s *Store) UpdateUploadRequest(ctx context.Context, ur *UploadRequest) error {
-	res, err := s.db.sql.ExecContext(ctx,
+	res, err := s.db.sql.ExecContext(
+		ctx,
 		`UPDATE upload_requests
 		 SET label = ?, description = ?, status = ?, expires_at = ?, revoked_at = ?
 		 WHERE request_id = ?`,
@@ -188,7 +190,8 @@ func (s *Store) CommitUploadRequestSubmission(
 	var status string
 	var filesUploaded, maxFiles int64
 	var maxFilesNull sql.NullInt64
-	if err := tx.QueryRowContext(ctx,
+	if err := tx.QueryRowContext(
+		ctx,
 		`SELECT status, files_uploaded, max_files FROM upload_requests WHERE id = ?`,
 		sub.UploadRequestID,
 	).Scan(&status, &filesUploaded, &maxFilesNull); err != nil {
@@ -208,7 +211,8 @@ func (s *Store) CommitUploadRequestSubmission(
 	}
 
 	sub.CreatedAt = now
-	if _, err := tx.ExecContext(ctx,
+	if _, err := tx.ExecContext(
+		ctx,
 		`INSERT INTO upload_request_submissions
 			(upload_request_id, submission_id, file_count, total_bytes, client_ip, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
@@ -222,7 +226,8 @@ func (s *Store) CommitUploadRequestSubmission(
 	if singleUse {
 		newStatus = UploadRequestClosed
 	}
-	if _, err := tx.ExecContext(ctx,
+	if _, err := tx.ExecContext(
+		ctx,
 		`UPDATE upload_requests
 		 SET files_uploaded = files_uploaded + ?, last_used_at = ?, status = ?
 		 WHERE id = ?`,
@@ -310,6 +315,6 @@ func boolToInt(b bool) int {
 
 // Sentinel errors for upload-request operations.
 var (
-	ErrUploadRequestNotActive    = errors.New("store: upload request is not active")
+	ErrUploadRequestNotActive     = errors.New("store: upload request is not active")
 	ErrUploadRequestQuotaExceeded = errors.New("store: upload request max_files quota exceeded")
 )

@@ -29,11 +29,11 @@ type uploadRequestRow struct {
 
 // uploadRequestsPanelData backs the "uploadrequests_panel" partial.
 type uploadRequestsPanelData struct {
-	AdminPath    string
-	Collections  []string
-	Requests     []uploadRequestRow
-	NewURL       string
-	Error        string
+	AdminPath   string
+	Collections []string
+	Requests    []uploadRequestRow
+	NewURL      string
+	Error       string
 }
 
 var uploadRequestsFKeys = []fkey{{"Alt-C", "Create"}, {"Alt-U", "Upload Requests"}, {"Alt-L", "Logout"}}

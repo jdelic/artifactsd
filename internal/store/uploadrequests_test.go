@@ -116,9 +116,9 @@ func TestUploadRequests_IsActive(t *testing.T) {
 	future := now.Add(time.Hour)
 
 	tests := []struct {
-		status   string
+		status    string
 		expiresAt *time.Time
-		want     bool
+		want      bool
 	}{
 		{UploadRequestActive, nil, true},
 		{UploadRequestActive, &future, true},

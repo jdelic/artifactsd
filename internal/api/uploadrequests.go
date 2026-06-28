@@ -334,4 +334,3 @@ func (h *Handler) lookupUploadRequest(w http.ResponseWriter, r *http.Request) (*
 	}
 	return ur, c, true
 }
-

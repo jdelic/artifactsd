@@ -78,13 +78,13 @@ func (j *Janitor) WithClock(now func() time.Time) *Janitor {
 // Summary reports one pass's results (design/08 §8); it is also the JSON body
 // returned by POST /api/v1/maintenance/cleanup.
 type Summary struct {
-	NodesDeleted              int      `json:"nodes_deleted"`
-	CollectionsDeleted        int      `json:"collections_deleted"`
-	SharesDeleted             int      `json:"shares_deleted"`
-	UploadSessionsExpired     int      `json:"upload_sessions_expired"`
-	UploadRequestsExpired     int      `json:"upload_requests_expired"`
-	BlobsDeleted              int      `json:"blobs_deleted"`
-	Errors                    []string `json:"errors,omitempty"`
+	NodesDeleted          int      `json:"nodes_deleted"`
+	CollectionsDeleted    int      `json:"collections_deleted"`
+	SharesDeleted         int      `json:"shares_deleted"`
+	UploadSessionsExpired int      `json:"upload_sessions_expired"`
+	UploadRequestsExpired int      `json:"upload_requests_expired"`
+	BlobsDeleted          int      `json:"blobs_deleted"`
+	Errors                []string `json:"errors,omitempty"`
 }
 
 // RunOnce performs a single expiry sweep: delete expired nodes, collections,

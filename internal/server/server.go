@@ -49,12 +49,12 @@ type Options struct {
 
 // Server is the artifactsd HTTP server.
 type Server struct {
-	cfg     *config.Config
-	log     *slog.Logger
-	access  *audit.AccessLogger
-	db      *store.DB
-	limiter *ratelimit.Limiter
-	http    *http.Server
+	cfg       *config.Config
+	log       *slog.Logger
+	access    *audit.AccessLogger
+	db        *store.DB
+	limiter   *ratelimit.Limiter
+	http      *http.Server
 	api       *api.Handler
 	serve     *serve.Handler
 	adminUI   *admin.Handler
