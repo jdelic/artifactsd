@@ -94,17 +94,31 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	h.renderSharesPanel(w, r, c, h.shareURL(shareID), "")
 }
 
-// quickShareData backs the small "share_link" fragment returned by quickShare.
-type quickShareData struct {
-	URL   string
-	Error string
+// shareCellData backs the reusable "share_cell" fragment: the inline Share /
+// Unshare control on file, folder, and collection rows. When Shared it shows the
+// /s/<id>/ link plus an Unshare button; otherwise a Share button. Both buttons
+// htmx-swap the cell with the handler's fresh render (artifactsd-jaj).
+type shareCellData struct {
+	AdminPath  string
+	Collection string
+	TargetPath string
+	Shared     bool
+	ShareURL   string
+	Error      string
+}
+
+func (h *Handler) renderShareCell(w http.ResponseWriter, c *store.Collection, target string, shared bool, shareURL, errMsg string) {
+	h.renderPartial(w, "share_cell", shareCellData{
+		AdminPath: h.cfg.Admin.Path, Collection: c.Name, TargetPath: target,
+		Shared: shared, ShareURL: shareURL, Error: errMsg,
+	})
 }
 
 // quickShare mints a no-expiry share for a target (a file/folder path, or the
-// whole collection when target_path is empty) and returns just the resulting
-// /s/<id>/ link as an inline fragment (artifactsd-jaj). It powers the one-click
-// Share buttons on file/folder rows and collection rows; the full Shares screen
-// remains for expiry-controlled shares.
+// whole collection when target_path is empty) and returns the share cell now
+// showing the /s/<id>/ link and an Unshare button (artifactsd-jaj). It powers
+// the one-click Share buttons; the full Shares screen remains for
+// expiry-controlled shares.
 func (h *Handler) quickShare(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	c, ok := h.lookupCollectionByName(w, r, name)
@@ -112,26 +126,68 @@ func (h *Handler) quickShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	targetPath, targetKind, err := h.resolveShareTarget(ctx, c, r.FormValue("target_path"))
+	rawTarget := r.FormValue("target_path")
+	targetPath, targetKind, err := h.resolveShareTarget(ctx, c, rawTarget)
 	if err != nil {
-		h.renderPartial(w, "share_link", quickShareData{Error: err.Error()})
+		h.renderShareCell(w, c, strings.Trim(rawTarget, "/"), false, "", err.Error())
 		return
 	}
 	shareID, err := auth.GenerateShareID()
 	if err != nil {
-		h.renderPartial(w, "share_link", quickShareData{Error: "generating share id"})
+		h.renderShareCell(w, c, targetPath, false, "", "generating share id")
 		return
 	}
 	sh := &store.Share{ShareID: shareID, CollectionID: c.ID, TargetPath: targetPath, TargetKind: targetKind, Metadata: []byte(`{}`)}
 	if err := h.store.CreateShare(ctx, sh); err != nil {
-		h.renderPartial(w, "share_link", quickShareData{Error: "creating share: " + err.Error()})
+		h.renderShareCell(w, c, targetPath, false, "", "creating share: "+err.Error())
 		return
 	}
 	if h.audit != nil {
 		id := session.FromContext(ctx)
 		_ = h.audit.Record(ctx, &audit.Entry{Action: audit.ActionShareCreate, Actor: actorOf(id), Target: c.Name + " " + shareID})
 	}
-	h.renderPartial(w, "share_link", quickShareData{URL: h.shareURL(shareID)})
+	h.renderShareCell(w, c, targetPath, true, h.shareURL(shareID), "")
+}
+
+// unshare revokes every share whose target is the given path (a file/folder, or
+// the whole collection when empty) and returns the share cell to its unshared
+// state. "Unshare this" means it is no longer shared, so all shares for that
+// exact target are removed; the Shares screen remains for per-share control.
+func (h *Handler) unshare(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	c, ok := h.lookupCollectionByName(w, r, name)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	target, err := cleanShareTargetPath(r.FormValue("target_path"))
+	if err != nil {
+		h.renderShareCell(w, c, "", true, "", err.Error())
+		return
+	}
+	shares, err := h.store.ListSharesByCollection(ctx, c.ID)
+	if err != nil {
+		h.renderShareCell(w, c, target, true, "", "loading shares: "+err.Error())
+		return
+	}
+	id := session.FromContext(ctx)
+	for _, sh := range shares {
+		if sh.TargetPath != target {
+			continue
+		}
+		if derr := h.store.DeleteShare(ctx, sh.ShareID); derr == nil && h.audit != nil {
+			_ = h.audit.Record(ctx, &audit.Entry{Action: audit.ActionShareRevoke, Actor: actorOf(id), Target: c.Name + " " + sh.ShareID})
+		}
+	}
+	h.renderShareCell(w, c, target, false, "", "")
+}
+
+// cleanShareTargetPath cleans a share target; empty means the whole collection.
+func cleanShareTargetPath(raw string) (string, error) {
+	if strings.Trim(raw, "/") == "" {
+		return "", nil
+	}
+	return paths.Clean(raw)
 }
 
 // revokeShare deletes a share (design/04 §6).

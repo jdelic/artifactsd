@@ -257,3 +257,40 @@ func TestQuickShare(t *testing.T) {
 		t.Errorf("a missing path should not produce a share link: %s", rec.Body.String())
 	}
 }
+
+// TestShareUnshareToggle covers the Share/Unshare toggle: sharing a file shows
+// the link + Unshare, the shared state survives a reload (detected on load), and
+// Unshare removes it.
+func TestShareUnshareToggle(t *testing.T) {
+	ha := newFullHarness(t)
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
+	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "report.txt", "hi")
+
+	// Not shared yet: the tree has no /s/ link and offers Unshare nowhere.
+	rec := doReq(t, ha, http.MethodGet, "/collections/demo-run/tree", http.NoBody, "")
+	if strings.Contains(rec.Body.String(), "/s/") || strings.Contains(rec.Body.String(), "Unshare") {
+		t.Fatalf("file looks shared before sharing: %s", rec.Body.String())
+	}
+
+	// Share it: the cell comes back with a link and an Unshare button.
+	rec = doReq(t, ha, http.MethodPost, "/collections/demo-run/share", strings.NewReader(url.Values{"target_path": {"report.txt"}}.Encode()), "application/x-www-form-urlencoded")
+	if body := rec.Body.String(); !strings.Contains(body, "/s/") || !strings.Contains(body, "Unshare") {
+		t.Fatalf("share did not return link + Unshare: %s", body)
+	}
+
+	// Reloading the page shows the shared state (Unshare), not a fresh Share.
+	rec = doReq(t, ha, http.MethodGet, "/collections/demo-run/tree", http.NoBody, "")
+	if !strings.Contains(rec.Body.String(), "Unshare") {
+		t.Fatalf("shared state lost on reload: %s", rec.Body.String())
+	}
+
+	// Unshare removes it: the cell returns to a plain Share, no link.
+	rec = doReq(t, ha, http.MethodPost, "/collections/demo-run/unshare", strings.NewReader(url.Values{"target_path": {"report.txt"}}.Encode()), "application/x-www-form-urlencoded")
+	if body := rec.Body.String(); strings.Contains(body, "/s/") || strings.Contains(body, "Unshare") {
+		t.Fatalf("still shared after unshare: %s", body)
+	}
+	rec = doReq(t, ha, http.MethodGet, "/collections/demo-run/tree", http.NoBody, "")
+	if strings.Contains(rec.Body.String(), "Unshare") || strings.Contains(rec.Body.String(), "/s/") {
+		t.Errorf("unshare did not persist across reload: %s", rec.Body.String())
+	}
+}

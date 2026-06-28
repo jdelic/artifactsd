@@ -459,3 +459,23 @@ body {
 .nc-help a {
   color: var(--nc-cyan-bright);
 }
+
+/* Share/Unshare inline control on file/folder/collection rows (artifactsd-jaj).
+   Keep the link and its button on one tidy inline run. */
+.nc-sharecell {
+  display: inline;
+}
+
+/* The Upload panel's inputs — especially the native file (Browse) widget —
+   render oversized at the 21px TUI font, looking stretched next to their labels
+   and buttons. Make the upload inputs compact and width-bounded so the rows sit
+   proportionally. */
+.nc-upload input[type="text"],
+.nc-upload input[type="file"] {
+  font-size: 18px;
+  padding: 2px 6px;
+}
+
+.nc-upload input[type="file"] {
+  max-width: 22em;
+}

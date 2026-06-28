@@ -15,6 +15,16 @@ var templateFS embed.FS
 
 var funcMap = template.FuncMap{
 	"formatBytes": formatBytes,
+	"sharecell":   newShareCell,
+}
+
+// newShareCell builds the data for the inline Share/Unshare control so a row
+// template can render it with one call (artifactsd-jaj/unshare).
+func newShareCell(adminPath, collection, target string, shared bool, shareURL string) shareCellData {
+	return shareCellData{
+		AdminPath: adminPath, Collection: collection, TargetPath: target,
+		Shared: shared, ShareURL: shareURL,
+	}
 }
 
 // parseTemplates parses every embedded template once at startup; a malformed
