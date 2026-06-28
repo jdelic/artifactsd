@@ -83,6 +83,19 @@ body {
   color: var(--nc-blue);
 }
 
+/* The Logout control is a <button> (it POSTs via htmx) styled to sit in the
+   top bar like the other nav items. */
+.nc-logout {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.nc-logout:hover {
+  background: var(--nc-cyan-bright);
+}
+
 .nc-content {
   flex: 1;
   padding: 16px;

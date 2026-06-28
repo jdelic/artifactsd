@@ -13,6 +13,14 @@ Implements SPEC §14. Served at `/admin`, always behind authentication.
   implementation.
 - Progressive enhancement: core flows work without JS where feasible; htmx
   improves UX.
+- The retro Norton-Commander footer advertises keyboard shortcuts as
+  **Alt-`<letter>`** combos (e.g. `Alt-C` Create, `Alt-L` Logout), wired by a
+  small `static/shortcuts.js` keydown handler to the element carrying a matching
+  `data-shortcut` attribute. DOS-style function keys (F5/F8/F10) are deliberately
+  avoided: browsers reserve them (reload, menu, …) and a page cannot intercept
+  them reliably (artifactsd-9sy). Shortcuts cover the single, unambiguous action
+  per screen (create/upload/filter/save/cleanup) plus logout; per-row actions
+  (delete/revoke) stay as on-row buttons since a global key cannot pick a row.
 
 Rationale for htmx over a JS framework: the UI is CRUD over collections/files/
 metadata — well served by server rendering; avoids a build step and large

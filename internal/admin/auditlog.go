@@ -25,7 +25,7 @@ type auditData struct {
 	Error     string
 }
 
-var auditFKeys = []fkey{{"F5", "Filter"}, {"F10", "Logout"}}
+var auditFKeys = []fkey{{"Alt-F", "Filter"}, {"Alt-L", "Logout"}}
 
 // auditLog renders the audit log screen, the admin UI's record of admin
 // actions, deletions, and authenticated access to protected objects

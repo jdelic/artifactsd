@@ -164,3 +164,52 @@ func TestMaintenanceCleanup_NoCleanerConfigured(t *testing.T) {
 		t.Errorf("expected an error fragment, got %s", rec.Body.String())
 	}
 }
+
+func TestLogout_ClearsSessionAndRedirects(t *testing.T) {
+	ha := newHarness(t)
+	id := &session.Identity{Subject: "u1", Expiry: time.Now().Add(time.Hour)}
+	r := withIdentity(httptest.NewRequest(http.MethodPost, "/logout", http.NoBody), id)
+	r.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	ha.h.ServeHTTP(rec, r)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("logout = %d, want 204", rec.Code)
+	}
+	if got := rec.Header().Get("HX-Redirect"); got != "/admin/" {
+		t.Errorf("HX-Redirect = %q, want /admin/", got)
+	}
+	cleared := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == session.DefaultCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("logout did not expire the session cookie")
+	}
+}
+
+// TestFooter_UsesBrowserSafeShortcuts guards artifactsd-9sy: the footer must no
+// longer advertise reserved function keys, and the rendered page must wire the
+// Alt+<key> shortcuts (data-shortcut attrs + the shortcuts.js handler + the
+// Logout control).
+func TestFooter_UsesBrowserSafeShortcuts(t *testing.T) {
+	ha := newHarness(t)
+	id := &session.Identity{Subject: "u1", Email: "a@example.com", Expiry: time.Now().Add(time.Hour)}
+	r := withIdentity(httptest.NewRequest(http.MethodGet, "/collections", http.NoBody), id)
+	rec := httptest.NewRecorder()
+	ha.h.ServeHTTP(rec, r)
+
+	body := rec.Body.String()
+	for _, reserved := range []string{"F5", "F8", "F10", "F2", "F9"} {
+		if strings.Contains(body, "&lsaquo;"+reserved) || strings.Contains(body, ">"+reserved+"<") {
+			t.Errorf("footer still advertises reserved function key %s: %s", reserved, body)
+		}
+	}
+	for _, want := range []string{"Alt-C", `data-shortcut="c"`, `data-shortcut="l"`, "/logout", "shortcuts.js"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered page missing %q", want)
+		}
+	}
+}

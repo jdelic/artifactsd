@@ -8,6 +8,7 @@
 <meta name="csrf-token" content="{{.CSRFToken}}">
 <script src="{{.AdminPath}}/static/htmx.min.js"></script>
 <script src="{{.AdminPath}}/static/upload.js"></script>
+<script src="{{.AdminPath}}/static/shortcuts.js" defer></script>
 </head>
 <body hx-headers='{"X-CSRF-Token":"{{.CSRFToken}}"}'>
 <div class="nc-screen">
@@ -19,7 +20,9 @@
     <a class="nc-nav{{if eq .Active "tools"}} nc-nav-active{{end}}" href="{{.AdminPath}}/tokens"><u>T</u>ools</a>
     <span class="nc-nav"><u>H</u>elp</span>
     <div class="nc-spacer"></div>
-    {{if .Identity}}<span class="nc-user">{{or .Identity.Email .Identity.Subject}}</span>{{end}}
+    {{if .Identity}}<span class="nc-user">{{or .Identity.Email .Identity.Subject}}</span>
+    <button type="button" class="nc-nav nc-logout" data-shortcut="l"
+            hx-post="{{.AdminPath}}/logout"><u>L</u>ogout</button>{{end}}
   </div>
   <div class="nc-content">
 {{.Content}}

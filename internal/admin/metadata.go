@@ -42,7 +42,7 @@ type metaPanelData struct {
 	Saved       bool
 }
 
-var metaFKeys = []fkey{{"F2", "Save"}, {"F10", "Logout"}}
+var metaFKeys = []fkey{{"Alt-S", "Save"}, {"Alt-L", "Logout"}}
 
 // editMetadata renders the metadata editor for a collection (path="") or one
 // of its nodes (design/09 §3).

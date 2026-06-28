@@ -25,7 +25,7 @@ type collectionsPanelData struct {
 	Error       string
 }
 
-var collectionsFKeys = []fkey{{"F5", "Create"}, {"F8", "Delete"}, {"F10", "Logout"}}
+var collectionsFKeys = []fkey{{"Alt-C", "Create"}, {"Alt-L", "Logout"}}
 
 // collectionsList renders the collections screen (design/09 §3): list,
 // create, delete.

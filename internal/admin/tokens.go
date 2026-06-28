@@ -32,7 +32,7 @@ type tokensPanelData struct {
 	Error       string
 }
 
-var tokensFKeys = []fkey{{"F5", "Create"}, {"F8", "Revoke"}, {"F10", "Logout"}}
+var tokensFKeys = []fkey{{"Alt-C", "Create"}, {"Alt-L", "Logout"}}
 
 // tokensList renders the API tokens screen: list, create, revoke; a freshly
 // minted secret is shown once (design/09 §3/§5).
