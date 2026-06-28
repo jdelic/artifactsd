@@ -61,6 +61,7 @@ CREATE TABLE upload_requests (
     file_metadata         TEXT NOT NULL DEFAULT '{}', -- metadata applied to each uploaded file (JSON)
     allow_uploader_access BOOLEAN NOT NULL DEFAULT 0, -- show file URLs to uploader on success
     use_submission_folders BOOLEAN NOT NULL DEFAULT 0,-- if true, nest files under {target_folder}/{submission_id}/
+    single_use            BOOLEAN NOT NULL DEFAULT 0, -- if true, auto-close after first successful submission
     max_files             INTEGER,                    -- optional cap on total files (across all submitters)
     max_file_size         INTEGER,                    -- optional per-file size override (≤ server max_upload_size)
     files_uploaded        INTEGER NOT NULL DEFAULT 0, -- running counter
@@ -203,6 +204,7 @@ GET    /api/v1/upload-requests/{id}/submissions   list submissions (files upload
     "crawl":  { "crawlable": false, "indexable": false }
   },
   "allow_uploader_access": false,
+  "single_use": false,
   "use_submission_folders": true,
   "max_files": 50,
   "max_file_size": 52428800,
@@ -247,6 +249,7 @@ artifactctl upload-request create <collection>
         [--public|--unlisted|--private]
         [--no-index] [--crawlable]
         [--allow-uploader-access]
+        [--single-use]
         [--submission-folders]
 
 artifactctl upload-request list
@@ -307,6 +310,9 @@ footer pattern from [09 §1](09-admin-ui.md)).
   if exceeded. The server's global `MaxBytesReader` is the hard limit.
 - Quota enforcement: `max_files` counter is incremented atomically inside a DB
   transaction; 409 if exceeded.
+- Single-use enforcement: when `single_use = true`, `status` is set to `closed`
+  inside the same DB transaction that commits the uploaded files. A concurrent
+  POST racing on the same link loses the transaction and receives 410.
 - Expired/revoked links return **410 Gone** — informative for holders of a
   legitimate link, while the unguessable ID prevents enumeration.
 - Rate limiting: same per-IP rate limiter applied to auth attempts ([06](06-auth-security.md))
