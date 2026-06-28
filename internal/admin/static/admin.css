@@ -353,6 +353,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   width: 17px;
   height: 17px;
   border: 1px solid var(--nc-cyan-bright);
@@ -437,7 +438,10 @@ body {
   flex-wrap: wrap;
 }
 
-.nc-expiry > span {
+/* The label text in an expiry row gets a fixed min-width for alignment, but the
+   info icon is also a direct-child <span> — exclude it, or min-width would
+   stretch the round icon into a wide ellipse (it overrides the icon's width). */
+.nc-expiry > span:not(.nc-info) {
   min-width: 170px;
 }
 

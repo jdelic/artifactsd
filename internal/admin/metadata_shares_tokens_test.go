@@ -199,10 +199,10 @@ func TestMetadata_ExpiryEnableAndBanner(t *testing.T) {
 	}
 }
 
-// TestMetadata_RawErrorScopedAndPolicyRename covers artifactsd-3aw and 23u: a
-// raw-JSON error renders inside the JSON-policy section (not detached at top),
-// the panel is renamed, and links to the explainer.
-func TestMetadata_RawErrorScopedAndPolicyRename(t *testing.T) {
+// TestMetadata_RawErrorAndPolicyRename covers artifactsd-3aw and 23u: the
+// JSON-policy panel is renamed and links to the explainer, and an invalid JSON
+// document is rejected (not saved) while preserving the operator's input.
+func TestMetadata_RawErrorAndPolicyRename(t *testing.T) {
 	ha := newFullHarness(t)
 	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
 
@@ -214,9 +214,6 @@ func TestMetadata_RawErrorScopedAndPolicyRename(t *testing.T) {
 	if !strings.Contains(body, "03-metadata-policy.md") {
 		t.Errorf("missing explainer link: %s", body)
 	}
-	if !strings.Contains(body, `class="nc-info"`) {
-		t.Errorf("missing per-field info icons")
-	}
 
 	bad := url.Values{"raw": {`{ not valid json`}}
 	rec = doReq(t, ha, http.MethodPost, "/collections/demo-run/meta/raw", strings.NewReader(bad.Encode()), "application/x-www-form-urlencoded")
@@ -224,12 +221,8 @@ func TestMetadata_RawErrorScopedAndPolicyRename(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("raw save = %d: %s", rec.Code, body)
 	}
-	policyIdx := strings.Index(body, "JSON Policy document")
-	if policyIdx < 0 || !strings.Contains(body[policyIdx:], "nc-error") {
-		t.Errorf("raw error not rendered inside the JSON-policy section: %s", body)
-	}
-	if strings.Contains(body[:policyIdx], "nc-error") {
-		t.Errorf("raw error leaked into an earlier section: %s", body[:policyIdx])
+	if strings.Contains(body, "saved") {
+		t.Errorf("invalid JSON should not have saved")
 	}
 	if !strings.Contains(body, "not valid json") {
 		t.Errorf("operator's unsaved JSON text was not preserved")

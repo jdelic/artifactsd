@@ -11,6 +11,11 @@
   </div>
 </div>
 <div class="nc-panel" data-label="Maintenance">
+  <p class="nc-help">Runs the expiry sweep now — the same pass the janitor runs
+    automatically on a schedule. It deletes files, collections, and shares whose
+    expiry has passed, expires stale pending upload sessions, and unlinks blobs
+    left unreferenced as a result. Each deletion is recorded in the audit log.
+    Nothing that has not expired is touched.</p>
   <button class="nc-button" type="button" data-shortcut="c"
           hx-post="{{.AdminPath}}/maintenance/cleanup"
           hx-target="#cleanup-result" hx-swap="innerHTML">Run cleanup</button>
