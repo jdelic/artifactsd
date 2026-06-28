@@ -12,7 +12,7 @@ func TestOIDCLogin_AuthCodeURL(t *testing.T) {
 	cache := NewOIDCProviderCache(mi.server.Client())
 
 	login, err := NewOIDCLogin(context.Background(), cache,
-		mi.url, "artifactsd", "secret", "https://x.example.com/auth/oidc/callback", "groups")
+		mi.url, "artifactsd", "secret", "https://x.example.com/auth/oidc/callback", "groups", nil)
 	if err != nil {
 		t.Fatalf("NewOIDCLogin: %v", err)
 	}
@@ -45,6 +45,55 @@ func TestOIDCLogin_AuthCodeURL(t *testing.T) {
 	// The authorization endpoint should be the issuer's.
 	if !strings.HasPrefix(raw, mi.url) {
 		t.Errorf("auth URL %q does not target the issuer", raw)
+	}
+}
+
+// TestOIDCLogin_DefaultScopesDropGroups verifies the default scope set is the
+// standard "openid email profile" and that the non-standard "groups" scope is
+// no longer requested (artifactsd-7gx).
+func TestOIDCLogin_DefaultScopesDropGroups(t *testing.T) {
+	mi := newMockIssuer(t)
+	cache := NewOIDCProviderCache(mi.server.Client())
+
+	login, err := NewOIDCLogin(context.Background(), cache,
+		mi.url, "artifactsd", "secret", "https://x.example.com/auth/oidc/callback", "groups", nil)
+	if err != nil {
+		t.Fatalf("NewOIDCLogin: %v", err)
+	}
+	u, err := url.Parse(login.AuthCodeURL("s", NewVerifier()))
+	if err != nil {
+		t.Fatalf("parse auth url: %v", err)
+	}
+	scope := u.Query().Get("scope")
+	for _, want := range []string{"openid", "email", "profile"} {
+		if !strings.Contains(scope, want) {
+			t.Errorf("default scope %q missing %q", scope, want)
+		}
+	}
+	if strings.Contains(scope, "groups") {
+		t.Errorf("default scope %q should not request the non-standard groups scope", scope)
+	}
+}
+
+// TestResolveScopes covers defaulting and the always-present openid guarantee.
+func TestResolveScopes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"nil defaults", nil, DefaultOIDCScopes},
+		{"empty defaults", []string{}, DefaultOIDCScopes},
+		{"custom keeps openid", []string{"openid", "groups"}, []string{"openid", "groups"}},
+		{"openid prepended when missing", []string{"email", "groups"}, []string{"openid", "email", "groups"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveScopes(tc.in)
+			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Errorf("resolveScopes(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 

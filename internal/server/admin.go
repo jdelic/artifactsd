@@ -59,7 +59,7 @@ func (s *Server) adminLogin(ctx context.Context) (*auth.OIDCLogin, error) {
 		}
 		s.oidcLogin, s.oidcLoginErr = auth.NewOIDCLogin(ctx, s.oidcCache,
 			s.cfg.OIDC.Issuer, s.cfg.OIDC.ClientID, s.cfg.OIDC.ClientSecret,
-			s.cfg.OIDC.RedirectURL, s.cfg.Admin.GroupClaim)
+			s.cfg.OIDC.RedirectURL, s.cfg.Admin.GroupClaim, s.cfg.OIDC.Scopes)
 	})
 	return s.oidcLogin, s.oidcLoginErr
 }
@@ -109,8 +109,21 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "state mismatch", http.StatusBadRequest)
 		return
 	}
+	// The IdP signals a failed/denied authorization by redirecting back with an
+	// error (and optional error_description) instead of a code. Surface it in the
+	// logs so the failure is self-explaining rather than an opaque missing-code.
+	if oauthErr := r.URL.Query().Get("error"); oauthErr != "" {
+		desc := r.URL.Query().Get("error_description")
+		s.log.Warn("oidc provider returned an authorization error", "error", oauthErr, "error_description", desc)
+		http.Error(w, "login failed: "+oauthErr, http.StatusBadRequest)
+		return
+	}
 	code := r.URL.Query().Get("code")
 	if code == "" {
+		// No code and no error almost always means the IdP client is not using
+		// Authorization Code flow: a Hybrid/Implicit client returns the code/token
+		// in the URL fragment, which the browser never sends to the server.
+		s.log.Warn("oidc callback has no authorization code and no error; the IdP client is likely not configured for Authorization Code flow (response_type=code) — a Hybrid/Implicit client returns tokens in the URL fragment, which never reaches the server")
 		http.Error(w, "missing authorization code", http.StatusBadRequest)
 		return
 	}
@@ -200,9 +213,14 @@ func (s *Server) adminGate(next http.Handler) http.Handler {
 // so a disabled or wide-open OIDC admin setup is visible in the logs (design/14 §7).
 func (s *Server) logAdminMode() {
 	if s.cfg.OIDC.Enabled() {
+		if len(s.cfg.Admin.Subjects) > 0 {
+			s.log.Info("OIDC admin granted to a subject/email allowlist", "count", len(s.cfg.Admin.Subjects))
+		}
 		switch s.cfg.Admin.Group {
 		case "":
-			s.log.Warn("OIDC admin disabled: ARTIFACTSD_ADMIN_GROUP is unset, so no one is granted admin via OIDC; set a group name, or \"*\" to admit any authenticated user")
+			if len(s.cfg.Admin.Subjects) == 0 {
+				s.log.Warn("OIDC admin disabled: neither ARTIFACTSD_ADMIN_GROUP nor ARTIFACTSD_ADMIN_SUBJECTS is set, so no one is granted admin via OIDC; set a subject/email allowlist, a group name, or \"*\" to admit any authenticated user")
+			}
 		case "*":
 			s.log.Warn("OIDC admin granted to ANY authenticated user (ARTIFACTSD_ADMIN_GROUP=*); ensure the issuer only admits trusted users")
 		default:
@@ -215,15 +233,26 @@ func (s *Server) logAdminMode() {
 }
 
 // isAdmin reports whether an authenticated OIDC identity is authorized for admin
-// (design/14 §7). ARTIFACTSD_ADMIN_GROUP selects the mode:
-//   - "" (unset): fail closed — OIDC admin is disabled, nobody is authorized.
-//   - "*": any authenticated user is an admin (explicit, deliberate opt-out of
-//     group gating — only safe when the issuer is trusted to admit only staff).
-//   - any other value: authorize only identities carrying that group.
+// (design/14 §7). Authorization is an any-of predicate over two independent
+// mechanisms:
 //
-// The caller (adminGate) only invokes this with an already-authenticated
-// identity, so "*" means "authentication alone suffices".
+//   - ARTIFACTSD_ADMIN_SUBJECTS: a portable sub/email allowlist. An identity is
+//     an admin if its sub OR email matches any entry. sub is always present and
+//     email is standard, so this works on every IdP even when group claims are
+//     unavailable (e.g. Google Workspace).
+//   - ARTIFACTSD_ADMIN_GROUP: group-claim gating, with two sentinels —
+//     "" (unset): grants nothing via groups; "*": any authenticated user;
+//     any other value: authorize only identities carrying that group.
+//
+// With both unset/empty, isAdmin fails closed. The caller (adminGate) only
+// invokes this with an already-authenticated identity, so "*" means
+// "authentication alone suffices".
 func (s *Server) isAdmin(id *session.Identity) bool {
+	for _, allowed := range s.cfg.Admin.Subjects {
+		if allowed != "" && (allowed == id.Subject || allowed == id.Email) {
+			return true
+		}
+	}
 	switch s.cfg.Admin.Group {
 	case "":
 		return false

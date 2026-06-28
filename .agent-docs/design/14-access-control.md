@@ -111,22 +111,47 @@ completion), size limits. See [07](07-storage-uploads.md).
 ## 7. Admin authentication & authorization (decisions A1, D1)
 
 - **Admin UI is OIDC-gated** and additionally may use basic/htaccess.
-- **Authorization for admin is by group claim, in three modes** keyed on
-  `ARTIFACTSD_ADMIN_GROUP`: *unset* → fail closed (OIDC admin disabled, nobody
-  authorized); `*` → any authenticated user is an admin (explicit opt-out of
-  group gating, safe only behind a trusted issuer); any other value → require
-  that group. Empty is fail-closed by design so a forgotten variable never opens
-  admin to the whole IdP. Configured via **environment variables**:
+- **Authorization for admin is an any-of predicate** over two independent
+  mechanisms — an identity is an admin if it satisfies **either**:
+  - **Subject/email allowlist** (`ARTIFACTSD_ADMIN_SUBJECTS`, comma-separated):
+    the identity's `sub` **or** `email` matches any entry. `sub` is always
+    present and `email` is a standard claim, so this is the **portable** path
+    that works on every IdP even when group claims are unavailable (e.g. Google
+    Workspace). This is the recommended universal fallback.
+  - **Group-claim gating** (`ARTIFACTSD_ADMIN_GROUP`), in three modes: *unset* →
+    grants nothing via groups; `*` → any authenticated user is an admin
+    (explicit opt-out of group gating, safe only behind a trusted issuer); any
+    other value → require that group.
+  With **both** unset/empty, admin **fails closed** — nobody is authorized — so
+  a forgotten variable never opens admin to the whole IdP. Configured via
+  **environment variables**:
   - `ARTIFACTSD_OIDC_ISSUER`, `ARTIFACTSD_OIDC_CLIENT_ID`,
     `ARTIFACTSD_OIDC_CLIENT_SECRET`
   - `ARTIFACTSD_OIDC_REDIRECT_URL` — the full callback URL the provider
     redirects back to (sent verbatim as `redirect_uri`, must be whitelisted at
     the provider). Defaults to `<base_url>/auth/oidc/callback`; see
     [12 §2](12-config.md) for the full explanation and when to override.
-  - `ARTIFACTSD_ADMIN_GROUP_CLAIM` (default `groups`)
-  - `ARTIFACTSD_ADMIN_GROUP` (unset → fail closed · `*` → any authenticated · else require that group)
+  - `ARTIFACTSD_OIDC_SCOPES` (default `openid email profile`) — the OAuth2
+    scopes requested at login, space- or comma-separated. The non-standard
+    `groups` scope is **not** requested by default (many IdPs reject it with
+    `invalid_scope`, and dropping it does not stop an IdP that emits groups via
+    its own claim mapper). Add a provider-specific scope here if your IdP needs
+    one to populate the group claim. The `openid` scope is always included.
+  - `ARTIFACTSD_ADMIN_GROUP_CLAIM` (default `groups`) — which id_token claim
+    holds the user's groups. Groups must be present in the **token-endpoint
+    id_token** (artifactsd reads claims from the id_token; it makes no userinfo
+    call and uses no refresh token).
+  - `ARTIFACTSD_ADMIN_SUBJECTS` (comma-separated `sub`/`email` allowlist) —
+    portable admin authorization that works on every IdP.
+  - `ARTIFACTSD_ADMIN_GROUP` (unset → no group grant · `*` → any authenticated · else require that group)
   - optional `ARTIFACTSD_ADMIN_BASIC_USER` / `ARTIFACTSD_ADMIN_BASIC_PASSWORD`
     (or `_HASH`) for an htaccess fallback admin login.
+- **Callback diagnostics**: if the IdP redirects to the callback with an OAuth
+  `error`/`error_description` (e.g. `invalid_scope`, `access_denied`), or with
+  neither a code nor an error (the classic symptom of a Hybrid/Implicit client
+  whose tokens arrive in the URL fragment and never reach the server), the
+  failure is logged with a specific message rather than an opaque "missing
+  authorization code".
 - Successful admin login → secure session cookie (HttpOnly, SameSite, Secure
   under TLS). All admin actions audited.
 - Admins mint API bearer tokens for programmatic/agent use.

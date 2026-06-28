@@ -44,3 +44,41 @@ func TestIsAdmin_GroupModes(t *testing.T) {
 		t.Error("ADMIN_GROUP=* should admit an authenticated user with no groups")
 	}
 }
+
+// TestIsAdmin_SubjectAllowlist covers ARTIFACTSD_ADMIN_SUBJECTS (artifactsd-7gx):
+// the portable sub/email allowlist authorizes independently of group config and
+// fails closed for non-matching identities.
+func TestIsAdmin_SubjectAllowlist(t *testing.T) {
+	cases := []struct {
+		name string
+		id   *session.Identity
+		want bool
+	}{
+		{"matches subject", &session.Identity{Subject: "alice"}, true},
+		{"matches email", &session.Identity{Subject: "x", Email: "bob@example.com"}, true},
+		{"no match", &session.Identity{Subject: "carol", Email: "carol@example.com"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			// Group deliberately unset: the allowlist must work on its own.
+			s := serverWithEnv(t, map[string]string{
+				"ARTIFACTSD_ADMIN_SUBJECTS": "alice, bob@example.com",
+			}, &buf)
+			if got := s.isAdmin(tc.id); got != tc.want {
+				t.Errorf("isAdmin(%+v) = %v, want %v", tc.id, got, tc.want)
+			}
+		})
+	}
+
+	// Allowlist and group are independent any-of predicates: a group match still
+	// authorizes even when the subject is not on the allowlist.
+	var buf bytes.Buffer
+	s := serverWithEnv(t, map[string]string{
+		"ARTIFACTSD_ADMIN_SUBJECTS": "alice",
+		"ARTIFACTSD_ADMIN_GROUP":    "staff",
+	}, &buf)
+	if !s.isAdmin(&session.Identity{Subject: "dave", Groups: []string{"staff"}}) {
+		t.Error("group match should authorize even when subject is not on the allowlist")
+	}
+}

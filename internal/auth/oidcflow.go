@@ -40,9 +40,30 @@ type OIDCLogin struct {
 	groupClaim string
 }
 
+// DefaultOIDCScopes are the standard scopes requested when an operator does not
+// configure ARTIFACTSD_OIDC_SCOPES. "groups" is intentionally absent: it is not
+// a standard OIDC scope (many IdPs reject it with invalid_scope), and omitting
+// it does not stop an IdP from emitting groups via its own claim mapper.
+var DefaultOIDCScopes = []string{oidc.ScopeOpenID, "email", "profile"}
+
+// resolveScopes returns the scopes to request, defaulting to DefaultOIDCScopes
+// when none are configured and always guaranteeing the mandatory openid scope.
+func resolveScopes(scopes []string) []string {
+	if len(scopes) == 0 {
+		return append([]string(nil), DefaultOIDCScopes...)
+	}
+	for _, s := range scopes {
+		if s == oidc.ScopeOpenID {
+			return scopes
+		}
+	}
+	return append([]string{oidc.ScopeOpenID}, scopes...)
+}
+
 // NewOIDCLogin builds the login flow for an issuer/client, reusing the provider
-// cache for discovery. groupClaim defaults to "groups".
-func NewOIDCLogin(ctx context.Context, cache *OIDCProviderCache, issuer, clientID, clientSecret, redirectURL, groupClaim string) (*OIDCLogin, error) {
+// cache for discovery. groupClaim defaults to "groups". scopes defaults to
+// DefaultOIDCScopes when empty; the mandatory openid scope is always included.
+func NewOIDCLogin(ctx context.Context, cache *OIDCProviderCache, issuer, clientID, clientSecret, redirectURL, groupClaim string, scopes []string) (*OIDCLogin, error) {
 	provider, err := cache.provider(ctx, issuer)
 	if err != nil {
 		return nil, err
@@ -56,7 +77,7 @@ func NewOIDCLogin(ctx context.Context, cache *OIDCProviderCache, issuer, clientI
 			ClientSecret: clientSecret,
 			RedirectURL:  redirectURL,
 			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "email", "profile", "groups"},
+			Scopes:       resolveScopes(scopes),
 		},
 		verifier:   provider.Verifier(&oidc.Config{ClientID: clientID}),
 		cache:      cache,
