@@ -28,7 +28,7 @@ type statsView struct {
 	StorageReadable string
 }
 
-var dashboardFKeys = []fkey{{"F9", "Cleanup"}, {"F10", "Logout"}}
+var dashboardFKeys = []fkey{{"Alt-C", "Cleanup"}, {"Alt-L", "Logout"}}
 
 // dashboard renders the admin landing page: stats tiles, janitor status, and
 // the "Run cleanup" control (design/09 §3).

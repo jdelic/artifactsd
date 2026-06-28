@@ -14,8 +14,8 @@
     <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/upload"
           hx-target="#tree-panel" hx-swap="outerHTML" hx-encoding="multipart/form-data">
       <input type="hidden" name="dir" value="{{.Dir}}">
-      <input type="file" name="file" required>
-      <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Upload</button>
+      <input type="file" name="file" required data-shortcut="u" data-shortcut-action="focus">
+      <button class="nc-button" type="submit">Upload</button>
     </form>
     <form class="nc-form nc-large-upload" data-admin-path="{{.AdminPath}}" data-collection="{{.Collection}}" data-dir="{{.Dir}}">
       <input type="file" name="file" required>

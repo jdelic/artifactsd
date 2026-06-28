@@ -5,9 +5,9 @@
 </div>
 <div class="nc-panel" data-label="Filter">
   <form class="nc-form" method="get" action="{{.AdminPath}}/audit">
-    <label>Action <input type="text" name="action" value="{{.Action}}" placeholder="collection.create"></label>
+    <label>Action <input type="text" name="action" value="{{.Action}}" placeholder="collection.create" data-shortcut="f" data-shortcut-action="focus"></label>
     <label>Since <input type="text" name="since" value="{{.Since}}" placeholder="2026-06-01"></label>
-    <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Filter</button>
+    <button class="nc-button" type="submit">Filter</button>
   </form>
   {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
 </div>

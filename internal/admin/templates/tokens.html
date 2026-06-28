@@ -10,11 +10,11 @@
 <div id="tokens-panel">
   <div class="nc-panel" data-label="Create token">
     <form class="nc-form" hx-post="{{.AdminPath}}/tokens" hx-target="#tokens-panel" hx-swap="outerHTML">
-      <label>Name <input type="text" name="name" placeholder="ci-runner" required></label>
+      <label>Name <input type="text" name="name" placeholder="ci-runner" required data-shortcut="c" data-shortcut-action="focus"></label>
       <span class="nc-scopes">
         {{range .KnownScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
       </span>
-      <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Create</button>
+      <button class="nc-button" type="submit">Create</button>
     </form>
     {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
     {{if .NewToken}}

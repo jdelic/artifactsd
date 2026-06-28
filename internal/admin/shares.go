@@ -33,7 +33,7 @@ type sharesPanelData struct {
 	Error      string
 }
 
-var sharesFKeys = []fkey{{"F5", "Create"}, {"F8", "Revoke"}, {"F10", "Logout"}}
+var sharesFKeys = []fkey{{"Alt-C", "Create"}, {"Alt-L", "Logout"}}
 
 // listShares renders the shares screen for a collection: list, create,
 // revoke (design/09 §3).

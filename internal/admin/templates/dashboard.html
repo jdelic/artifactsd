@@ -11,9 +11,9 @@
   </div>
 </div>
 <div class="nc-panel" data-label="Maintenance">
-  <button class="nc-button" type="button"
+  <button class="nc-button" type="button" data-shortcut="c"
           hx-post="{{.AdminPath}}/maintenance/cleanup"
-          hx-target="#cleanup-result" hx-swap="innerHTML">&lsaquo;F9&rsaquo; Run cleanup</button>
+          hx-target="#cleanup-result" hx-swap="innerHTML">Run cleanup</button>
   <div id="cleanup-result" class="nc-cleanup-result"></div>
 </div>
 {{end}}

@@ -39,7 +39,7 @@ type treePanelData struct {
 	Error      string
 }
 
-var treeFKeys = []fkey{{"F5", "Upload"}, {"F8", "Delete"}, {"F10", "Logout"}}
+var treeFKeys = []fkey{{"Alt-U", "Upload"}, {"Alt-L", "Logout"}}
 
 // collectionTree renders the tree-browse screen for a collection at ?path=
 // (design/09 §3, mirroring the management API's GET .../tree).

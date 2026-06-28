@@ -24,7 +24,7 @@ func parseTemplates() *template.Template {
 	return template.Must(template.New("admin").Funcs(funcMap).ParseFS(templateFS, "templates/*.html"))
 }
 
-// pageData is the data available to the layout template (top nav, F-key
+// pageData is the data available to the layout template (top nav, shortcut
 // footer, CSRF token for forms/htmx) plus the pre-rendered page content.
 // html/template's "template" action requires a constant name, so render
 // executes the page template into Content first rather than dispatching on a
@@ -33,15 +33,22 @@ type pageData struct {
 	AdminPath string
 	Identity  *session.Identity
 	CSRFToken string
-	// FKeys lists the bottom-bar hotkey hints for this screen, e.g.
-	// {"F1", "Help"}, {"F9", "Cleanup"}.
+	// FKeys lists the bottom-bar keyboard-shortcut hints for this screen, e.g.
+	// {"Alt-C", "Create"}, {"Alt-L", "Logout"}. Each one is wired by
+	// static/shortcuts.js to the element carrying the matching data-shortcut
+	// attribute; the displayed Alt+<letter> combos are browser-safe (unlike the
+	// DOS-style F-keys this footer used to advertise, which browsers reserve).
 	FKeys   []fkey
-	Status  string // right-aligned status word in the F-key bar, e.g. "READY"
+	Status  string // right-aligned status word in the shortcut bar, e.g. "READY"
 	Title   string // breadcrumb/title shown in the top bar
 	Active  string // top-nav section to highlight, e.g. "dashboard", "collections"
 	Content template.HTML
 }
 
+// fkey is one footer keyboard-shortcut hint: Key is the displayed combo (e.g.
+// "Alt-C") and Label the action it performs (e.g. "Create"). The lowercased
+// letter is the data-shortcut value static/shortcuts.js dispatches on when Alt
+// is held. (Named fkey for historical reasons — the footer once showed F-keys.)
 type fkey struct {
 	Key   string
 	Label string

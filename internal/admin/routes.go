@@ -11,6 +11,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /static/", staticHandler())
 
 	mux.Handle("GET /{$}", http.HandlerFunc(h.dashboard))
+	mux.Handle("POST /logout", http.HandlerFunc(h.logout))
 	mux.Handle("POST /maintenance/cleanup", http.HandlerFunc(h.maintenanceCleanup))
 
 	mux.Handle("GET /collections", http.HandlerFunc(h.collectionsList))

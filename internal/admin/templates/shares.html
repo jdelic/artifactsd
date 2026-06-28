@@ -4,9 +4,9 @@
 <div id="shares-panel">
   <div class="nc-panel" data-label="Create share">
     <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/shares" hx-target="#shares-panel" hx-swap="outerHTML">
-      <label>Target path <input type="text" name="target_path" placeholder="(whole collection)"></label>
+      <label>Target path <input type="text" name="target_path" placeholder="(whole collection)" data-shortcut="c" data-shortcut-action="focus"></label>
       <label>Expires in <input type="text" name="expires_in" placeholder="7d (optional)"></label>
-      <button class="nc-button" type="submit">&lsaquo;F5&rsaquo; Create</button>
+      <button class="nc-button" type="submit">Create</button>
     </form>
     {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
     {{if .NewURL}}<div class="nc-saved">created: <code>{{.NewURL}}</code></div>{{end}}
