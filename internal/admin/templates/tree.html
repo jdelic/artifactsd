@@ -8,6 +8,10 @@
     </div>
     {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
     <a href="{{.AdminPath}}/collections/{{.Collection}}/meta?path={{.Dir}}">Edit metadata</a>
+    <form class="nc-inline-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/share" hx-target="this" hx-swap="outerHTML">
+      <input type="hidden" name="target_path" value="{{.Dir}}">
+      <button class="nc-button" type="submit">Share this {{if .Dir}}folder{{else}}collection{{end}}</button>
+    </form>
   </div>
 
   <div class="nc-panel" data-label="Upload">
@@ -36,6 +40,10 @@
         <td><a href="{{$.AdminPath}}/collections/{{$.Collection}}/tree?path={{.Path}}">{{.Name}}/</a></td>
         <td>
           <a href="{{$.AdminPath}}/collections/{{$.Collection}}/meta?path={{.Path}}">Edit</a>
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/share" hx-target="this" hx-swap="outerHTML">
+            <input type="hidden" name="target_path" value="{{.Path}}">
+            <button class="nc-button" type="submit">Share</button>
+          </form>
           <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/delete-folder/{{.Path}}"
                 hx-target="#tree-panel" hx-swap="outerHTML"
                 hx-confirm="Delete folder &quot;{{.Name}}&quot; and everything in it? This cannot be undone.">
@@ -60,6 +68,10 @@
         <td>{{.ContentType}}</td>
         <td>
           <a href="{{$.AdminPath}}/collections/{{$.Collection}}/meta?path={{.Path}}">Edit</a>
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/share" hx-target="this" hx-swap="outerHTML">
+            <input type="hidden" name="target_path" value="{{.Path}}">
+            <button class="nc-button" type="submit">Share</button>
+          </form>
           <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/delete-file/{{.Path}}"
                 hx-target="#tree-panel" hx-swap="outerHTML"
                 hx-confirm="Delete file &quot;{{.Name}}&quot;? This cannot be undone.">

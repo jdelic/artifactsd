@@ -35,6 +35,7 @@ func (h *Handler) Routes() http.Handler {
 
 	mux.Handle("GET /collections/{name}/shares", http.HandlerFunc(h.listShares))
 	mux.Handle("POST /collections/{name}/shares", http.HandlerFunc(h.createShare))
+	mux.Handle("POST /collections/{name}/share", http.HandlerFunc(h.quickShare))
 	mux.Handle("POST /collections/{name}/shares/{share_id}/revoke", http.HandlerFunc(h.revokeShare))
 
 	// Upload request links (design/15).

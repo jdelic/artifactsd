@@ -94,6 +94,46 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	h.renderSharesPanel(w, r, c, h.shareURL(shareID), "")
 }
 
+// quickShareData backs the small "share_link" fragment returned by quickShare.
+type quickShareData struct {
+	URL   string
+	Error string
+}
+
+// quickShare mints a no-expiry share for a target (a file/folder path, or the
+// whole collection when target_path is empty) and returns just the resulting
+// /s/<id>/ link as an inline fragment (artifactsd-jaj). It powers the one-click
+// Share buttons on file/folder rows and collection rows; the full Shares screen
+// remains for expiry-controlled shares.
+func (h *Handler) quickShare(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	c, ok := h.lookupCollectionByName(w, r, name)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	targetPath, targetKind, err := h.resolveShareTarget(ctx, c, r.FormValue("target_path"))
+	if err != nil {
+		h.renderPartial(w, "share_link", quickShareData{Error: err.Error()})
+		return
+	}
+	shareID, err := auth.GenerateShareID()
+	if err != nil {
+		h.renderPartial(w, "share_link", quickShareData{Error: "generating share id"})
+		return
+	}
+	sh := &store.Share{ShareID: shareID, CollectionID: c.ID, TargetPath: targetPath, TargetKind: targetKind, Metadata: []byte(`{}`)}
+	if err := h.store.CreateShare(ctx, sh); err != nil {
+		h.renderPartial(w, "share_link", quickShareData{Error: "creating share: " + err.Error()})
+		return
+	}
+	if h.audit != nil {
+		id := session.FromContext(ctx)
+		_ = h.audit.Record(ctx, &audit.Entry{Action: audit.ActionShareCreate, Actor: actorOf(id), Target: c.Name + " " + shareID})
+	}
+	h.renderPartial(w, "share_link", quickShareData{URL: h.shareURL(shareID)})
+}
+
 // revokeShare deletes a share (design/04 §6).
 func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
