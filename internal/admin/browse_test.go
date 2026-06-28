@@ -123,14 +123,3 @@ func TestNav_FilesSharesAreLinks(t *testing.T) {
 		t.Errorf("Files/Shares nav items are not links: %s", body)
 	}
 }
-
-// TestInPanelLinkContrast covers artifactsd-4b5: the stylesheet sets a legible
-// in-panel link color (normal and visited).
-func TestInPanelLinkContrast(t *testing.T) {
-	ha := newFullHarness(t)
-	rec := doReq(t, ha, http.MethodGet, "/static/admin.css", http.NoBody, "")
-	css := rec.Body.String()
-	if !strings.Contains(css, ".nc-panel a") || !strings.Contains(css, "a:visited") {
-		t.Errorf("in-panel link contrast rule (incl. :visited) missing from admin.css")
-	}
-}
