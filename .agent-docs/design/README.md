@@ -22,6 +22,7 @@ picture, or jump to the area you are working on.
 | 12 | [Configuration](12-config.md) | Flags + env (12factor), defaults |
 | 13 | [Testing & quality](13-testing-quality.md) | Test strategy, linters, CI gates |
 | 14 | [Access control](14-access-control.md) | **Consolidated** auth model: bearer/basic/OIDC, admin gating, capabilities |
+| 15 | [Upload request links](15-upload-requests.md) | Shareable capability URLs for third-party file uploads (M2) |
 
 See also:
 - [`../ROADMAP.md`](../ROADMAP.md) — milestones and how the beads epics map to this design.
