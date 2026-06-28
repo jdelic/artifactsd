@@ -95,6 +95,61 @@ type APIToken struct {
 	RevokedAt   *time.Time
 }
 
+// Upload request statuses (design/15 §3).
+const (
+	UploadRequestActive  = "active"
+	UploadRequestClosed  = "closed"
+	UploadRequestRevoked = "revoked"
+	UploadRequestExpired = "expired"
+)
+
+// UploadRequest is a shareable capability link that allows third-party file
+// uploads to a designated collection/folder (design/15).
+type UploadRequest struct {
+	ID                   int64
+	RequestID            string
+	CollectionID         int64
+	TargetFolder         string
+	Label                *string
+	Description          *string
+	FileMetadata         json.RawMessage
+	AllowUploaderAccess  bool
+	SingleUse            bool
+	UseSubmissionFolders bool
+	MaxFiles             *int64
+	MaxFileSize          *int64
+	FilesUploaded        int64
+	Status               string
+	CreatedAt            time.Time
+	ExpiresAt            *time.Time
+	RevokedAt            *time.Time
+	LastUsedAt           *time.Time
+}
+
+// IsActive reports whether the request can accept new uploads.
+func (r *UploadRequest) IsActive(now time.Time) bool {
+	if r.Status != UploadRequestActive {
+		return false
+	}
+	if r.ExpiresAt != nil && !now.Before(*r.ExpiresAt) {
+		return false
+	}
+	return true
+}
+
+// UploadRequestSubmission tracks one upload event (one POST with ≥1 file) to a
+// request link. Used for admin analytics and for finding which files belong to
+// which submission when use_submission_folders=true.
+type UploadRequestSubmission struct {
+	ID              int64
+	UploadRequestID int64
+	SubmissionID    string
+	FileCount       int64
+	TotalBytes      int64
+	ClientIP        *string
+	CreatedAt       time.Time
+}
+
 // AuditLog is an admin/deletion action record (SPEC §11/§17).
 type AuditLog struct {
 	ID        int64

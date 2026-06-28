@@ -24,6 +24,11 @@ var wantToolNames = []string{
 	"artifact_get_public_url",
 	"artifact_create_share",
 	"artifact_get_crawl_tree",
+	// upload request links (design/15 §7)
+	"artifact_create_upload_request",
+	"artifact_list_upload_requests",
+	"artifact_get_upload_request",
+	"artifact_revoke_upload_request",
 }
 
 // mcpHarness wires a real artifactsd test server, an apiclient pointed at it,
@@ -72,7 +77,7 @@ func (h *mcpHarness) call(name string, args map[string]any) map[string]any {
 	return out
 }
 
-func TestRegisterTools_ListsAllTen(t *testing.T) {
+func TestRegisterTools_ListsAll(t *testing.T) {
 	h := newMCPHarness(t)
 	tools, err := h.cs.ListTools(context.Background(), nil)
 	if err != nil {

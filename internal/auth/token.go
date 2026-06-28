@@ -21,6 +21,14 @@ const SharePrefixValue = "shr_"
 // unguessable capability in a PUT /api/v1/uploads/{upload_id} URL, design/07 §3).
 const UploadPrefixValue = "upl_"
 
+// UploadRequestPrefixValue is the literal prefix on every upload request id (the
+// unguessable capability in a /r/{request_id} URL, design/15 §2).
+const UploadRequestPrefixValue = "urq_"
+
+// SubmissionPrefixValue is the prefix on every per-submission short id used as
+// a folder name when use_submission_folders is set (design/15 §3).
+const SubmissionPrefixValue = "sub_"
+
 // tokenSecretBytes is the entropy of the random secret (256 bits, design/06 §1.1).
 const tokenSecretBytes = 32
 
@@ -31,6 +39,15 @@ const shareSecretBytes = 16
 // uploadSecretBytes is the entropy of an upload session id (design/07 §3 wants
 // at least 95 bits; 128 bits matches the share id capability).
 const uploadSecretBytes = 16
+
+// uploadRequestSecretBytes is the entropy of an upload request id (design/15
+// §2: ≥16 base62 chars, ~95 bits).
+const uploadRequestSecretBytes = 16
+
+// submissionSecretBytes is the entropy of a per-submission short id (used as
+// a folder name; 8 bytes / 64 bits is sufficient given it is local to one
+// upload request's collection folder).
+const submissionSecretBytes = 8
 
 // prefixLen is how many leading characters are stored as token_prefix for
 // display/lookup hinting (covers "tok_" + 8 secret chars).
@@ -90,6 +107,27 @@ func GenerateUploadID() (string, error) {
 		return "", err
 	}
 	return UploadPrefixValue + secret, nil
+}
+
+// GenerateUploadRequestID mints a new unguessable upload request id (design/15
+// §2). Possession of the id (via the /r/{request_id} URL) is the capability —
+// no bearer token is checked on the upload form.
+func GenerateUploadRequestID() (string, error) {
+	secret, err := randomBase62(uploadRequestSecretBytes)
+	if err != nil {
+		return "", err
+	}
+	return UploadRequestPrefixValue + secret, nil
+}
+
+// GenerateSubmissionID mints a short id for one submission within an upload
+// request. Used as a folder name when use_submission_folders is set.
+func GenerateSubmissionID() (string, error) {
+	secret, err := randomBase62(submissionSecretBytes)
+	if err != nil {
+		return "", err
+	}
+	return SubmissionPrefixValue + secret, nil
 }
 
 // TokenPrefix returns the leading prefixLen characters of a token for display.

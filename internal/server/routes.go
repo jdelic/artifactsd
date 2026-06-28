@@ -54,6 +54,14 @@ func (s *Server) routes() http.Handler {
 	} else {
 		mux.Handle("/api/v1/", notImplemented("management API"))
 	}
+
+	// Upload request public landing pages (design/15 §4). Possession of the
+	// unguessable /r/{request_id} URL is the only credential required.
+	if s.uploadReq != nil {
+		mux.Handle("/r/", s.uploadReq.Routes())
+	} else {
+		mux.Handle("/r/", notImplemented("upload requests"))
+	}
 	// Admin UI (design/09): server-rendered html/template + htmx over the same
 	// service layer the API uses. adminGate enforces OIDC/basic auth; csrfGate
 	// (design/09 §5) protects its mutating routes once a session exists.

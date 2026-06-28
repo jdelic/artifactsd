@@ -48,4 +48,22 @@ func registerTools(s *Server) {
 		Name:        "artifact_get_crawl_tree",
 		Description: "Enumerate a collection's policy-filtered crawl tree: only the crawlable/indexable objects an agent may see (SPEC §10.5).",
 	}, s.getCrawlTree)
+
+	// Upload request links (design/15 §7).
+	gosdk.AddTool(s.MCP, &gosdk.Tool{
+		Name:        "artifact_create_upload_request",
+		Description: "Create an upload request link: a shareable capability URL (/r/{id}) that lets third parties upload files without API credentials.",
+	}, s.createUploadRequest)
+	gosdk.AddTool(s.MCP, &gosdk.Tool{
+		Name:        "artifact_list_upload_requests",
+		Description: "List all upload request links and their current status.",
+	}, s.listUploadRequests)
+	gosdk.AddTool(s.MCP, &gosdk.Tool{
+		Name:        "artifact_get_upload_request",
+		Description: "Get the status and details of one upload request link by its request_id.",
+	}, s.getUploadRequest)
+	gosdk.AddTool(s.MCP, &gosdk.Tool{
+		Name:        "artifact_revoke_upload_request",
+		Description: "Revoke an upload request link, permanently preventing further uploads.",
+	}, s.revokeUploadRequest)
 }
