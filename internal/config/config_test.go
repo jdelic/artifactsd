@@ -212,6 +212,39 @@ func TestOIDCRedirectURLDefault(t *testing.T) {
 	}
 }
 
+func TestOIDCScopesAndAdminSubjects(t *testing.T) {
+	base := []string{"--base-url", "https://x.example.com", "--data", t.TempDir()}
+
+	// Defaults: no scopes configured (NewOIDCLogin applies the standard set),
+	// and no admin subjects.
+	c, err := Load(base, envMap(nil), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(c.OIDC.Scopes) != 0 {
+		t.Errorf("OIDC.Scopes = %v, want empty by default", c.OIDC.Scopes)
+	}
+	if len(c.Admin.Subjects) != 0 {
+		t.Errorf("Admin.Subjects = %v, want empty by default", c.Admin.Subjects)
+	}
+
+	// Scopes accept space- or comma-separation; subjects are comma-separated.
+	env := map[string]string{
+		"ARTIFACTSD_OIDC_SCOPES":    "openid email roles",
+		"ARTIFACTSD_ADMIN_SUBJECTS": "alice, bob@example.com",
+	}
+	c, err = Load(base, envMap(env), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := strings.Join(c.OIDC.Scopes, " "), "openid email roles"; got != want {
+		t.Errorf("OIDC.Scopes = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(c.Admin.Subjects, ","), "alice,bob@example.com"; got != want {
+		t.Errorf("Admin.Subjects = %q, want %q", got, want)
+	}
+}
+
 func TestOIDCRedirectURLMustBeAbsolute(t *testing.T) {
 	base := []string{"--base-url", "https://x.example.com", "--data", t.TempDir()}
 	env := map[string]string{

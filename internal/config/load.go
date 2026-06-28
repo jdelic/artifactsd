@@ -81,6 +81,7 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 		Path:              envStr(getenv, "ARTIFACTSD_ADMIN_PATH", defaultAdminPath),
 		GroupClaim:        envStr(getenv, "ARTIFACTSD_ADMIN_GROUP_CLAIM", defaultAdminGroupClaim),
 		Group:             getenv("ARTIFACTSD_ADMIN_GROUP"),
+		Subjects:          splitList(getenv("ARTIFACTSD_ADMIN_SUBJECTS")),
 		BasicUser:         getenv("ARTIFACTSD_ADMIN_BASIC_USER"),
 		BasicPassword:     getenv("ARTIFACTSD_ADMIN_BASIC_PASSWORD"),
 		BasicPasswordHash: getenv("ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH"),
@@ -90,6 +91,7 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 		ClientID:     getenv("ARTIFACTSD_OIDC_CLIENT_ID"),
 		ClientSecret: getenv("ARTIFACTSD_OIDC_CLIENT_SECRET"),
 		RedirectURL:  getenv("ARTIFACTSD_OIDC_REDIRECT_URL"),
+		Scopes:       splitScopes(getenv("ARTIFACTSD_OIDC_SCOPES")),
 	}
 	// Default the OIDC redirect URL to <base_url>/auth/oidc/callback when OIDC is
 	// configured but the redirect URL was left unset, so operators only have to
@@ -259,4 +261,17 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// splitScopes parses an OAuth2 scope list. Scopes are conventionally
+// space-separated ("openid email profile"), but commas are accepted too so
+// operators do not have to remember which separator to use.
+func splitScopes(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	})
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
 }

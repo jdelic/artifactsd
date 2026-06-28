@@ -40,29 +40,54 @@ env for deployment.
 | OIDC issuer | `ARTIFACTSD_OIDC_ISSUER` | |
 | OIDC client id / secret | `ARTIFACTSD_OIDC_CLIENT_ID` / `..._CLIENT_SECRET` | |
 | OIDC redirect URL | `ARTIFACTSD_OIDC_REDIRECT_URL` | `<base_url>/auth/oidc/callback` |
+| OIDC scopes | `ARTIFACTSD_OIDC_SCOPES` (space- or comma-separated) | `openid email profile` |
 | Admin group claim | `ARTIFACTSD_ADMIN_GROUP_CLAIM` | `groups` |
-| Admin group | `ARTIFACTSD_ADMIN_GROUP` (unset → fail closed · `*` → any authenticated · else require that group) | |
+| Admin subject/email allowlist | `ARTIFACTSD_ADMIN_SUBJECTS` (comma-separated `sub`/`email`) | |
+| Admin group | `ARTIFACTSD_ADMIN_GROUP` (unset → no group grant · `*` → any authenticated · else require that group) | |
 | Basic admin fallback | `ARTIFACTSD_ADMIN_BASIC_USER`, `ARTIFACTSD_ADMIN_BASIC_PASSWORD` (or `_HASH`) | |
 | Admin UI path | `ARTIFACTSD_ADMIN_PATH` | `/admin` |
 
 Secrets are read from env; a cleartext basic password is hashed at startup and
 never persisted.
 
-### The admin group (`ARTIFACTSD_ADMIN_GROUP`)
+### Who is authorized for admin (any-of)
 
-This selects who is authorized for admin **after** a successful OIDC login, in
-three modes:
+After a successful OIDC login, an identity is granted admin if it satisfies
+**either** of two independent mechanisms (checked any-of):
+
+**1. Subject/email allowlist (`ARTIFACTSD_ADMIN_SUBJECTS`).** A comma-separated
+list matched against the login's `sub` **or** `email`. `sub` is always present
+and `email` is a standard claim, so this works on **every** IdP — including those
+that never emit groups in the id_token (e.g. Google Workspace). It is the
+recommended portable path and the universal fallback when group claims are
+unavailable. Example: `ARTIFACTSD_ADMIN_SUBJECTS="alice@example.com,bob@example.com"`.
+
+**2. Group-claim gating (`ARTIFACTSD_ADMIN_GROUP`).** Three modes:
 
 | Value | Meaning |
 |-------|---------|
-| *unset* (default) | **Fail closed** — OIDC admin is disabled; no one is granted admin via OIDC (the basic fallback, if configured, still works). |
+| *unset* (default) | Grants nothing via groups (the allowlist and basic fallback, if configured, still work). |
 | `*` | **Any authenticated user** is an admin. A deliberate opt-out of group gating — only safe when the OIDC issuer admits only trusted users (a private/staff IdP), since it grants admin to anyone who can log in there. |
 | any group name | Authorize only logins whose `ARTIFACTSD_ADMIN_GROUP_CLAIM` contains that group. |
 
-Empty is intentionally fail-closed rather than "allow everyone" so a forgotten
-variable never silently opens admin to the whole IdP; choosing `*` makes the
-open-to-all decision explicit. The effective mode is logged once at startup
-(a `*` configuration logs a warning).
+With **both** `ARTIFACTSD_ADMIN_SUBJECTS` and `ARTIFACTSD_ADMIN_GROUP`
+unset/empty, admin **fails closed** — nobody is authorized via OIDC. This is
+intentional rather than "allow everyone", so a forgotten variable never silently
+opens admin to the whole IdP; choosing `*` makes the open-to-all decision
+explicit. The effective mode is logged once at startup (a `*` configuration logs
+a warning).
+
+### OIDC scopes (`ARTIFACTSD_OIDC_SCOPES`)
+
+The OAuth2 scopes requested at login, space- or comma-separated, defaulting to
+the standard `openid email profile`. The non-standard `groups` scope is **not**
+requested by default: many IdPs reject it (`invalid_scope`), and dropping it does
+**not** stop an IdP from emitting groups when it is configured to do so via its
+own claim mapper. If your IdP needs a provider-specific scope to populate the
+group claim (some Keycloak/Okta setups), add it here. The mandatory `openid`
+scope is always included regardless of this setting. Groups must land in the
+**token-endpoint id_token** — artifactsd reads claims from the id_token and makes
+no userinfo call.
 
 ### The OIDC redirect URL
 

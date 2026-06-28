@@ -66,9 +66,15 @@ type TLS struct {
 // Admin holds admin-UI gating settings. OIDC is the primary mechanism; the
 // basic credentials are a fallback (design/14).
 type Admin struct {
-	Path              string
-	GroupClaim        string
-	Group             string
+	Path       string
+	GroupClaim string
+	Group      string
+	// Subjects is the portable subject/email allowlist (ARTIFACTSD_ADMIN_SUBJECTS):
+	// an authenticated OIDC identity is an admin if its sub OR email matches any
+	// entry. sub is always present and email is a standard claim, so this works
+	// on every IdP — the universal fallback when group claims are unavailable
+	// (e.g. Google Workspace). It is an any-of predicate alongside Group.
+	Subjects          []string
 	BasicUser         string
 	BasicPassword     string // cleartext; hashed at startup, never persisted
 	BasicPasswordHash string // argon2id hash (preferred over cleartext)
@@ -93,11 +99,19 @@ type OIDC struct {
 	// override it only when artifactsd's callback is reached at a different
 	// external URL than base_url (e.g. behind a proxy or a separate admin origin).
 	RedirectURL string
+	// Scopes are the OAuth2 scopes requested at login. It defaults to the
+	// standard "openid email profile" (ARTIFACTSD_OIDC_SCOPES overrides). "groups"
+	// is deliberately NOT requested by default: it is not a standard OIDC scope,
+	// many IdPs reject it (invalid_scope), and dropping it does not remove groups
+	// when the IdP emits them via its own mapper. Operators whose IdP needs a
+	// provider-specific scope to emit the group claim can add it back here. The
+	// openid scope is always included regardless of this setting.
+	Scopes []string
 }
 
 // Enabled reports whether enough OIDC configuration is present to attempt
 // admin login via OIDC.
-func (o OIDC) Enabled() bool {
+func (o *OIDC) Enabled() bool {
 	return o.Issuer != "" || o.ClientID != "" || o.ClientSecret != "" || o.RedirectURL != ""
 }
 
