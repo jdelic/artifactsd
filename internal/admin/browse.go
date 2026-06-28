@@ -105,6 +105,7 @@ type allFilesRow struct {
 	SizeLabel   string
 	ContentType string
 	Created     string
+	Expires     string
 	ViewURL     string
 	MetaURL     string
 }
@@ -130,6 +131,8 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 		sortBy = store.FileSortName
 	case "created":
 		sortBy = store.FileSortCreated
+	case "expiry":
+		sortBy = store.FileSortExpiry
 	}
 	files, err := h.store.ListAllFiles(r.Context(), sortBy, allFilesLimit)
 	if err != nil {
@@ -139,7 +142,7 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 	rows := make([]allFilesRow, 0, len(files))
 	base := strings.TrimRight(h.cfg.Server.BaseURL, "/")
 	for _, f := range files {
-		rows = append(rows, allFilesRow{
+		row := allFilesRow{
 			Collection:  f.CollectionName,
 			Path:        f.Path,
 			Size:        f.Size,
@@ -148,7 +151,11 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 			Created:     f.CreatedAt.UTC().Format("2006-01-02 15:04"),
 			ViewURL:     base + "/c/" + f.CollectionName + "/" + f.Path,
 			MetaURL:     h.cfg.Admin.Path + "/collections/" + f.CollectionName + "/meta?path=" + f.Path,
-		})
+		}
+		if f.ExpiresAt != nil {
+			row.Expires = f.ExpiresAt.UTC().Format("2006-01-02 15:04")
+		}
+		rows = append(rows, row)
 	}
 	h.render(w, r, "allfiles", allFilesFKeys, "READY", "Files", allFilesData{
 		AdminPath: h.cfg.Admin.Path, Sort: string(sortBy), Files: rows,

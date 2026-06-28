@@ -64,6 +64,33 @@ func TestAllFilesPage(t *testing.T) {
 	}
 }
 
+// TestAllFilesPage_ExpiryColumnAndSort covers artifactsd-7h3: the file list
+// shows an expiry column, and sort=expiry surfaces expiring files before
+// never-expiring ones.
+func TestAllFilesPage_ExpiryColumnAndSort(t *testing.T) {
+	ha := newFullHarness(t)
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
+	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "keep.txt", "k")
+	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "temp.txt", "t")
+
+	// Give temp.txt an expiry; keep.txt never expires.
+	exp := url.Values{"delete_after_creation_enabled": {"on"}, "delete_after_creation": {"30d"}}
+	doReq(t, ha, http.MethodPost, "/collections/demo-run/meta/fields?path=temp.txt", strings.NewReader(exp.Encode()), "application/x-www-form-urlencoded")
+
+	rec := doReq(t, ha, http.MethodGet, "/files?sort=expiry", http.NoBody, "")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "<th>Expires</th>") {
+		t.Fatalf("expiry column missing: %d: %s", rec.Code, body)
+	}
+	tempIdx, keepIdx := strings.Index(body, "temp.txt"), strings.Index(body, "keep.txt")
+	if tempIdx < 0 || keepIdx < 0 {
+		t.Fatalf("files missing: %s", body)
+	}
+	if tempIdx > keepIdx {
+		t.Errorf("sort=expiry should list the expiring file (temp.txt) before the never-expiring one (keep.txt)")
+	}
+}
+
 // TestUpload_SubdirCreatesFolders covers artifactsd-ok0: an upload with a
 // destination subfolder materializes the nested folders.
 func TestUpload_SubdirCreatesFolders(t *testing.T) {

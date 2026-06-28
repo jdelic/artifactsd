@@ -165,6 +165,7 @@ type FileWithCollection struct {
 	Size           int64
 	ContentType    string
 	CreatedAt      time.Time
+	ExpiresAt      *time.Time // resolved (denormalized) expiry; nil = never
 }
 
 // FileSort selects the ordering of ListAllFiles.
@@ -177,13 +178,15 @@ const (
 	FileSortName FileSort = "name"
 	// FileSortCreated orders by newest first.
 	FileSortCreated FileSort = "created"
+	// FileSortExpiry orders by soonest expiry first; never-expiring files last.
+	FileSortExpiry FileSort = "expiry"
 )
 
 // allFilesQuery selects a complete, constant SQL string per sort order, so the
 // ORDER BY is never built from a runtime value (no injection surface). SQLite
 // treats LIMIT -1 as "no limit", so the caller can pass a negative limit for an
 // uncapped listing.
-const allFilesQueryBase = `SELECT c.name, n.path, n.name, COALESCE(n.size, 0), COALESCE(n.content_type, ''), n.created_at
+const allFilesQueryBase = `SELECT c.name, n.path, n.name, COALESCE(n.size, 0), COALESCE(n.content_type, ''), n.created_at, n.expires_at
 	FROM nodes n JOIN collections c ON c.id = n.collection_id
 	WHERE n.kind = ? ORDER BY `
 
@@ -191,11 +194,14 @@ const (
 	allFilesBySize    = allFilesQueryBase + "n.size DESC, c.name, n.path LIMIT ?"
 	allFilesByName    = allFilesQueryBase + "c.name, n.path LIMIT ?"
 	allFilesByCreated = allFilesQueryBase + "n.created_at DESC LIMIT ?"
+	// Soonest-expiring first; NULL (never expires) sorts last.
+	allFilesByExpiry = allFilesQueryBase + "n.expires_at IS NULL, n.expires_at ASC, c.name, n.path LIMIT ?"
 )
 
 // ListAllFiles returns every file node (folders excluded) across all
 // collections, ordered per sort (default: largest first), up to limit rows
-// (limit <= 0 means no cap). Each row carries its collection name.
+// (limit <= 0 means no cap). Each row carries its collection name and resolved
+// expiry.
 func (s *Store) ListAllFiles(ctx context.Context, sortBy FileSort, limit int) ([]*FileWithCollection, error) {
 	query := allFilesBySize
 	switch sortBy {
@@ -203,6 +209,8 @@ func (s *Store) ListAllFiles(ctx context.Context, sortBy FileSort, limit int) ([
 		query = allFilesByName
 	case FileSortCreated:
 		query = allFilesByCreated
+	case FileSortExpiry:
+		query = allFilesByExpiry
 	}
 	if limit <= 0 {
 		limit = -1 // SQLite: no limit
@@ -218,11 +226,15 @@ func (s *Store) ListAllFiles(ctx context.Context, sortBy FileSort, limit int) ([
 		var (
 			f       FileWithCollection
 			created string
+			expires sql.NullString
 		)
-		if err := rows.Scan(&f.CollectionName, &f.Path, &f.Name, &f.Size, &f.ContentType, &created); err != nil {
+		if err := rows.Scan(&f.CollectionName, &f.Path, &f.Name, &f.Size, &f.ContentType, &created, &expires); err != nil {
 			return nil, err
 		}
 		var perr error
+		if f.ExpiresAt, perr = parseTimePtr(expires); perr != nil {
+			return nil, perr
+		}
 		if f.CreatedAt, perr = parseTime(created); perr != nil {
 			return nil, perr
 		}
