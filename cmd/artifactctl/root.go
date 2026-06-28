@@ -80,6 +80,7 @@ func newRootCmd(a *app) *cobra.Command {
 		a.newPutTreeCmd(),
 		a.newMetaCmd(),
 		a.newShareCmd(),
+		a.newUploadRequestCmd(),
 		a.newTreeCmd(),
 		a.newCrawlCmd(),
 		a.newTokenCmd(),
