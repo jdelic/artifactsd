@@ -48,9 +48,10 @@ running behind a proxy you control, so `X-Forwarded-*` headers are honored.
 ## Admin UI & OIDC
 
 The admin UI is gated by OIDC, with an optional Basic Auth fallback. Admin
-access is granted only when the OIDC token carries the required group (or via
-the basic fallback). Secrets come from the environment; a cleartext basic
-password is hashed at startup and never persisted.
+access is granted to an authenticated user who is on the subject/email allowlist
+**or** carries the required group (or via the basic fallback). Secrets come from
+the environment; a cleartext basic password is hashed at startup and never
+persisted.
 
 | Setting | Env | Default |
 |---------|-----|---------|
@@ -58,7 +59,9 @@ password is hashed at startup and never persisted.
 | OIDC issuer | `ARTIFACTSD_OIDC_ISSUER` | |
 | OIDC client id | `ARTIFACTSD_OIDC_CLIENT_ID` | |
 | OIDC client secret | `ARTIFACTSD_OIDC_CLIENT_SECRET` | |
-| OIDC redirect URL | `ARTIFACTSD_OIDC_REDIRECT_URL` | |
+| OIDC redirect URL | `ARTIFACTSD_OIDC_REDIRECT_URL` | `<base_url>/auth/oidc/callback` |
+| OIDC scopes | `ARTIFACTSD_OIDC_SCOPES` | `openid email profile` |
+| Admin subject/email allowlist | `ARTIFACTSD_ADMIN_SUBJECTS` | |
 | Admin group claim | `ARTIFACTSD_ADMIN_GROUP_CLAIM` | `groups` |
 | Required admin group | `ARTIFACTSD_ADMIN_GROUP` | |
 | Basic fallback user | `ARTIFACTSD_ADMIN_BASIC_USER` | |
@@ -66,6 +69,66 @@ password is hashed at startup and never persisted.
 
 Use `artifactsd hash-password` to produce an argon2id hash for
 `ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH`.
+
+### Registering artifactsd at your IdP
+
+artifactsd is an OIDC **confidential client** using the **Authorization Code
+flow with PKCE (S256)**. When you create the client (application) at your
+identity provider, configure it to match what artifactsd expects — a wrong
+choice here usually fails opaquely at login time:
+
+- **Flow / response type: Authorization Code (`response_type=code`).** Do **not**
+  pick Hybrid or Implicit. artifactsd reads the authorization code from the
+  redirect's **query string**; a Hybrid/Implicit client returns `code`/`id_token`
+  in the URL **fragment** (`#...`), which the browser never sends to the server —
+  the callback then fails with `missing authorization code`. If you see that
+  error with no other explanation, the client is almost certainly not a plain
+  Authorization Code client.
+- **Redirect URI to whitelist:** `<base_url>/auth/oidc/callback` (e.g.
+  `https://artifacts.example.com/auth/oidc/callback`). This is the default value
+  of `ARTIFACTSD_OIDC_REDIRECT_URL`; register this exact URL as an allowed
+  redirect URI. Most providers reject any `redirect_uri` not on the list.
+- **Client type: confidential** — a `client_id` **and** `client_secret`. PKCE is
+  always sent in addition (`code_challenge_method=S256`); you do not need to
+  enable a separate "public/PKCE" client type.
+- **Scopes requested:** `openid email profile` by default
+  (`ARTIFACTSD_OIDC_SCOPES`). artifactsd does **not** request a `groups` scope:
+  it is non-standard and many IdPs reject it with `invalid_scope`. Make sure
+  these scopes are allowed for the client.
+- **Group claim placement:** artifactsd reads claims (`sub`, `email`, groups)
+  **directly from the token-endpoint `id_token`** — it makes **no** userinfo
+  call and uses **no** refresh token. If you authorize admins by group, your IdP
+  must emit the groups **into the `id_token`**, under the claim named by
+  `ARTIFACTSD_ADMIN_GROUP_CLAIM` (default `groups`). Emitting groups only on the
+  userinfo endpoint will not work.
+
+#### Choosing how admins are authorized
+
+After a successful login, an identity is an admin if it satisfies **either**
+mechanism (any-of):
+
+- **`ARTIFACTSD_ADMIN_SUBJECTS`** — a comma-separated allowlist matched against
+  the login's `sub` **or** `email`. This is the **portable** option: `sub` is
+  always present and `email` is standard, so it works on **every** IdP even when
+  groups are unavailable (e.g. Google Workspace, which does not put group
+  membership in the `id_token`). Recommended starting point:
+  `ARTIFACTSD_ADMIN_SUBJECTS="you@example.com"`.
+- **`ARTIFACTSD_ADMIN_GROUP`** — group-claim gating: *unset* grants nothing via
+  groups; `*` admits **any** authenticated user (only safe behind a trusted,
+  staff-only IdP); any other value requires that exact group in the
+  `ARTIFACTSD_ADMIN_GROUP_CLAIM`.
+
+With both unset, OIDC admin **fails closed** (nobody is authorized). The
+effective mode is logged once at startup.
+
+#### Per-IdP notes (where groups come from)
+
+| IdP | Notes |
+|-----|-------|
+| **Keycloak** | Create a confidential client, Standard Flow (Authorization Code) enabled, Implicit/Hybrid off. Add a **Group Membership** mapper (or a client scope with one) writing to the `groups` claim and tick "Add to ID token". You may need a provider-specific scope listed in `ARTIFACTSD_OIDC_SCOPES` if you gate the mapper behind a client scope. |
+| **Authentik** | Create an OAuth2/OIDC Provider (Authorization Code), confidential. Add a Scope Mapping that emits `groups` into the token, and assign it to the application. |
+| **Azure AD / Entra ID** | Register an app, Web platform with the redirect URI; add a `client_secret`. Configure the token to include a **groups** claim (Token configuration → add groups claim, ID token). Note Azure may emit group **object IDs** rather than names — set `ARTIFACTSD_ADMIN_GROUP` to the GUID, or just use `ARTIFACTSD_ADMIN_SUBJECTS`. |
+| **Google Workspace** | Standard OIDC works for login, but Google does **not** put group membership in the `id_token`. Use `ARTIFACTSD_ADMIN_SUBJECTS` (email allowlist) for admin authorization. |
 
 ### Bootstrap admin token
 
