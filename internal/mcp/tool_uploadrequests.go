@@ -65,7 +65,7 @@ func (s *Server) createUploadRequest(ctx context.Context, _ *gosdk.CallToolReque
 		req.ExpiresAt = &s
 	}
 
-	ur, err := s.Client.CreateUploadRequest(ctx, req)
+	ur, err := s.Client.CreateUploadRequest(ctx, &req)
 	if err != nil {
 		return nil, CreateUploadRequestOut{}, MapError(err)
 	}
@@ -100,7 +100,8 @@ func (s *Server) listUploadRequests(ctx context.Context, _ *gosdk.CallToolReques
 		return nil, ListUploadRequestsOut{}, MapError(err)
 	}
 	items := make([]uploadRequestSummary, 0, len(page.Items))
-	for _, ur := range page.Items {
+	for i := range page.Items {
+		ur := &page.Items[i]
 		items = append(items, uploadRequestSummary{
 			RequestID:     ur.RequestID,
 			URL:           ur.URL,

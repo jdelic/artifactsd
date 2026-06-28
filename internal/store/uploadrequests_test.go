@@ -2,28 +2,10 @@ package store
 
 import (
 	"errors"
-	"strings"
 	"testing"
 	"time"
 )
 
-func mustUploadRequest(t *testing.T, s *Store, collectionID int64, opts ...func(*UploadRequest)) *UploadRequest {
-	t.Helper()
-	ur := &UploadRequest{
-		RequestID:    "urq_test" + strings.Repeat("a", 10),
-		CollectionID: collectionID,
-		TargetFolder: "",
-		FileMetadata: []byte(`{}`),
-		Status:       UploadRequestActive,
-	}
-	for _, opt := range opts {
-		opt(ur)
-	}
-	if err := s.CreateUploadRequest(t.Context(), ur); err != nil {
-		t.Fatalf("CreateUploadRequest: %v", err)
-	}
-	return ur
-}
 
 func TestUploadRequests_CRUD(t *testing.T) {
 	s, ctx := newStore(t)

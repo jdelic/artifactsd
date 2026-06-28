@@ -61,7 +61,7 @@ type PatchUploadRequestRequest struct {
 }
 
 // CreateUploadRequest creates a new upload request link (design/15 §5).
-func (c *Client) CreateUploadRequest(ctx context.Context, req CreateUploadRequestRequest) (*UploadRequest, error) {
+func (c *Client) CreateUploadRequest(ctx context.Context, req *CreateUploadRequestRequest) (*UploadRequest, error) {
 	var out UploadRequest
 	if err := c.sendJSON(ctx, http.MethodPost, "/api/v1/upload-requests", req, &out); err != nil {
 		return nil, err

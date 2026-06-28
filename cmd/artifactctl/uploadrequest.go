@@ -80,7 +80,7 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 				req.ExpiresAt = &expiresAt
 			}
 
-			ur, err := cli.CreateUploadRequest(cmd.Context(), req)
+			ur, err := cli.CreateUploadRequest(cmd.Context(), &req)
 			if err != nil {
 				return err
 			}
@@ -263,7 +263,7 @@ func parseByteSize(s string) (int64, error) {
 		}
 		return int64(n), nil
 	}
-	mult := int64(1)
+	var mult int64
 	switch unit {
 	case "KB", "kb", "K", "k":
 		mult = 1024
