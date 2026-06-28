@@ -25,14 +25,15 @@ func TestMigrate_AppliesOnFreshDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if highest != 1 {
-		t.Errorf("highest version = %d, want 1", highest)
+	if highest < 1 {
+		t.Errorf("highest version = %d, want ≥1", highest)
 	}
 
 	// All expected tables should exist.
 	for _, table := range []string{
 		"collections", "nodes", "shares", "upload_sessions",
 		"api_tokens", "audit_logs", "schema_migrations",
+		"upload_requests", "upload_request_submissions",
 	} {
 		var name string
 		err := db.SQL().QueryRowContext(
@@ -61,8 +62,16 @@ func TestMigrate_Idempotent(t *testing.T) {
 		`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("schema_migrations rows = %d, want 1 after double migrate", count)
+	// Count should equal the number of migration files (each applied once).
+	var fileCount int
+	entries, _ := migrationFS.ReadDir("migrations")
+	for _, e := range entries {
+		if !e.IsDir() {
+			fileCount++
+		}
+	}
+	if count != fileCount {
+		t.Errorf("schema_migrations rows = %d, want %d after double migrate", count, fileCount)
 	}
 }
 

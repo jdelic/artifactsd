@@ -21,8 +21,16 @@ const (
 	ActionTokenCreate      = "token.create"
 	ActionTokenRevoke      = "token.revoke"
 	ActionExpiryDelete     = "expiry.delete"
-	ActionMaintenanceRun   = "maintenance.cleanup"
+	ActionMaintenanceRun         = "maintenance.cleanup"
+	ActionUploadRequestCreate    = "upload_request.create"
+	ActionUploadRequestRevoke    = "upload_request.revoke"
+	ActionUploadRequestUpload    = "upload_request.upload"
+	ActionUploadRequestExpire    = "upload_request.expire"
 )
+
+// ActorAnonymous is the actor recorded for unauthenticated capability-URL
+// requests (upload request submissions) where only the client IP is known.
+const ActorAnonymous = "anonymous"
 
 // ActorJanitor is the actor recorded for janitor-driven deletions.
 const ActorJanitor = "janitor"

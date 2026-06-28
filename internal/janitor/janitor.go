@@ -78,12 +78,13 @@ func (j *Janitor) WithClock(now func() time.Time) *Janitor {
 // Summary reports one pass's results (design/08 §8); it is also the JSON body
 // returned by POST /api/v1/maintenance/cleanup.
 type Summary struct {
-	NodesDeleted          int      `json:"nodes_deleted"`
-	CollectionsDeleted    int      `json:"collections_deleted"`
-	SharesDeleted         int      `json:"shares_deleted"`
-	UploadSessionsExpired int      `json:"upload_sessions_expired"`
-	BlobsDeleted          int      `json:"blobs_deleted"`
-	Errors                []string `json:"errors,omitempty"`
+	NodesDeleted              int      `json:"nodes_deleted"`
+	CollectionsDeleted        int      `json:"collections_deleted"`
+	SharesDeleted             int      `json:"shares_deleted"`
+	UploadSessionsExpired     int      `json:"upload_sessions_expired"`
+	UploadRequestsExpired     int      `json:"upload_requests_expired"`
+	BlobsDeleted              int      `json:"blobs_deleted"`
+	Errors                    []string `json:"errors,omitempty"`
 }
 
 // RunOnce performs a single expiry sweep: delete expired nodes, collections,
@@ -110,11 +111,15 @@ func (j *Janitor) RunOnce(ctx context.Context) (any, error) {
 	if err := j.expireUploadSessions(ctx, now, sum); err != nil {
 		sum.Errors = append(sum.Errors, err.Error())
 	}
+	if err := j.expireUploadRequests(ctx, now, sum); err != nil {
+		sum.Errors = append(sum.Errors, err.Error())
+	}
 
 	if j.log != nil {
 		j.log.Info("janitor: pass complete",
 			"nodes_deleted", sum.NodesDeleted, "collections_deleted", sum.CollectionsDeleted,
 			"shares_deleted", sum.SharesDeleted, "upload_sessions_expired", sum.UploadSessionsExpired,
+			"upload_requests_expired", sum.UploadRequestsExpired,
 			"blobs_deleted", sum.BlobsDeleted, "errors", len(sum.Errors))
 	}
 	return sum, nil
@@ -360,6 +365,28 @@ func (j *Janitor) expireUploadSessions(ctx context.Context, now time.Time, sum *
 		}
 		sum.UploadSessionsExpired++
 		_ = j.audit.RecordDeletion(ctx, audit.ActorJanitor, audit.ActionExpiryDelete, "upload:"+s.UploadID, nil)
+	}
+	return nil
+}
+
+// expireUploadRequests marks active upload requests past their expires_at as
+// expired (design/15 §10). Upload requests hold no blobs themselves; only the
+// files uploaded via them do (and those remain in the collection).
+func (j *Janitor) expireUploadRequests(ctx context.Context, now time.Time, sum *Summary) error {
+	reqs, err := j.store.ListExpiredUploadRequests(ctx, now, j.batchSize)
+	if err != nil {
+		return fmt.Errorf("janitor: list expired upload requests: %w", err)
+	}
+	for _, ur := range reqs {
+		if err := j.store.SetUploadRequestStatus(ctx, ur.RequestID, store.UploadRequestExpired); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: expire upload request %s: %v", ur.RequestID, err))
+			continue
+		}
+		sum.UploadRequestsExpired++
+		_ = j.audit.RecordDeletion(ctx, audit.ActorJanitor, audit.ActionUploadRequestExpire, ur.RequestID, nil)
 	}
 	return nil
 }
