@@ -156,6 +156,32 @@ completion), size limits. See [07](07-storage-uploads.md).
   under TLS). All admin actions audited.
 - Admins mint API bearer tokens for programmatic/agent use.
 
+### IdP-side client registration (what artifactsd expects)
+
+artifactsd is a **confidential OIDC client using Authorization Code + PKCE
+(S256)**. The client created at the provider MUST match these expectations, or
+login fails — often opaquely:
+
+- **Flow MUST be Authorization Code (`response_type=code`)** — not Hybrid, not
+  Implicit. artifactsd reads the code from the redirect **query string**; a
+  Hybrid/Implicit client returns `code`/`id_token` in the URL **fragment**,
+  which the browser never sends to the server, so the callback fails with
+  `missing authorization code`. (This actually bit an operator.)
+- **Redirect URI to whitelist:** `<base_url>/auth/oidc/callback` (the default of
+  `ARTIFACTSD_OIDC_REDIRECT_URL`), registered verbatim at the provider.
+- **Confidential client** (`client_id` + `client_secret`); PKCE S256 is sent in
+  addition.
+- **Scopes:** `openid email profile` (no non-standard `groups` scope by
+  default; override with `ARTIFACTSD_OIDC_SCOPES`).
+- **Groups must be emitted into the token-endpoint `id_token`** under
+  `ARTIFACTSD_ADMIN_GROUP_CLAIM` — artifactsd reads claims from the `id_token`,
+  not userinfo, and uses no refresh token. IdPs that only expose groups on the
+  userinfo endpoint won't work for group-based admin; use
+  `ARTIFACTSD_ADMIN_SUBJECTS` there instead.
+
+The operator-facing walkthrough plus per-IdP cheat sheets (Keycloak / Authentik
+/ Azure AD / Google) live in [`docs/configuration.md`](../../docs/configuration.md#registering-artifactsd-at-your-idp).
+
 ## 8. What lives where
 
 | Concern | Source |
