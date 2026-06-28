@@ -1,0 +1,27 @@
+{{define "allfiles"}}
+<div class="nc-panel" data-label="All files (across collections)">
+  <p class="nc-sortbar">Sort:
+    <a href="{{.AdminPath}}/files?sort=size">largest first</a> ·
+    <a href="{{.AdminPath}}/files?sort=expiry">expiring next</a> ·
+    <a href="{{.AdminPath}}/files?sort=name">by name</a> ·
+    <a href="{{.AdminPath}}/files?sort=created">newest first</a>
+    {{if eq .Sort "size"}}(largest first){{else if eq .Sort "expiry"}}(expiring next){{else if eq .Sort "name"}}(by name){{else}}(newest first){{end}}
+  </p>
+  <table class="nc-table">
+    <tr><th>Collection</th><th>Path</th><th>Size</th><th>Content-Type</th><th>Created</th><th>Expires</th><th></th></tr>
+    {{range .Files}}
+    <tr>
+      <td><a href="{{$.AdminPath}}/collections/{{.Collection}}/tree">{{.Collection}}</a></td>
+      <td><a href="{{.ViewURL}}" target="_blank" rel="noopener">{{.Path}}</a></td>
+      <td>{{.SizeLabel}}</td>
+      <td>{{.ContentType}}</td>
+      <td>{{.Created}}</td>
+      <td>{{if .Expires}}{{.Expires}}{{else}}—{{end}}</td>
+      <td><a href="{{.MetaURL}}">Edit metadata</a></td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7">No files in any collection yet.</td></tr>
+    {{end}}
+  </table>
+</div>
+{{end}}

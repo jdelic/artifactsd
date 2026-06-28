@@ -21,7 +21,16 @@ document.addEventListener("submit", function (event) {
   var adminPath = form.dataset.adminPath;
   var collection = form.dataset.collection;
   var dir = form.dataset.dir;
-  var targetPath = dir ? dir + "/" + file.name : file.name;
+  // Optional destination subfolder (artifactsd-ok0); intermediate folders are
+  // created server-side. Only the subdir may add path segments; the filename is
+  // used as-is.
+  var subdirInput = form.querySelector('input[name="subdir"]');
+  var subdir = subdirInput ? subdirInput.value.replace(/^\/+|\/+$/g, "") : "";
+  var prefix = dir;
+  if (subdir) {
+    prefix = prefix ? prefix + "/" + subdir : subdir;
+  }
+  var targetPath = prefix ? prefix + "/" + file.name : file.name;
   var csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
   status.textContent = "starting...";

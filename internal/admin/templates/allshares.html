@@ -1,0 +1,27 @@
+{{define "allshares"}}
+<div id="allshares-panel" class="nc-panel" data-label="All shares">
+  <table class="nc-table">
+    <tr><th>Collection</th><th>Share URL</th><th>Target</th><th>Created</th><th>Expires</th><th>Status</th><th></th></tr>
+    {{range .Shares}}
+    <tr>
+      <td><a href="{{$.AdminPath}}/collections/{{.Collection}}/shares">{{.Collection}}</a></td>
+      <td><a href="{{.URL}}" target="_blank" rel="noopener">{{.ShareID}}</a></td>
+      <td>{{if .TargetPath}}{{.TargetPath}}{{else}}(whole collection){{end}}</td>
+      <td>{{.CreatedAt}}</td>
+      <td>{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}—{{end}}</td>
+      <td>{{if .Revoked}}revoked{{else}}active{{end}}</td>
+      <td>
+        {{if not .Revoked}}
+        <form class="nc-inline-form" hx-post="{{$.AdminPath}}/shares/{{.ShareID}}/revoke"
+              hx-target="#allshares-panel" hx-swap="outerHTML" hx-confirm="Revoke this share?">
+          <button class="nc-button" type="submit">Revoke</button>
+        </form>
+        {{end}}
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7">No shares in any collection yet.</td></tr>
+    {{end}}
+  </table>
+</div>
+{{end}}

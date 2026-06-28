@@ -35,13 +35,22 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = file.Close() }()
 
+	// The destination is the current dir, optionally extended by a subfolder
+	// path the operator typed (artifactsd-ok0). Intermediate folders are
+	// materialized by ensureParents below, so this is how folders are created
+	// through the UI. The filename is reduced to its base; only the subdir field
+	// introduces new path segments.
 	target := path.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
-	if dir != "" {
-		target = dir + "/" + target
+	prefix := dir
+	if subdir := strings.Trim(r.FormValue("subdir"), "/"); subdir != "" {
+		prefix = path.Join(prefix, subdir)
+	}
+	if prefix != "" {
+		target = prefix + "/" + target
 	}
 	p, err := paths.Clean(target)
 	if err != nil {
-		h.renderTreePanel(w, r, c, dir, "invalid filename: "+err.Error())
+		h.renderTreePanel(w, r, c, dir, "invalid upload path: "+err.Error())
 		return
 	}
 	contentType := header.Header.Get("Content-Type")
