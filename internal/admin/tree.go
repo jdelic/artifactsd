@@ -25,18 +25,22 @@ type nodeRow struct {
 	Size        string
 	ContentType string
 	ViewURL     string
+	Shared      bool
+	ShareURL    string
 }
 
 // treePanelData backs the "tree_panel" partial: breadcrumb, folder/file
 // tables, and the upload forms for the current directory.
 type treePanelData struct {
-	AdminPath  string
-	Collection string
-	Dir        string
-	Breadcrumb []crumb
-	Folders    []nodeRow
-	Files      []nodeRow
-	Error      string
+	AdminPath   string
+	Collection  string
+	Dir         string
+	Breadcrumb  []crumb
+	Folders     []nodeRow
+	Files       []nodeRow
+	DirShared   bool
+	DirShareURL string
+	Error       string
 }
 
 var treeFKeys = []fkey{{"Alt-U", "Upload"}, {"Alt-L", "Logout"}}
@@ -102,6 +106,10 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 	if err != nil {
 		return treePanelData{}, err
 	}
+	shareByTarget, err := h.collectionShareTargets(ctx, c.ID)
+	if err != nil {
+		return treePanelData{}, err
+	}
 
 	data := treePanelData{
 		AdminPath:  h.cfg.Admin.Path,
@@ -110,8 +118,10 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 		Breadcrumb: toBreadcrumb(c.Name, dir),
 		Error:      errMsg,
 	}
+	data.DirShareURL, data.DirShared = shareByTarget[dir]
 	for _, n := range children {
 		row := nodeRow{Name: n.Name, Path: n.Path}
+		row.ShareURL, row.Shared = shareByTarget[n.Path]
 		if n.Kind == store.KindFolder {
 			data.Folders = append(data.Folders, row)
 			continue
@@ -126,6 +136,23 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 		data.Files = append(data.Files, row)
 	}
 	return data, nil
+}
+
+// collectionShareTargets maps each shared target path within a collection to a
+// /s/ link (the first share for that target), so tree rows can show their
+// current Share/Unshare state. The whole-collection share is keyed by "".
+func (h *Handler) collectionShareTargets(ctx context.Context, collectionID int64) (map[string]string, error) {
+	shares, err := h.store.ListSharesByCollection(ctx, collectionID)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string, len(shares))
+	for _, sh := range shares {
+		if _, ok := m[sh.TargetPath]; !ok {
+			m[sh.TargetPath] = h.shareURL(sh.ShareID)
+		}
+	}
+	return m, nil
 }
 
 // toBreadcrumb splits dir into linkable segments, with the collection root

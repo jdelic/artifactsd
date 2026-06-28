@@ -15,6 +15,8 @@ type collectionRow struct {
 	Name       string
 	Visibility string
 	CreatedAt  string
+	Shared     bool
+	ShareURL   string
 }
 
 // collectionsPanelData backs the "collections_panel" partial, shared by the
@@ -114,13 +116,28 @@ func (h *Handler) loadCollectionsPanel(r *http.Request, errMsg string) (collecti
 	if err != nil {
 		return collectionsPanelData{}, err
 	}
+	// Whole-collection shares (target_path == "") so each row shows Share/Unshare.
+	allShares, err := h.store.ListAllShares(r.Context())
+	if err != nil {
+		return collectionsPanelData{}, err
+	}
+	wholeShare := map[string]string{}
+	for _, sh := range allShares {
+		if sh.TargetPath == "" {
+			if _, ok := wholeShare[sh.CollectionName]; !ok {
+				wholeShare[sh.CollectionName] = h.shareURL(sh.ShareID)
+			}
+		}
+	}
 	rows := make([]collectionRow, 0, len(cols))
 	for _, c := range cols {
-		rows = append(rows, collectionRow{
+		row := collectionRow{
 			Name:       c.Name,
 			Visibility: c.Visibility,
 			CreatedAt:  c.CreatedAt.UTC().Format("2006-01-02 15:04"),
-		})
+		}
+		row.ShareURL, row.Shared = wholeShare[c.Name]
+		rows = append(rows, row)
 	}
 	return collectionsPanelData{AdminPath: h.cfg.Admin.Path, Collections: rows, Error: errMsg}, nil
 }

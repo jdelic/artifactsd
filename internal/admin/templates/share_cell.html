@@ -1,0 +1,8 @@
+{{define "share_cell"}}<span class="nc-sharecell">{{if .Error}}<span class="nc-error">{{.Error}}</span> {{end}}{{if .Shared}}<a class="nc-saved" href="{{.ShareURL}}" target="_blank" rel="noopener">{{.ShareURL}}</a>
+  <form class="nc-inline-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/unshare" hx-target="closest .nc-sharecell" hx-swap="outerHTML">
+    <input type="hidden" name="target_path" value="{{.TargetPath}}">
+    <button class="nc-button" type="submit">Unshare</button>
+  </form>{{else}}<form class="nc-inline-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/share" hx-target="closest .nc-sharecell" hx-swap="outerHTML">
+    <input type="hidden" name="target_path" value="{{.TargetPath}}">
+    <button class="nc-button" type="submit">Share</button>
+  </form>{{end}}</span>{{end}}
