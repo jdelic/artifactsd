@@ -49,7 +49,7 @@ decision E1 ("simple beats complex here").
 | Shares (all) | cross-collection overview of every share; revoke in place |
 | Collection detail / tree | browse file tree, upload (with an optional destination subfolder that creates nested folders), delete, drill into folders |
 | File detail | view/download, edit metadata (content-type, headers, access, crawl, expiry) |
-| Metadata editor | structured form per section + raw YAML/JSON view |
+| Metadata editor | structured form per section (incl. visibility, directory listing, crawl/index, **sandbox** tri-state, expiry with per-mechanism enable toggles + effective-expiry banner) with per-field info tooltips, plus the full **JSON policy document** editor; save errors render inline next to the section that produced them |
 | Shares | list/create/revoke share URLs; copy link; set expiry & policy |
 | Access policy | set visibility, directory listing, auth credentials (bearer/basic/oidc) |
 | Crawl/index policy | toggle crawlable/indexable, robots block editor |

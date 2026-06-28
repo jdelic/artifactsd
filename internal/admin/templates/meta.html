@@ -1,17 +1,23 @@
 {{define "meta"}}{{template "meta_panel" .}}{{end}}
 
+{{/* nc_info renders a small focusable info icon whose tooltip (data-tip) is the
+     dot-arg string (artifactsd-xs4). */}}
+{{define "nc_info"}}<span class="nc-info" tabindex="0" role="note" data-tip="{{.}}" aria-label="{{.}}">i</span>{{end}}
+
 {{define "meta_panel"}}
 <div id="meta-panel">
   <div class="nc-panel" data-label="Metadata: {{.Label}}">
-    {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
     {{if .Saved}}<div class="nc-saved">saved</div>{{end}}
+    {{if .EffectiveExpiry}}<div class="nc-expiry-banner">⏳ This item is set to expire on <b>{{.EffectiveExpiry}}</b></div>{{end}}
   </div>
 
   <div class="nc-panel" data-label="Content / Access / Crawl / Expiry">
     <form class="nc-form nc-form-grid" hx-post="{{.AdminPath}}/collections/{{.Collection}}/meta/fields?path={{.Path}}"
           hx-target="#meta-panel" hx-swap="outerHTML">
-      <label>Content-Type <input type="text" name="content_type" value="{{.ContentType}}" placeholder="(auto-detect)"></label>
-      <label>Visibility
+      {{if .FieldsError}}<div class="nc-error nc-form-wide">{{.FieldsError}}</div>{{end}}
+      <label>Content-Type {{template "nc_info" "Overrides the served Content-Type response header. Leave blank to auto-detect from the file extension."}}
+        <input type="text" name="content_type" value="{{.ContentType}}" placeholder="(auto-detect)"></label>
+      <label>Visibility {{template "nc_info" "Who may fetch this object. public: anyone; unlisted: reachable by URL but hidden from listings; protected: requires auth; private: never served. (inherit) uses the parent/server default."}}
         <select name="visibility">
           <option value="" {{if eq .Visibility ""}}selected{{end}}>(inherit)</option>
           <option value="public" {{if eq .Visibility "public"}}selected{{end}}>public</option>
@@ -20,38 +26,65 @@
           <option value="private" {{if eq .Visibility "private"}}selected{{end}}>private</option>
         </select>
       </label>
-      <label>Directory listing
+      <label>Directory listing {{template "nc_info" "When on, a folder with no index file renders a browsable file listing instead of 404."}}
         <select name="directory_listing">
           <option value="" {{if eq .DirectoryListing ""}}selected{{end}}>(inherit)</option>
           <option value="true" {{if eq .DirectoryListing "true"}}selected{{end}}>on</option>
           <option value="false" {{if eq .DirectoryListing "false"}}selected{{end}}>off</option>
         </select>
       </label>
-      <label>Crawlable
+      <label>Crawlable {{template "nc_info" "Whether the crawl/agent API and robots policy permit automated crawlers to traverse this object."}}
         <select name="crawlable">
           <option value="" {{if eq .Crawlable ""}}selected{{end}}>(inherit)</option>
           <option value="true" {{if eq .Crawlable "true"}}selected{{end}}>yes</option>
           <option value="false" {{if eq .Crawlable "false"}}selected{{end}}>no</option>
         </select>
       </label>
-      <label>Indexable
+      <label>Indexable {{template "nc_info" "Whether search engines may index this object (controls X-Robots-Tag / sitemap inclusion)."}}
         <select name="indexable">
           <option value="" {{if eq .Indexable ""}}selected{{end}}>(inherit)</option>
           <option value="true" {{if eq .Indexable "true"}}selected{{end}}>yes</option>
           <option value="false" {{if eq .Indexable "false"}}selected{{end}}>no</option>
         </select>
       </label>
-      <label>Expires at (RFC3339) <input type="text" name="expires_at" value="{{.ExpiresAt}}" placeholder="2026-07-01T00:00:00Z"></label>
-      <label>Delete after creation <input type="text" name="delete_after_creation" value="{{.DeleteAfterCreation}}" placeholder="30d"></label>
-      <label>Delete after last access <input type="text" name="delete_after_last_access" value="{{.DeleteAfterLastAccess}}" placeholder="30d"></label>
-      <label class="nc-form-wide">Headers (one "Name: value" per line)
+      <label>Sandbox {{template "nc_info" "Serve active content (HTML/JS/SVG) under a CSP sandbox in an opaque origin. on (default) blocks the page from localStorage/cookies and from reaching the admin UI. off lets it use its real origin — only for content you trust, and safest under a separate admin origin (ARTIFACTSD_ADMIN_HOST)."}}
+        <select name="sandbox">
+          <option value="" {{if eq .Sandbox ""}}selected{{end}}>(inherit)</option>
+          <option value="true" {{if eq .Sandbox "true"}}selected{{end}}>on (sandboxed)</option>
+          <option value="false" {{if eq .Sandbox "false"}}selected{{end}}>off (trusted)</option>
+        </select>
+      </label>
+      {{if eq .Sandbox "false"}}<div class="nc-warn nc-form-wide">⚠ Sandbox is off: this object's scripts run on the real origin. Only do this for content you trust (safe under a separate admin origin).</div>{{end}}
+
+      <div class="nc-expiry-group nc-form-wide" data-label="Expiry (enable a mechanism to activate it)">
+        <label class="nc-expiry">
+          <input type="checkbox" class="nc-toggle" name="expires_at_enabled" aria-controls="exp-at" {{if .ExpiresAt}}checked{{end}}>
+          <span>Expires at (RFC3339)</span>
+          {{template "nc_info" "Delete at this absolute timestamp. Example: 2026-07-01T00:00:00Z."}}
+          <input id="exp-at" class="nc-toggle-field" type="text" name="expires_at" value="{{.ExpiresAt}}" placeholder="2026-07-01T00:00:00Z" {{if not .ExpiresAt}}disabled{{end}}>
+        </label>
+        <label class="nc-expiry">
+          <input type="checkbox" class="nc-toggle" name="delete_after_creation_enabled" aria-controls="exp-create" {{if .DeleteAfterCreation}}checked{{end}}>
+          <span>Delete after creation</span>
+          {{template "nc_info" "Delete this long after the object was created, regardless of access. Duration, e.g. 30d, 12h, 2w."}}
+          <input id="exp-create" class="nc-toggle-field" type="text" name="delete_after_creation" value="{{.DeleteAfterCreation}}" placeholder="30d" {{if not .DeleteAfterCreation}}disabled{{end}}>
+        </label>
+        <label class="nc-expiry">
+          <input type="checkbox" class="nc-toggle" name="delete_after_last_access_enabled" aria-controls="exp-access" {{if .DeleteAfterLastAccess}}checked{{end}}>
+          <span>Delete after last access</span>
+          {{template "nc_info" "Delete this long after the object was last fetched (idle expiry). Duration, e.g. 30d."}}
+          <input id="exp-access" class="nc-toggle-field" type="text" name="delete_after_last_access" value="{{.DeleteAfterLastAccess}}" placeholder="30d" {{if not .DeleteAfterLastAccess}}disabled{{end}}>
+        </label>
+      </div>
+
+      <label class="nc-form-wide">Headers (one "Name: value" per line) {{template "nc_info" "Extra HTTP response headers sent with this object, one per line as 'Name: value'."}}
         <textarea name="headers" rows="3" cols="50">{{.Headers}}</textarea>
       </label>
       <button class="nc-button" type="submit" data-shortcut="s">Save</button>
     </form>
   </div>
 
-  <div class="nc-panel" data-label="Auth (edit via raw JSON below)">
+  <div class="nc-panel" data-label="Auth (edit via the JSON policy below)">
     {{if .AuthEntries}}
     <ul class="nc-auth-list">
       {{range .AuthEntries}}<li>{{.Type}}: {{.Detail}}</li>{{end}}
@@ -61,11 +94,15 @@
     {{end}}
   </div>
 
-  <div class="nc-panel" data-label="Raw JSON">
+  <div class="nc-panel" data-label="JSON Policy document">
+    <p class="nc-help">The full metadata/policy document for this object.
+      <a href="https://github.com/jdelic/artifactsd/blob/main/.agent-docs/design/03-metadata-policy.md" target="_blank" rel="noopener">What's this? (schema &amp; semantics)</a>
+    </p>
     <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/meta/raw?path={{.Path}}"
           hx-target="#meta-panel" hx-swap="outerHTML">
+      {{if .RawError}}<div class="nc-error nc-form-wide">{{.RawError}}</div>{{end}}
       <textarea name="raw" rows="16" cols="70" class="nc-raw-json">{{.RawJSON}}</textarea>
-      <button class="nc-button" type="submit">Save raw JSON</button>
+      <button class="nc-button" type="submit">Save JSON policy</button>
     </form>
   </div>
 </div>

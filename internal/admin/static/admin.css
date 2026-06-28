@@ -340,3 +340,118 @@ body {
 .nc-sortbar a {
   color: var(--nc-cyan-bright);
 }
+
+/* Metadata editor: readable placeholders (artifactsd-a0f) — the default UA
+   placeholder was hard to read against the white inputs. */
+.nc-form ::placeholder {
+  color: #5a5a5a;
+  opacity: 1;
+}
+
+/* Per-field info icons with hover/focus tooltips (artifactsd-xs4). */
+.nc-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--nc-cyan-bright);
+  border-radius: 50%;
+  color: var(--nc-cyan-bright);
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1;
+  cursor: help;
+  position: relative;
+  user-select: none;
+}
+
+.nc-info::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  top: 135%;
+  z-index: 30;
+  width: max-content;
+  max-width: 320px;
+  white-space: normal;
+  font-style: normal;
+  font-size: 15px;
+  line-height: 1.25;
+  text-align: left;
+  color: var(--nc-white);
+  background: #000;
+  border: 1px solid var(--nc-cyan-bright);
+  padding: 6px 8px;
+  display: none;
+}
+
+.nc-info:hover::after,
+.nc-info:focus::after {
+  display: block;
+}
+
+/* Effective-expiry banner + sandbox-off warning (artifactsd-a0f / a8p). */
+.nc-expiry-banner {
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: var(--nc-yellow);
+  color: #000;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.nc-warn {
+  color: var(--nc-yellow);
+  border: 1px solid var(--nc-yellow);
+  padding: 4px 8px;
+}
+
+/* Expiry mechanisms grouped in a labeled sub-panel with enable toggles
+   (artifactsd-a0f). */
+.nc-expiry-group {
+  position: relative;
+  border: 2px ridge var(--nc-cyan);
+  padding: 16px 12px 10px;
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nc-expiry-group::before {
+  content: attr(data-label);
+  position: absolute;
+  top: -12px;
+  left: 12px;
+  background: var(--nc-blue);
+  color: var(--nc-cyan);
+  padding: 0 6px;
+  font-size: 16px;
+}
+
+.nc-expiry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nc-expiry > span {
+  min-width: 170px;
+}
+
+.nc-toggle-field:disabled {
+  opacity: 0.4;
+}
+
+/* Inline help line above the JSON policy editor (artifactsd-23u). */
+.nc-help {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: var(--nc-grey);
+}
+
+.nc-help a {
+  color: var(--nc-cyan-bright);
+}
