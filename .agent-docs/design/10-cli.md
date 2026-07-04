@@ -36,7 +36,7 @@ Global flags: `--base-url`, `--token`, `--profile`, `--output text|json`,
 ```
 artifactctl collection create <name> [--public|--unlisted|--protected|--private]
                                       [--list] [--no-list]
-                                      [--crawlable] [--index] [--no-index]
+                                      [--crawlable] [--no-crawlable] [--index] [--no-index]
                                       [--expires <ts>] [--expires-in <dur>]
 artifactctl collection list
 artifactctl collection show <name>
@@ -54,7 +54,7 @@ artifactctl rm [-r] <collection>/<path>
 
 artifactctl meta get <collection>[/<path>]
 artifactctl meta set <collection>[/<path>] [--visibility ...] [--expires ...]
-                                           [--header k=v] [--crawlable] [--index] [--no-index]
+                                           [--header k=v] [--list] [--no-list] [--crawlable] [--no-crawlable] [--index] [--no-index]
 artifactctl meta explain <collection>[/<path>] [--full-chain]
         # bare <collection> = collection metadata; trailing / = folder
         # (materialized on set); otherwise the file at that path.

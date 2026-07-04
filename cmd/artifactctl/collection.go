@@ -26,13 +26,14 @@ func (a *app) newCollectionCmd() *cobra.Command {
 
 func (a *app) newCollectionCreateCmd() *cobra.Command {
 	var (
-		vis       visibilityFlags
-		expiry    expiryFlags
-		list      bool
-		noList    bool
-		crawlable bool
-		index     bool
-		noIndex   bool
+		vis         visibilityFlags
+		expiry      expiryFlags
+		list        bool
+		noList      bool
+		crawlable   bool
+		noCrawlable bool
+		index       bool
+		noIndex     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create <name>",
@@ -51,7 +52,7 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			meta, err := buildCollectionMetadata(visibility, expiresAt, list, noList, crawlable, index, noIndex)
+			meta, err := buildCollectionMetadata(visibility, expiresAt, list, noList, crawlable, noCrawlable, index, noIndex)
 			if err != nil {
 				return err
 			}
@@ -70,6 +71,7 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 	f.BoolVar(&list, "list", false, "enable directory listing")
 	f.BoolVar(&noList, "no-list", false, "disable directory listing")
 	f.BoolVar(&crawlable, "crawlable", false, "mark crawlable")
+	f.BoolVar(&noCrawlable, "no-crawlable", false, "mark non-crawlable")
 	f.BoolVar(&index, "index", false, "mark indexable")
 	f.BoolVar(&noIndex, "no-index", false, "mark non-indexable")
 	return cmd
@@ -163,11 +165,11 @@ func (a *app) renderCollection(col *apiclient.Collection, textMsg string) error 
 // buildCollectionMetadata assembles a metadata document from the create flags
 // (visibility and expiresAt already resolved), or nil when no flag is set
 // (server applies defaults).
-func buildCollectionMetadata(visibility, expiresAt string, list, noList, crawlable, index, noIndex bool) (json.RawMessage, error) {
+func buildCollectionMetadata(visibility, expiresAt string, list, noList, crawlable, noCrawlable, index, noIndex bool) (json.RawMessage, error) {
 	if list && noList {
 		return nil, usagef("--list and --no-list are mutually exclusive")
 	}
-	crawl, err := buildCrawlPatch(crawlable, index, noIndex)
+	crawl, err := buildCrawlPatch(crawlable, noCrawlable, index, noIndex)
 	if err != nil {
 		return nil, err
 	}

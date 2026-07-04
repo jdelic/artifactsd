@@ -127,8 +127,9 @@ func (a *app) newUploadRequestListCmd() *cobra.Command {
 
 func (a *app) newUploadRequestGetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get <request-id>",
-		Short: "Show an upload request link",
+		Use:     "show <request-id>",
+		Aliases: []string{"get"},
+		Short:   "Show an upload request link",
 		Args:  exactArgs(1, "<request-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()

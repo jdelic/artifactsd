@@ -203,12 +203,15 @@ func compactJSON(raw json.RawMessage) string {
 
 func (a *app) newMetaSetCmd() *cobra.Command {
 	var (
-		vis       visibilityFlags
-		expiry    expiryFlags
-		headers   []string
-		crawlable bool
-		index     bool
-		noIndex   bool
+		vis         visibilityFlags
+		expiry      expiryFlags
+		headers     []string
+		list        bool
+		noList      bool
+		crawlable   bool
+		noCrawlable bool
+		index       bool
+		noIndex     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "set <collection>[/<path>]",
@@ -233,7 +236,8 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			patch, err := buildFileMetaPatch(visibility, expiresAt, headers, crawlable, index, noIndex)
+			patch, err := buildFileMetaPatch(visibility, expiresAt, headers,
+				metaSetBools{list: list, noList: noList, crawlable: crawlable, noCrawlable: noCrawlable, index: index, noIndex: noIndex})
 			if err != nil {
 				return err
 			}
@@ -275,17 +279,28 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 	vis.register(f)
 	expiry.register(f)
 	f.StringArrayVar(&headers, "header", nil, "response header k=v (repeatable)")
+	f.BoolVar(&list, "list", false, "enable directory listing")
+	f.BoolVar(&noList, "no-list", false, "disable directory listing")
 	f.BoolVar(&crawlable, "crawlable", false, "mark crawlable")
+	f.BoolVar(&noCrawlable, "no-crawlable", false, "mark non-crawlable")
 	f.BoolVar(&index, "index", false, "mark indexable")
 	f.BoolVar(&noIndex, "no-index", false, "mark non-indexable")
 	return cmd
 }
 
+// metaSetBools carries `meta set`'s paired boolean flags.
+type metaSetBools struct {
+	list, noList, crawlable, noCrawlable, index, noIndex bool
+}
+
 // buildFileMetaPatch assembles a metadata document patch from the `meta set`
 // flags (design/03 §2 for the document shape); visibility and expiresAt arrive
 // already resolved.
-func buildFileMetaPatch(visibility, expiresAt string, headers []string, crawlable, index, noIndex bool) (json.RawMessage, error) {
-	crawl, err := buildCrawlPatch(crawlable, index, noIndex)
+func buildFileMetaPatch(visibility, expiresAt string, headers []string, b metaSetBools) (json.RawMessage, error) {
+	if b.list && b.noList {
+		return nil, usagef("--list and --no-list are mutually exclusive")
+	}
+	crawl, err := buildCrawlPatch(b.crawlable, b.noCrawlable, b.index, b.noIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -293,9 +308,19 @@ func buildFileMetaPatch(visibility, expiresAt string, headers []string, crawlabl
 	if err != nil {
 		return nil, err
 	}
-	doc := map[string]any{}
+	access := map[string]any{}
 	if visibility != "" {
-		doc["access"] = map[string]any{"visibility": visibility}
+		access["visibility"] = visibility
+	}
+	if b.list {
+		access["directory_listing"] = true
+	}
+	if b.noList {
+		access["directory_listing"] = false
+	}
+	doc := map[string]any{}
+	if len(access) > 0 {
+		doc["access"] = access
 	}
 	if len(hdrMap) > 0 {
 		doc["content"] = map[string]any{"headers": hdrMap}
@@ -307,20 +332,26 @@ func buildFileMetaPatch(visibility, expiresAt string, headers []string, crawlabl
 		doc["expiry"] = map[string]any{"expires_at": expiresAt}
 	}
 	if len(doc) == 0 {
-		return nil, usagef("meta set requires at least one of --visibility (or a shorthand), --expires, --expires-in, --header, --crawlable, --index, --no-index")
+		return nil, usagef("meta set requires at least one metadata flag (visibility, expiry, --header, --list/--no-list, --crawlable/--no-crawlable, --index/--no-index)")
 	}
 	return json.Marshal(doc)
 }
 
 // buildCrawlPatch assembles the "crawl" section shared by `meta set` and
 // `collection create` from their crawl-related flags.
-func buildCrawlPatch(crawlable, index, noIndex bool) (map[string]any, error) {
+func buildCrawlPatch(crawlable, noCrawlable, index, noIndex bool) (map[string]any, error) {
+	if crawlable && noCrawlable {
+		return nil, usagef("--crawlable and --no-crawlable are mutually exclusive")
+	}
 	if index && noIndex {
 		return nil, usagef("--index and --no-index are mutually exclusive")
 	}
 	crawl := map[string]any{}
 	if crawlable {
 		crawl["crawlable"] = true
+	}
+	if noCrawlable {
+		crawl["crawlable"] = false
 	}
 	if index {
 		crawl["indexable"] = true

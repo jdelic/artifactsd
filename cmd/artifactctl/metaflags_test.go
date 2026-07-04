@@ -257,6 +257,40 @@ func TestE2E_Meta_CollectionAndFolderTargets(t *testing.T) {
 	}
 }
 
+// TestE2E_MetaSet_PairedBoolFlags: the --list/--no-list and
+// --crawlable/--no-crawlable pairs round-trip through meta set
+// (artifactsd-9mp: previously crawlable could never be unset from the CLI).
+func TestE2E_MetaSet_PairedBoolFlags(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo", "--crawlable", "--list"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	if code, _, errOut := e.run("meta", "set", "demo", "--no-crawlable", "--no-list"); code != exitOK {
+		t.Fatalf("meta set: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "meta", "get", "demo")
+	if code != exitOK {
+		t.Fatalf("meta get: code=%d err=%s", code, errOut)
+	}
+	var got apiclient.FileMeta
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("json: %v (%s)", err, out)
+	}
+	var eff struct {
+		Crawlable        bool `json:"crawlable"`
+		DirectoryListing bool `json:"directory_listing"`
+	}
+	if err := json.Unmarshal(got.Effective, &eff); err != nil {
+		t.Fatalf("effective json: %v", err)
+	}
+	if eff.Crawlable || eff.DirectoryListing {
+		t.Errorf("effective = %s, want crawlable+listing unset", got.Effective)
+	}
+	if code, _, _ := e.run("meta", "set", "demo", "--crawlable", "--no-crawlable"); code != exitUsage {
+		t.Fatalf("conflicting crawl flags: code=%d, want %d", code, exitUsage)
+	}
+}
+
 // TestE2E_MetaExplain: `meta explain` annotates every effective property
 // with the inheritance layer that set it; --full-chain prints the layers.
 func TestE2E_MetaExplain(t *testing.T) {
