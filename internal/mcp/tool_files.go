@@ -29,11 +29,20 @@ func (s *Server) putText(ctx context.Context, _ *gosdk.CallToolRequest, in *PutT
 // GetMetadataIn is the input for artifact_get_metadata.
 type GetMetadataIn struct {
 	Collection string `json:"collection" jsonschema:"Collection name"`
-	Path       string `json:"path" jsonschema:"File or folder path within the collection"`
+	Path       string `json:"path,omitempty" jsonschema:"File or folder path within the collection; omit for the collection's own metadata, end with / to address a folder"`
 }
 
 func (s *Server) getMetadata(ctx context.Context, _ *gosdk.CallToolRequest, in *GetMetadataIn) (*gosdk.CallToolResult, FileMetaOut, error) {
-	meta, err := s.Client.GetFileMeta(ctx, in.Collection, in.Path)
+	var meta *apiclient.FileMeta
+	var err error
+	switch path, kind := metaPathKind(in.Path); kind {
+	case metaPathCollection:
+		meta, err = s.Client.GetCollectionMeta(ctx, in.Collection)
+	case metaPathFolder:
+		meta, err = s.Client.GetFolderMeta(ctx, in.Collection, path)
+	default:
+		meta, err = s.Client.GetFileMeta(ctx, in.Collection, path)
+	}
 	if err != nil {
 		return nil, FileMetaOut{}, MapError(err)
 	}
@@ -44,12 +53,32 @@ func (s *Server) getMetadata(ctx context.Context, _ *gosdk.CallToolRequest, in *
 	return nil, out, nil
 }
 
+// metaPathKind mirrors the CLI's meta target convention (artifactsd-2db):
+// empty path = the collection itself, trailing slash = a folder, else a node.
+type metaPathKindT int
+
+const (
+	metaPathCollection metaPathKindT = iota
+	metaPathFolder
+	metaPathNode
+)
+
+func metaPathKind(path string) (string, metaPathKindT) {
+	if strings.Trim(path, "/") == "" {
+		return "", metaPathCollection
+	}
+	if trimmed := strings.TrimSuffix(path, "/"); trimmed != path {
+		return trimmed, metaPathFolder
+	}
+	return path, metaPathNode
+}
+
 // SetMetadataIn is the input for artifact_set_metadata. Metadata is a
 // map (not json.RawMessage) so the SDK infers an "object" input schema
 // instead of treating the field as an opaque byte array (see metadata.go).
 type SetMetadataIn struct {
 	Collection string         `json:"collection" jsonschema:"Collection name"`
-	Path       string         `json:"path" jsonschema:"File or folder path within the collection"`
+	Path       string         `json:"path,omitempty" jsonschema:"File or folder path within the collection; omit for the collection's own metadata, end with / to address a folder (materialized if absent)"`
 	Metadata   map[string]any `json:"metadata" jsonschema:"Metadata document patch (access/crawl/expiry/content sections), merged onto the existing metadata"`
 }
 
@@ -58,7 +87,18 @@ func (s *Server) setMetadata(ctx context.Context, _ *gosdk.CallToolRequest, in *
 	if err != nil {
 		return nil, FileMetaOut{}, err
 	}
-	meta, err := s.Client.PatchFileMeta(ctx, in.Collection, in.Path, patch)
+	var meta *apiclient.FileMeta
+	switch path, kind := metaPathKind(in.Path); kind {
+	case metaPathCollection:
+		if _, err = s.Client.PatchCollectionMeta(ctx, in.Collection, patch); err == nil {
+			// Re-read for the uniform {path, own, effective} shape.
+			meta, err = s.Client.GetCollectionMeta(ctx, in.Collection)
+		}
+	case metaPathFolder:
+		meta, err = s.Client.PatchFolderMeta(ctx, in.Collection, path, patch)
+	default:
+		meta, err = s.Client.PatchFileMeta(ctx, in.Collection, path, patch)
+	}
 	if err != nil {
 		return nil, FileMetaOut{}, MapError(err)
 	}

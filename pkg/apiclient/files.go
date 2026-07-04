@@ -94,6 +94,27 @@ func (c *Client) PatchFileMeta(ctx context.Context, collection, path string, pat
 	return &out, nil
 }
 
+// GetFolderMeta reads a folder's own and effective metadata (design/04 §4).
+// Unlike GetFileMeta it also answers for folders that exist only implicitly
+// (own is then an empty document).
+func (c *Client) GetFolderMeta(ctx context.Context, collection, path string) (*FileMeta, error) {
+	var out FileMeta
+	if err := c.sendJSON(ctx, http.MethodGet, folderPath(collection, path)+"/meta", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PatchFolderMeta merges patch onto a folder's metadata, materializing the
+// folder node if it does not exist yet (design/04 §4).
+func (c *Client) PatchFolderMeta(ctx context.Context, collection, path string, patch json.RawMessage) (*FileMeta, error) {
+	var out FileMeta
+	if err := c.sendJSON(ctx, http.MethodPatch, folderPath(collection, path)+"/meta", patch, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // filePath builds the /files/ route, escaping each path segment while preserving
 // the slash separators the {path...} wildcard expects.
 func filePath(collection, path string) string {

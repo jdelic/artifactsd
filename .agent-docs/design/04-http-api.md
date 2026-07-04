@@ -27,6 +27,7 @@ envelope.
 POST   /api/v1/collections                 create
 GET    /api/v1/collections                 list (paginated)
 GET    /api/v1/collections/{c}             get one (incl. metadata)
+GET    /api/v1/collections/{c}/meta        own + effective metadata ({path,own,effective} shape)
 PATCH  /api/v1/collections/{c}/meta        merge metadata
 DELETE /api/v1/collections/{c}             delete (cascades; ?force= for non-empty)
 ```

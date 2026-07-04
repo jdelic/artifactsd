@@ -145,6 +145,30 @@ func TestCollections_CRUD(t *testing.T) {
 		t.Errorf("patch = %d (%s)", rec.Code, rec.Body)
 	}
 
+	// GET meta (artifactsd-2db): own + effective in the file-meta shape,
+	// reflecting both the create-time and the patched-in values.
+	rec = h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/meta", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get meta = %d (%s)", rec.Code, rec.Body)
+	}
+	var gotMeta struct {
+		Path      string          `json:"path"`
+		Own       json.RawMessage `json:"own"`
+		Effective struct {
+			Visibility string `json:"visibility"`
+			Indexable  bool   `json:"indexable"`
+		} `json:"effective"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &gotMeta); err != nil {
+		t.Fatalf("get meta json: %v (%s)", err, rec.Body)
+	}
+	if gotMeta.Path != "" {
+		t.Errorf("meta path = %q, want empty (collection level)", gotMeta.Path)
+	}
+	if gotMeta.Effective.Visibility != "public" || !gotMeta.Effective.Indexable {
+		t.Errorf("effective = %+v, want public + indexable", gotMeta.Effective)
+	}
+
 	// Delete.
 	if rec := h.do(t, h.token, http.MethodDelete, "/api/v1/collections/demo", nil, nil); rec.Code != http.StatusNoContent {
 		t.Errorf("delete = %d, want 204", rec.Code)

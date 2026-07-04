@@ -22,11 +22,11 @@ func registerTools(s *Server) {
 	}, s.beginUpload)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_get_metadata",
-		Description: "Read a file or folder's own and effective metadata.",
+		Description: "Read a collection, folder, or file's own and effective metadata (omit path for the collection; end path with / for a folder).",
 	}, s.getMetadata)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_set_metadata",
-		Description: "Merge a metadata patch (access/crawl/expiry/content headers) onto a file or folder.",
+		Description: "Merge a metadata patch (access/crawl/expiry/content headers) onto a collection, folder, or file (omit path for the collection; end path with / for a folder).",
 	}, s.setMetadata)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_delete",

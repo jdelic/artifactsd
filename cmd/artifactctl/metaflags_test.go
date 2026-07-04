@@ -207,6 +207,56 @@ func TestE2E_Put_GeneratedBearerToken(t *testing.T) {
 	}
 }
 
+// TestE2E_Meta_CollectionAndFolderTargets: meta get/set on a bare collection
+// name edits the collection's own metadata; a trailing slash addresses (and
+// materializes) a folder (artifactsd-2db).
+func TestE2E_Meta_CollectionAndFolderTargets(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+
+	// Collection-level set + get (bare name, no slash).
+	if code, _, errOut := e.run("meta", "set", "demo", "--private", "--expires-in", "14d"); code != exitOK {
+		t.Fatalf("meta set collection: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "meta", "get", "demo")
+	if code != exitOK {
+		t.Fatalf("meta get collection: code=%d err=%s", code, errOut)
+	}
+	var got apiclient.FileMeta
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("meta json: %v (%s)", err, out)
+	}
+	var eff struct {
+		Visibility string `json:"visibility"`
+	}
+	if err := json.Unmarshal(got.Effective, &eff); err != nil {
+		t.Fatalf("effective json: %v", err)
+	}
+	if eff.Visibility != "private" {
+		t.Errorf("collection effective = %s, want private", got.Effective)
+	}
+	if !strings.Contains(string(got.Own), "expires_at") {
+		t.Errorf("collection own = %s, want expiry set", got.Own)
+	}
+
+	// Folder-level set with trailing slash materializes the folder.
+	if code, _, errOut := e.run("meta", "set", "demo/docs/", "--unlisted"); code != exitOK {
+		t.Fatalf("meta set folder: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut = e.run("--output", "json", "meta", "get", "demo/docs/")
+	if code != exitOK {
+		t.Fatalf("meta get folder: code=%d err=%s", code, errOut)
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("folder meta json: %v (%s)", err, out)
+	}
+	if !strings.Contains(string(got.Own), "unlisted") {
+		t.Errorf("folder own = %s, want unlisted", got.Own)
+	}
+}
+
 // TestE2E_UniformExpiryFlags: every expiry-taking command accepts both
 // --expires and --expires-in (artifactsd-599).
 func TestE2E_UniformExpiryFlags(t *testing.T) {

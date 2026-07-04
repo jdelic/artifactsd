@@ -52,9 +52,11 @@ artifactctl put-tree <collection> <localdir>
 artifactctl get <collection>/<path> [-o <localfile>]
 artifactctl rm [-r] <collection>/<path>
 
-artifactctl meta get <collection>/<path>
-artifactctl meta set <collection>/<path> [--visibility ...] [--expires ...]
-                                         [--header k=v] [--crawlable] [--index] [--no-index]
+artifactctl meta get <collection>[/<path>]
+artifactctl meta set <collection>[/<path>] [--visibility ...] [--expires ...]
+                                           [--header k=v] [--crawlable] [--index] [--no-index]
+        # bare <collection> = collection metadata; trailing / = folder
+        # (materialized on set); otherwise the file at that path
 
 artifactctl share create <collection>[/<path>]
         [--unlisted|--protected] [--bearer-token <t>|--generate-bearer-token] [--basic <user:pass>]

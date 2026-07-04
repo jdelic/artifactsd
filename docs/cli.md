@@ -88,13 +88,16 @@ artifactctl rm [-r] <collection>/<path>
 ### Metadata
 
 ```
-artifactctl meta get <collection>/<path>
-artifactctl meta set <collection>/<path> [--visibility ...] [--expires ...]
-                                         [--header k=v] [--crawlable]
-                                         [--index] [--no-index]
+artifactctl meta get <collection>[/<path>]
+artifactctl meta set <collection>[/<path>] [--visibility ...] [--expires ...]
+                                           [--header k=v] [--crawlable]
+                                           [--index] [--no-index]
 ```
 
 `meta get` shows both the object's own and the resolved effective metadata.
+A bare `<collection>` targets the collection's own metadata, a trailing slash
+(`demo/docs/`) targets a folder (materializing it on `set`), and any other
+path targets the file.
 
 ### Shares
 

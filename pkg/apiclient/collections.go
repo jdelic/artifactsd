@@ -66,6 +66,17 @@ func (c *Client) GetCollection(ctx context.Context, name string) (*Collection, e
 	return &out, nil
 }
 
+// GetCollectionMeta reads a collection's own and effective metadata in the
+// same {path, own, effective} shape as GetFileMeta/GetFolderMeta (design/04
+// §2, artifactsd-2db).
+func (c *Client) GetCollectionMeta(ctx context.Context, name string) (*FileMeta, error) {
+	var out FileMeta
+	if err := c.sendJSON(ctx, http.MethodGet, "/api/v1/collections/"+url.PathEscape(name)+"/meta", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // PatchCollectionMeta merges metadata onto a collection (design/04 §2).
 func (c *Client) PatchCollectionMeta(ctx context.Context, name string, metadata json.RawMessage) (*Collection, error) {
 	var out Collection
