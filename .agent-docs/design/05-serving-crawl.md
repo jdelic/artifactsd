@@ -116,8 +116,9 @@ Rules:
 - Objects with `crawl.crawlable:false` are omitted unless the token has `admin`
   scope (SPEC §10.1).
 - Expired and `private` objects are never listed.
-- `depth` controls recursion; default 1 (immediate children), `depth=-1` full
-  tree.
+- `depth` controls recursion; omitted/`0` returns the full tree (the same
+  convention as the management `tree` endpoint), a positive value limits the
+  number of levels (`depth=1` = immediate children), anything else is a 400.
 - Distinct from `/api/v1/collections/{c}/tree` (admin, unfiltered) in
   [04 §4](04-http-api.md).
 

@@ -31,14 +31,14 @@ type CrawlResponse struct {
 
 // Crawl fetches a collection's policy-filtered crawl tree (design/04 §7,
 // design/05 §5). path scopes the listing to a subtree ("" for the root);
-// depth limits how many levels below path are returned (0 for the server
-// default of immediate children only, negative for unlimited).
+// depth limits how many levels below path are returned (0 for the full
+// tree) — the same convention as Tree.
 func (c *Client) Crawl(ctx context.Context, collection, path string, depth int) (*CrawlResponse, error) {
 	q := url.Values{}
 	if path != "" {
 		q.Set("path", path)
 	}
-	if depth != 0 {
+	if depth > 0 {
 		q.Set("depth", strconv.Itoa(depth))
 	}
 	var out CrawlResponse

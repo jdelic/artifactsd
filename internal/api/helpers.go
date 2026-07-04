@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -18,6 +19,21 @@ const (
 type listResponse[T any] struct {
 	Items      []T    `json:"items"`
 	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// parseDepthParam parses ?depth= for the tree and crawl endpoints (design/04
+// §4, design/05 §5): omitted or 0 returns the full tree; a positive value
+// limits how many levels below the base path are returned; anything else is
+// rejected (the caller maps the error to a 400).
+func parseDepthParam(s string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid depth %q: want a non-negative integer", s)
+	}
+	return n, nil
 }
 
 // parseLimit parses ?limit, clamped to [1, maxPageLimit] with a default.

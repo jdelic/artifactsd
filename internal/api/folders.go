@@ -34,8 +34,9 @@ func (h *Handler) getFolder(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "lookup folder", err)
 		return
 	}
+	effective, chain, sources := h.metaView(r.Context(), c, p)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"path": p, "own": own, "effective": h.effectiveMeta(r.Context(), c, p),
+		"path": p, "own": own, "effective": effective, "chain": chain, "sources": sources,
 	})
 }
 
@@ -73,7 +74,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	parentID, err := h.ensureParents(r.Context(), c.ID, p)
+	parentID, err := h.store.EnsureParentFolders(r.Context(), c.ID, p)
 	if err != nil {
 		h.storeWriteError(w, "materialize folders", err)
 		return
@@ -140,7 +141,11 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := strings.Trim(r.URL.Query().Get("path"), "/")
-	depth := parseDepth(r.URL.Query().Get("depth"))
+	depth, err := parseDepthParam(r.URL.Query().Get("depth"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
+		return
+	}
 
 	nodes, err := h.store.ListCollectionNodes(r.Context(), c.ID)
 	if err != nil {
@@ -187,15 +192,4 @@ func relativeDepth(path, base string) int {
 		return 0
 	}
 	return strings.Count(rest, "/") + 1
-}
-
-func parseDepth(s string) int {
-	if s == "" {
-		return 0 // unlimited
-	}
-	n := parseLimit(s)
-	if s == "0" {
-		return 0
-	}
-	return n
 }

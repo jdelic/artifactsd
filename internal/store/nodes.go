@@ -3,7 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"path"
+	"strings"
 	"time"
 )
 
@@ -288,6 +291,48 @@ func collectNodes(rows *sql.Rows) ([]*Node, error) {
 		out = append(out, n)
 	}
 	return out, rows.Err()
+}
+
+// EnsureParentFolders materializes folder nodes for each ancestor of p,
+// returning the immediate parent's id (nil at collection root) — design/07
+// §4: always create parent folder rows on upload. An existing non-folder
+// ancestor returns ErrKindConflict. Shared by the API and admin upload paths
+// (previously duplicated in both packages).
+func (s *Store) EnsureParentFolders(ctx context.Context, collectionID int64, p string) (*int64, error) {
+	segs := strings.Split(p, "/")
+	if len(segs) == 1 {
+		return nil, nil
+	}
+	var parentID *int64
+	prefix := ""
+	for _, seg := range segs[:len(segs)-1] {
+		if prefix == "" {
+			prefix = seg
+		} else {
+			prefix += "/" + seg
+		}
+		existing, err := s.GetNode(ctx, collectionID, prefix)
+		if err == nil {
+			if existing.Kind != KindFolder {
+				return nil, ErrKindConflict // an existing ancestor must be a folder
+			}
+			parentID = &existing.ID
+			continue
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		folder := &Node{
+			CollectionID: collectionID, ParentID: parentID, Path: prefix,
+			Name: path.Base(prefix), Kind: KindFolder, Metadata: json.RawMessage(`{}`),
+		}
+		if err := s.UpsertNode(ctx, folder); err != nil {
+			return nil, err
+		}
+		id := folder.ID
+		parentID = &id
+	}
+	return parentID, nil
 }
 
 // DeleteNode removes a node and (via parent_id cascade) its descendants.

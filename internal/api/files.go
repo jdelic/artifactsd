@@ -63,7 +63,7 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parentID, err := h.ensureParents(r.Context(), c.ID, p)
+	parentID, err := h.store.EnsureParentFolders(r.Context(), c.ID, p)
 	if err != nil {
 		h.storeWriteError(w, "materialize folders", err)
 		return
@@ -133,6 +133,13 @@ func (h *Handler) deleteFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Mirror deleteFolder's guard in the other direction: without this, the
+	// parent_id ON DELETE CASCADE would silently remove a whole subtree
+	// through the single-file route (artifactsd-a0c).
+	if node.Kind != store.KindFile {
+		writeError(w, http.StatusConflict, CodeConflict, "path is a folder, not a file; use the folders endpoint")
+		return
+	}
 	if err := h.store.DeleteNode(r.Context(), node.ID); err != nil {
 		h.internalServerError(w, "delete node", err)
 		return
@@ -147,8 +154,10 @@ func (h *Handler) serveFileMeta(w http.ResponseWriter, r *http.Request, filePath
 		return
 	}
 	own := redactMetadata(node.Metadata)
-	eff := h.effectiveMeta(r.Context(), c, node.Path)
-	writeJSON(w, http.StatusOK, map[string]any{"path": node.Path, "own": own, "effective": eff})
+	effective, chain, sources := h.metaView(r.Context(), c, node.Path)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path": node.Path, "own": own, "effective": effective, "chain": chain, "sources": sources,
+	})
 }
 
 // patchFile requires the ".../meta" suffix (only metadata is patchable).
@@ -251,46 +260,6 @@ func (h *Handler) uploadMetadata(w http.ResponseWriter, r *http.Request) (*meta.
 	return doc, true
 }
 
-// ensureParents materializes folder nodes for each ancestor of p, returning the
-// immediate parent's id (nil at collection root). Design/07 §4: always create
-// parent folder rows on upload.
-func (h *Handler) ensureParents(ctx context.Context, collectionID int64, p string) (*int64, error) {
-	segs := strings.Split(p, "/")
-	if len(segs) == 1 {
-		return nil, nil
-	}
-	var parentID *int64
-	prefix := ""
-	for _, seg := range segs[:len(segs)-1] {
-		if prefix == "" {
-			prefix = seg
-		} else {
-			prefix += "/" + seg
-		}
-		existing, err := h.store.GetNode(ctx, collectionID, prefix)
-		if err == nil {
-			if existing.Kind != store.KindFolder {
-				return nil, store.ErrKindConflict // an existing ancestor must be a folder
-			}
-			parentID = &existing.ID
-			continue
-		}
-		if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
-		}
-		folder := &store.Node{
-			CollectionID: collectionID, ParentID: parentID, Path: prefix,
-			Name: lastSegment(prefix), Kind: store.KindFolder, Metadata: json.RawMessage(`{}`),
-		}
-		if err := h.store.UpsertNode(ctx, folder); err != nil {
-			return nil, err
-		}
-		id := folder.ID
-		parentID = &id
-	}
-	return parentID, nil
-}
-
 func (h *Handler) toFileView(collection string, n *store.Node) fileView {
 	v := fileView{
 		Collection: collection, Path: n.Path, URL: h.fileURL(collection, n.Path),
@@ -346,40 +315,105 @@ func strPtrOrNil(s string) *string {
 	return &s
 }
 
-// effectiveMeta resolves inheritance for a node path into a serializable view.
-func (h *Handler) effectiveMeta(ctx context.Context, c *store.Collection, nodePath string) any {
-	layers := []*meta.Document{docOrNil(c.Metadata)}
-	prefix := ""
-	for _, seg := range strings.Split(nodePath, "/") {
-		if prefix == "" {
-			prefix = seg
-		} else {
-			prefix += "/" + seg
-		}
-		if n, err := h.store.GetNode(ctx, c.ID, prefix); err == nil {
-			layers = append(layers, docOrNil(n.Metadata))
-		}
-	}
-	eff := meta.Resolve(meta.Defaults{
+// chainEntry is one layer of a metadata inheritance chain, oldest (lowest
+// precedence) first, as exposed on the meta GET endpoints for provenance.
+type chainEntry struct {
+	Scope string          `json:"scope"`          // defaults | collection | folder | file
+	Path  string          `json:"path,omitempty"` // set for folder/file scopes
+	Meta  json.RawMessage `json:"meta"`
+}
+
+// metaView resolves inheritance for a node path ("" = the collection itself)
+// into a serializable effective view plus its provenance: the layer chain and
+// a property → layer-label source map (`artifactctl meta explain`).
+func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath string) (effective map[string]any, chain []chainEntry, sources map[string]string) {
+	defaults := meta.Defaults{
 		Visibility:       string(h.cfg.Policy.Visibility),
 		DirectoryListing: h.cfg.Policy.DirectoryListing,
 		Crawlable:        h.cfg.Policy.Crawlable,
 		Indexable:        h.cfg.Policy.Indexable,
-	}, layers...)
+		Sandbox:          h.cfg.Policy.Sandbox,
+	}
+	defaultsDoc, _ := json.Marshal(map[string]any{
+		"access":  map[string]any{"visibility": defaults.Visibility, "directory_listing": defaults.DirectoryListing},
+		"crawl":   map[string]any{"crawlable": defaults.Crawlable, "indexable": defaults.Indexable},
+		"content": map[string]any{"sandbox": defaults.Sandbox},
+	})
+	chain = []chainEntry{
+		{Scope: "defaults", Meta: defaultsDoc},
+		{Scope: "collection", Meta: redactMetadata(c.Metadata)},
+	}
+	layers := []meta.Layer{{Label: "collection", Doc: docOrNil(c.Metadata)}}
+
+	// Expiry is resolved separately (earliest in the chain wins, design/03
+	// §4); ownsExpiry distinguishes a layer's own expiry from the server
+	// default applied during denormalization.
+	earliest := c.ExpiresAt
+	expirySource := ""
+	if c.ExpiresAt != nil {
+		expirySource = "collection"
+		if d := docOrNil(c.Metadata); d == nil || d.Expiry == nil {
+			expirySource = "defaults"
+		}
+	}
+
+	if nodePath != "" {
+		prefix := ""
+		for _, seg := range strings.Split(nodePath, "/") {
+			if prefix == "" {
+				prefix = seg
+			} else {
+				prefix += "/" + seg
+			}
+			n, err := h.store.GetNode(ctx, c.ID, prefix)
+			if err != nil {
+				continue
+			}
+			label := "folder " + prefix
+			scope := "folder"
+			if n.Kind == store.KindFile {
+				label = "file " + prefix
+				scope = "file"
+			}
+			chain = append(chain, chainEntry{Scope: scope, Path: prefix, Meta: redactMetadata(n.Metadata)})
+			layers = append(layers, meta.Layer{Label: label, Doc: docOrNil(n.Metadata)})
+			if n.ExpiresAt != nil && (earliest == nil || n.ExpiresAt.Before(*earliest)) {
+				earliest = n.ExpiresAt
+				expirySource = label
+				if d := docOrNil(n.Metadata); d == nil || d.Expiry == nil {
+					expirySource = "defaults"
+				}
+			}
+		}
+	}
+
+	eff, sources := meta.ResolveTraced(defaults, layers...)
 
 	authView := make([]map[string]any, 0, len(eff.Auth))
 	for i := range eff.Auth {
 		authView = append(authView, map[string]any{"type": eff.Auth[i].Type, "configured": true})
 	}
-	return map[string]any{
+	effective = map[string]any{
 		"visibility":        eff.Visibility,
 		"directory_listing": eff.DirectoryListing,
 		"content_type":      eff.ContentType,
 		"headers":           eff.Headers,
+		"sandbox":           eff.Sandbox,
 		"crawlable":         eff.Crawlable,
 		"indexable":         eff.Indexable,
 		"auth":              authView,
 	}
+	if len(eff.XRobotsTag) > 0 {
+		effective["x_robots_tag"] = eff.XRobotsTag
+	}
+	if len(eff.RobotsUserAgents) > 0 {
+		effective["robots"] = eff.RobotsUserAgents
+	}
+	if earliest != nil {
+		effective["expires_at"] = earliest.UTC().Format(time.RFC3339)
+		sources["expires_at"] = expirySource
+	}
+	return effective, chain, sources
 }
 
 func docOrNil(raw json.RawMessage) *meta.Document {

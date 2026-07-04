@@ -64,9 +64,9 @@ func TestCrawlCollection_FiltersAndDepth(t *testing.T) {
 		t.Fatalf("patch assets folder = %d (%s)", rec.Code, rec.Body)
 	}
 
-	// Non-admin, default depth (1): index.html + assets/ folder, not
-	// secret.txt (private) or draft.txt (non-crawlable), and no recursion
-	// into assets/ yet.
+	// Non-admin, default depth (full tree): index.html, assets/, and
+	// assets/logo.png (inherits crawlable:true from the assets folder layer) —
+	// not secret.txt (private) or draft.txt (non-crawlable).
 	rec := h.do(t, h.roToken, http.MethodGet, "/api/v1/collections/demo/crawl", nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("crawl demo = %d (%s)", rec.Code, rec.Body)
@@ -74,21 +74,28 @@ func TestCrawlCollection_FiltersAndDepth(t *testing.T) {
 	var resp crawlResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	got := entryPaths(resp.Entries)
-	if len(got) != 2 || !contains(got, "index.html") || !contains(got, "assets/") {
-		t.Errorf("non-admin depth=1 entries = %v, want [index.html assets/]", got)
+	if len(got) != 3 || !contains(got, "index.html") || !contains(got, "assets/") || !contains(got, "assets/logo.png") {
+		t.Errorf("non-admin default entries = %v, want [index.html assets/ assets/logo.png]", got)
 	}
 
-	// Admin scope: draft.txt now visible too (non-crawlable, admin-only); still
-	// no secret.txt (private always hidden) and still no recursion at depth=1.
+	// Admin scope: draft.txt now visible too (non-crawlable, admin-only);
+	// still no secret.txt (private always hidden).
 	rec = h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/crawl", nil, nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	got = entryPaths(resp.Entries)
-	if len(got) != 3 || !contains(got, "draft.txt") || contains(got, "secret.txt") {
-		t.Errorf("admin depth=1 entries = %v, want [index.html assets/ draft.txt] (no secret.txt)", got)
+	if len(got) != 4 || !contains(got, "draft.txt") || contains(got, "secret.txt") {
+		t.Errorf("admin default entries = %v, want [index.html assets/ assets/logo.png draft.txt] (no secret.txt)", got)
 	}
 
-	// depth=2 recurses into assets/; logo.png inherits crawlable:true from the
-	// assets folder layer, so it's visible even to a non-admin caller.
+	// depth=1 stops at immediate children: no recursion into assets/.
+	rec = h.do(t, h.roToken, http.MethodGet, "/api/v1/collections/demo/crawl?depth=1", nil, nil)
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	got = entryPaths(resp.Entries)
+	if len(got) != 2 || !contains(got, "index.html") || !contains(got, "assets/") || contains(got, "assets/logo.png") {
+		t.Errorf("depth=1 entries = %v, want [index.html assets/]", got)
+	}
+
+	// depth=2 recurses into assets/.
 	rec = h.do(t, h.roToken, http.MethodGet, "/api/v1/collections/demo/crawl?depth=2", nil, nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	got = entryPaths(resp.Entries)
@@ -96,11 +103,15 @@ func TestCrawlCollection_FiltersAndDepth(t *testing.T) {
 		t.Errorf("depth=2 entries = %v, want assets/logo.png included", got)
 	}
 
-	// depth=-1 (unlimited) gives the same result in this shallow tree.
-	rec = h.do(t, h.roToken, http.MethodGet, "/api/v1/collections/demo/crawl?depth=-1", nil, nil)
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if got := entryPaths(resp.Entries); !contains(got, "assets/logo.png") {
-		t.Errorf("depth=-1 entries = %v, want assets/logo.png included", got)
+	// Negative and non-numeric depths are rejected on both tree and crawl
+	// (uniform ?depth= contract, design/04 §4, design/05 §5).
+	for _, d := range []string{"-1", "abc"} {
+		if rec = h.do(t, h.roToken, http.MethodGet, "/api/v1/collections/demo/crawl?depth="+d, nil, nil); rec.Code != http.StatusBadRequest {
+			t.Errorf("crawl depth=%s = %d, want 400", d, rec.Code)
+		}
+		if rec = h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/tree?depth="+d, nil, nil); rec.Code != http.StatusBadRequest {
+			t.Errorf("tree depth=%s = %d, want 400", d, rec.Code)
+		}
 	}
 }
 
@@ -133,10 +144,10 @@ func TestCrawlCollection_PrivateAncestorHidesDescendants(t *testing.T) {
 	h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/secret/meta",
 		[]byte(`{"access":{"visibility":"private"},"crawl":{"crawlable":true}}`), nil)
 
-	// Even admin scope, even unlimited depth: a private ancestor hides
-	// everything below it (existence non-disclosure), and the folder itself is
-	// never listed.
-	rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/crawl?depth=-1", nil, nil)
+	// Even admin scope, even unlimited depth (the default): a private ancestor
+	// hides everything below it (existence non-disclosure), and the folder
+	// itself is never listed.
+	rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/crawl", nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("crawl demo = %d (%s)", rec.Code, rec.Body)
 	}

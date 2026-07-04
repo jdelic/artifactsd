@@ -36,28 +36,33 @@ Global flags: `--base-url`, `--token`, `--profile`, `--output text|json`,
 ```
 artifactctl collection create <name> [--public|--unlisted|--protected|--private]
                                       [--list] [--no-list]
-                                      [--crawlable] [--index] [--no-index]
+                                      [--crawlable] [--no-crawlable] [--index] [--no-index]
                                       [--expires <ts>] [--expires-in <dur>]
 artifactctl collection list
 artifactctl collection show <name>
 artifactctl collection delete <name> [--force]
 
-artifactctl put <collection>/<path> <localfile>
+artifactctl put <collection>/<path> <localfile> [--large-upload-threshold <bytes>]
         [--content-type <ct>] [--header k=v ...]
-        [--public|--protected|--bearer-token <t>|--basic <user:pass>]
+        [--public|--protected|--bearer-token <t>|--generate-bearer-token|--basic <user:pass>]
         [--expires <ts>] [--expires-in <dur>] [--no-index]
 artifactctl put-tree <collection> <localdir>
         [--content-type-auto] [--public] [--no-index] [--header k=v ...]
         [--include glob] [--exclude glob] [--large-upload-threshold <bytes>]
 artifactctl get <collection>/<path> [-o <localfile>]
-artifactctl rm <collection>/<path>
+artifactctl rm [-r] <collection>/<path>
 
-artifactctl meta get <collection>/<path>
-artifactctl meta set <collection>/<path> [--visibility ...] [--expires ...]
-                                         [--header k=v] [--crawlable] [--index] [--no-index]
+artifactctl meta get <collection>[/<path>]
+artifactctl meta set <collection>[/<path>] [--visibility ...] [--expires ...]
+                                           [--header k=v] [--list] [--no-list] [--crawlable] [--no-crawlable] [--index] [--no-index]
+artifactctl meta explain <collection>[/<path>] [--full-chain]
+        # bare <collection> = collection metadata; trailing / = folder
+        # (materialized on set); otherwise the file at that path.
+        # explain annotates each effective property with the layer that set
+        # it; --full-chain also dumps every inheritance layer's own metadata
 
 artifactctl share create <collection>[/<path>]
-        [--unlisted|--protected] [--bearer-token [<t>]] [--basic <user:pass>]
+        [--unlisted|--protected] [--bearer-token <t>|--generate-bearer-token] [--basic <user:pass>]
         [--expires-in <dur>] [--expires <ts>]
 artifactctl share list <collection>
 artifactctl share revoke <share-id>
@@ -77,8 +82,10 @@ artifactctl version
 
 - `put` infers content-type from extension unless `--content-type` is given;
   `put-tree --content-type-auto` does this per file (SPEC §15, §20.1).
-- `--bearer-token` with no value generates a random token and prints it once
-  (matching the share UX in SPEC §20.2/§20.3).
+- `--generate-bearer-token` creates a random token and prints it once
+  (SPEC §20.2/§20.3). `--bearer-token` always takes an explicit value; the CLI
+  deliberately has no optional-value flags, so every flag parses with the same
+  space-separated grammar.
 - `put-tree` walks the directory, applies include/exclude globs, uploads each
   file under `<collection>/<relative-path>`, using large-upload sessions for
   files over a threshold. Reports a summary.

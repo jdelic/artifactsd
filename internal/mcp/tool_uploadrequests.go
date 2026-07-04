@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -13,16 +14,17 @@ import (
 
 // CreateUploadRequestIn is the input for artifact_create_upload_request.
 type CreateUploadRequestIn struct {
-	Collection           string `json:"collection" jsonschema:"Collection name"`
-	TargetFolder         string `json:"target_folder,omitempty" jsonschema:"Destination folder path inside the collection; collection root if omitted"`
-	Label                string `json:"label,omitempty" jsonschema:"Human-readable label shown on the upload form"`
-	Description          string `json:"description,omitempty" jsonschema:"Longer description shown below the label"`
-	SingleUse            bool   `json:"single_use,omitempty" jsonschema:"Auto-close the link after the first successful submission"`
-	UseSubmissionFolders bool   `json:"use_submission_folders,omitempty" jsonschema:"Store each submission in its own sub-folder named by submission_id"`
-	AllowUploaderAccess  bool   `json:"allow_uploader_access,omitempty" jsonschema:"Return file URLs to the uploader for public and unlisted files"`
-	MaxFiles             int64  `json:"max_files,omitempty" jsonschema:"Maximum total files that may be uploaded; 0 = unlimited"`
-	MaxFileSizeBytes     int64  `json:"max_file_size_bytes,omitempty" jsonschema:"Per-file size limit in bytes; 0 = server default"`
-	ExpiresIn            string `json:"expires_in,omitempty" jsonschema:"Duration like 24h, 7d, or 2w; the link never expires if omitted"`
+	Collection           string         `json:"collection" jsonschema:"Collection name"`
+	TargetFolder         string         `json:"target_folder,omitempty" jsonschema:"Destination folder path inside the collection; collection root if omitted"`
+	Label                string         `json:"label,omitempty" jsonschema:"Human-readable label shown on the upload form"`
+	Description          string         `json:"description,omitempty" jsonschema:"Longer description shown below the label"`
+	SingleUse            bool           `json:"single_use,omitempty" jsonschema:"Auto-close the link after the first successful submission"`
+	UseSubmissionFolders bool           `json:"use_submission_folders,omitempty" jsonschema:"Store each submission in its own sub-folder named by submission_id"`
+	AllowUploaderAccess  bool           `json:"allow_uploader_access,omitempty" jsonschema:"Return file URLs to the uploader for public and unlisted files"`
+	MaxFiles             int64          `json:"max_files,omitempty" jsonschema:"Maximum total files that may be uploaded; 0 = unlimited"`
+	MaxFileSizeBytes     int64          `json:"max_file_size_bytes,omitempty" jsonschema:"Per-file size limit in bytes; 0 = server default"`
+	ExpiresIn            string         `json:"expires_in,omitempty" jsonschema:"Duration like 24h, 7d, or 2w; the link never expires if omitted"`
+	FileMetadata         map[string]any `json:"file_metadata,omitempty" jsonschema:"Metadata document applied to every uploaded file (access/crawl/expiry sections), e.g. {\"access\":{\"visibility\":\"private\"}}"`
 }
 
 // CreateUploadRequestOut is the output of artifact_create_upload_request.
@@ -63,6 +65,13 @@ func (s *Server) createUploadRequest(ctx context.Context, _ *gosdk.CallToolReque
 		}
 		s := time.Now().UTC().Add(d).Format(time.RFC3339)
 		req.ExpiresAt = &s
+	}
+	if len(in.FileMetadata) > 0 {
+		raw, err := json.Marshal(in.FileMetadata)
+		if err != nil {
+			return nil, CreateUploadRequestOut{}, err
+		}
+		req.FileMetadata = raw
 	}
 
 	ur, err := s.Client.CreateUploadRequest(ctx, &req)

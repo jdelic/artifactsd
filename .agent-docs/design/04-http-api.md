@@ -18,8 +18,11 @@ envelope.
 - **Timestamps**: RFC3339 UTC. **Durations**: `30d`, `48h`, `2w`.
 - **Metadata** in bodies is the JSON form of the [metadata document](03-metadata-policy.md).
 - **Idempotency**: `PUT` file is idempotent (full replace). `PATCH` meta merges.
-- **Pagination**: list endpoints accept `?limit=&cursor=`; return
-  `{ "items": [...], "next_cursor": "..." }`.
+- **Pagination**: `GET /collections` accepts `?limit=&cursor=` and returns
+  `{ "items": [...], "next_cursor": "..." }`. The other list endpoints
+  (shares, tokens, upload-requests, submissions) return the same `items`
+  envelope but are deliberately unpaginated for v1 — at the intended scale
+  (decision N7) their result sets stay small; revisit if that changes.
 
 ## 2. Collections (SPEC §12.1)
 
@@ -27,6 +30,7 @@ envelope.
 POST   /api/v1/collections                 create
 GET    /api/v1/collections                 list (paginated)
 GET    /api/v1/collections/{c}             get one (incl. metadata)
+GET    /api/v1/collections/{c}/meta        own + effective metadata ({path,own,effective} shape)
 PATCH  /api/v1/collections/{c}/meta        merge metadata
 DELETE /api/v1/collections/{c}             delete (cascades; ?force= for non-empty)
 ```
@@ -64,8 +68,13 @@ Upload:
     "updated_at":"2026-06-21T10:15:00Z" }
   ```
 
-`GET .../meta` returns both the object's own metadata and the resolved
-**effective** metadata (with secrets redacted to hash-presence booleans):
+`GET .../meta` (files, folders, and collections alike) returns the object's
+own metadata, the resolved **effective** metadata (with secrets redacted to
+hash-presence booleans), plus provenance: `chain` (the inheritance layers,
+lowest precedence first, each with its own metadata) and `sources` (a map
+from each effective property — including per-key `headers.<Name>` — to the
+label of the layer that determined it, e.g. `"visibility": "folder docs"`).
+This backs `artifactctl meta explain`:
 ```json
 { "path":"report.pdf",
   "own":   { "content": {...}, "access": {...} },

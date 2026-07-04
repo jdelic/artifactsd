@@ -11,12 +11,6 @@ import (
 	"github.com/jdelic/artifactsd/pkg/apiclient"
 )
 
-// bearerTokenAutoGen is pflag's NoOptDefVal for --bearer-token: the sentinel
-// value it sets when the flag is given with no argument, signaling "generate
-// one for me" (design/10 §3). pflag only allows a no-arg invocation for
-// string flags when NoOptDefVal is non-empty.
-const bearerTokenAutoGen = "\x00generate\x00"
-
 // newShareCmd builds `artifactctl share ...` (design/10 §2).
 func (a *app) newShareCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -29,12 +23,10 @@ func (a *app) newShareCmd() *cobra.Command {
 
 func (a *app) newShareCreateCmd() *cobra.Command {
 	var (
-		unlisted    bool
-		protected   bool
-		bearerToken string
-		basic       string
-		expires     string
-		expiresIn   string
+		unlisted  bool
+		protected bool
+		auth      authFlags
+		expiry    expiryFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "create <collection>[/<path>]",
@@ -49,15 +41,7 @@ func (a *app) newShareCreateCmd() *cobra.Command {
 				return usagef("--unlisted and --protected are mutually exclusive")
 			}
 			collection, targetPath := splitShareTarget(args[0])
-			genToken := ""
-			if bearerToken == bearerTokenAutoGen {
-				genToken, err = generateToken()
-				if err != nil {
-					return err
-				}
-				bearerToken = genToken
-			}
-			doc, err := buildShareMetadata(unlisted, protected, bearerToken, basic, expires, expiresIn)
+			doc, err := buildShareMetadata(unlisted, protected, &auth, &expiry)
 			if err != nil {
 				return err
 			}
@@ -67,17 +51,14 @@ func (a *app) newShareCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.renderShare(sh, genToken, "created share %s\n")
+			return a.renderShare(sh, auth.genToken, "created share %s\n")
 		},
 	}
 	f := cmd.Flags()
 	f.BoolVar(&unlisted, "unlisted", false, "share visibility: unlisted")
-	f.BoolVar(&protected, "protected", false, "share visibility: protected (requires --bearer-token or --basic)")
-	f.StringVar(&bearerToken, "bearer-token", "", "require a bearer token (omit value to generate one and print it once)")
-	f.Lookup("bearer-token").NoOptDefVal = bearerTokenAutoGen
-	f.StringVar(&basic, "basic", "", "require basic auth <user:pass>")
-	f.StringVar(&expires, "expires", "", "expire at absolute RFC3339 timestamp")
-	f.StringVar(&expiresIn, "expires-in", "", "expire after duration (e.g. 30d, 48h, 2w)")
+	f.BoolVar(&protected, "protected", false, "share visibility: protected (requires --bearer-token, --generate-bearer-token, or --basic)")
+	auth.register(f)
+	expiry.register(f)
 	return cmd
 }
 
@@ -160,7 +141,7 @@ func splitShareTarget(arg string) (collection, path string) {
 
 // buildShareMetadata assembles a share's metadata document from the create
 // flags.
-func buildShareMetadata(unlisted, protected bool, bearerToken, basic, expires, expiresIn string) (json.RawMessage, error) {
+func buildShareMetadata(unlisted, protected bool, auth *authFlags, expiry *expiryFlags) (json.RawMessage, error) {
 	access := map[string]any{}
 	switch {
 	case unlisted:
@@ -168,25 +149,18 @@ func buildShareMetadata(unlisted, protected bool, bearerToken, basic, expires, e
 	case protected:
 		access["visibility"] = "protected"
 	}
-	var auth []map[string]any
-	if bearerToken != "" {
-		auth = append(auth, map[string]any{"type": "bearer", "token": bearerToken})
+	entries, err := auth.entries()
+	if err != nil {
+		return nil, err
 	}
-	if basic != "" {
-		user, pass, ok := strings.Cut(basic, ":")
-		if !ok {
-			return nil, usagef("invalid --basic %q: want user:pass", basic)
-		}
-		auth = append(auth, map[string]any{"type": "basic", "username": user, "password": pass})
-	}
-	if len(auth) > 0 {
-		access["auth"] = auth
+	if len(entries) > 0 {
+		access["auth"] = entries
 	}
 	doc := map[string]any{}
 	if len(access) > 0 {
 		doc["access"] = access
 	}
-	expiresAt, err := expiresAtFrom(expires, expiresIn)
+	expiresAt, err := expiry.expiresAt()
 	if err != nil {
 		return nil, err
 	}

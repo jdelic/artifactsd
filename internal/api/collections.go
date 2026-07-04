@@ -126,6 +126,21 @@ func (h *Handler) getCollection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toCollectionView(c))
 }
 
+// getCollectionMeta handles GET /api/v1/collections/{c}/meta: the collection's
+// own (redacted) metadata plus its resolved effective view, in the same
+// {path, own, effective} shape as the file and folder meta endpoints so
+// clients handle all three levels uniformly (artifactsd-2db).
+func (h *Handler) getCollectionMeta(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.lookupCollection(w, r)
+	if !ok {
+		return
+	}
+	effective, chain, sources := h.metaView(r.Context(), c, "")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path": "", "own": redactMetadata(c.Metadata), "effective": effective, "chain": chain, "sources": sources,
+	})
+}
+
 func (h *Handler) patchCollectionMeta(w http.ResponseWriter, r *http.Request) {
 	c, ok := h.lookupCollection(w, r)
 	if !ok {

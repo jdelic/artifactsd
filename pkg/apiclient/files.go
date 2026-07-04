@@ -53,19 +53,40 @@ func (c *Client) GetFile(ctx context.Context, collection, path string) (io.ReadC
 	return c.openStream(ctx, filePath(collection, path))
 }
 
-// DeleteFile removes a file (design/04 §3).
+// DeleteFile removes a file (design/04 §3). Folder paths are rejected with a
+// 409 — use DeleteFolder for recursive subtree deletion.
 func (c *Client) DeleteFile(ctx context.Context, collection, path string) error {
 	return c.sendJSON(ctx, http.MethodDelete, filePath(collection, path), nil, nil)
 }
 
-// FileMeta is the response shape for file metadata reads and patches
-// (design/04 §3). Own and Effective are left as raw JSON since they have
-// different shapes (a metadata document vs. a flat resolved view); Effective
-// is absent from PATCH responses.
+// DeleteFolder removes a folder and its whole subtree (design/04 §4). File
+// paths are rejected with a 409.
+func (c *Client) DeleteFolder(ctx context.Context, collection, path string) error {
+	return c.sendJSON(ctx, http.MethodDelete, folderPath(collection, path), nil, nil)
+}
+
+// FileMeta is the response shape for collection, folder, and file metadata
+// reads and patches (design/04 §2-§4). Own and Effective are left as raw JSON
+// since they have different shapes (a metadata document vs. a flat resolved
+// view); Effective, Chain, and Sources are absent from PATCH responses.
 type FileMeta struct {
 	Path      string          `json:"path"`
 	Own       json.RawMessage `json:"own"`
 	Effective json.RawMessage `json:"effective,omitempty"`
+	// Chain is the inheritance chain, lowest precedence first (server
+	// defaults → collection → folders → file), each with its own metadata.
+	Chain []ChainEntry `json:"chain,omitempty"`
+	// Sources maps each effective property (e.g. "visibility",
+	// "headers.Cache-Control") to the label of the chain layer that
+	// determined it (e.g. "defaults", "collection", "folder docs").
+	Sources map[string]string `json:"sources,omitempty"`
+}
+
+// ChainEntry is one layer of a metadata inheritance chain.
+type ChainEntry struct {
+	Scope string          `json:"scope"`          // defaults | collection | folder | file
+	Path  string          `json:"path,omitempty"` // set for folder/file scopes
+	Meta  json.RawMessage `json:"meta"`
 }
 
 // GetFileMeta reads a file's own and effective metadata (design/04 §3).
@@ -87,10 +108,36 @@ func (c *Client) PatchFileMeta(ctx context.Context, collection, path string, pat
 	return &out, nil
 }
 
+// GetFolderMeta reads a folder's own and effective metadata (design/04 §4).
+// Unlike GetFileMeta it also answers for folders that exist only implicitly
+// (own is then an empty document).
+func (c *Client) GetFolderMeta(ctx context.Context, collection, path string) (*FileMeta, error) {
+	var out FileMeta
+	if err := c.sendJSON(ctx, http.MethodGet, folderPath(collection, path)+"/meta", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PatchFolderMeta merges patch onto a folder's metadata, materializing the
+// folder node if it does not exist yet (design/04 §4).
+func (c *Client) PatchFolderMeta(ctx context.Context, collection, path string, patch json.RawMessage) (*FileMeta, error) {
+	var out FileMeta
+	if err := c.sendJSON(ctx, http.MethodPatch, folderPath(collection, path)+"/meta", patch, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // filePath builds the /files/ route, escaping each path segment while preserving
 // the slash separators the {path...} wildcard expects.
 func filePath(collection, path string) string {
 	return "/api/v1/collections/" + url.PathEscape(collection) + "/files/" + escapeSegments(path)
+}
+
+// folderPath builds the /folders/ route the same way.
+func folderPath(collection, path string) string {
+	return "/api/v1/collections/" + url.PathEscape(collection) + "/folders/" + escapeSegments(path)
 }
 
 // escapeSegments percent-escapes each "/"-separated segment.

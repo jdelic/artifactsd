@@ -30,13 +30,17 @@ only the scopes you want exposed.
 | `artifact_create_collection` | `POST /collections` | name + policy flags |
 | `artifact_put_text` | `PUT .../files/{path}` | small text artifacts inline |
 | `artifact_begin_upload` | `POST .../uploads` | returns a direct upload URL for large/binary |
-| `artifact_get_metadata` | `GET .../meta` | effective + own |
-| `artifact_set_metadata` | `PATCH .../meta` | merge |
+| `artifact_get_metadata` | `GET .../meta` | own + effective + provenance; empty path = collection, trailing `/` = folder |
+| `artifact_set_metadata` | `PATCH .../meta` | merge, same path convention |
 | `artifact_delete` | `DELETE .../files/{path}` | |
-| `artifact_list_tree` | `GET .../tree` or `/crawl` | structured listing |
+| `artifact_list_tree` | `GET .../tree` | structured listing (unfiltered management view) |
 | `artifact_get_public_url` | local compose | builds a `/c/...` URL |
 | `artifact_create_share` | `POST .../shares` | returns a `/s/...` URL |
 | `artifact_get_crawl_tree` | `GET .../crawl` | policy-filtered enumeration |
+| `artifact_create_upload_request` | `POST /upload-requests` | returns a shareable `/r/...` upload URL; optional `file_metadata` |
+| `artifact_list_upload_requests` | `GET /upload-requests` | all links + status |
+| `artifact_get_upload_request` | `GET /upload-requests/{id}` | status, files uploaded |
+| `artifact_revoke_upload_request` | `DELETE /upload-requests/{id}` | permanently close the link |
 
 Tool inputs and outputs are JSON with explicit schemas, so agents get validation
 and discoverability. API error codes are mapped to MCP tool errors with

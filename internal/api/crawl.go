@@ -6,7 +6,6 @@ import (
 	"mime"
 	"net/http"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 
@@ -108,7 +107,14 @@ func (h *Handler) crawlCollection(w http.ResponseWriter, r *http.Request) {
 		}
 		basePath = cleaned
 	}
-	depth := parseCrawlDepth(r.URL.Query().Get("depth"))
+	depth, err := parseDepthParam(r.URL.Query().Get("depth"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
+		return
+	}
+	if depth == 0 {
+		depth = -1 // crawlEntries' internal unlimited sentinel
+	}
 	defs := h.policyDefaults()
 	admin := isAdmin(r)
 
@@ -274,7 +280,7 @@ func (h *Handler) dirURL(collection, p string) string {
 }
 
 // policyDefaults is the server-defaults base layer for metadata resolution
-// (design/12 §3), shared by effectiveMeta and the crawl API.
+// (design/12 §3), shared by metaView and the crawl API.
 func (h *Handler) policyDefaults() meta.Defaults {
 	return meta.Defaults{
 		Visibility:       string(h.cfg.Policy.Visibility),
@@ -290,20 +296,4 @@ func (h *Handler) policyDefaults() meta.Defaults {
 func isAdmin(r *http.Request) bool {
 	p := auth.PrincipalFromContext(r.Context())
 	return p != nil && p.Scopes.Has(auth.ScopeAdmin)
-}
-
-// parseCrawlDepth parses ?depth (design/05 §5): empty/invalid/zero defaults to
-// 1 (immediate children only); negative means unlimited recursion.
-func parseCrawlDepth(s string) int {
-	if s == "" {
-		return 1
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil || n == 0 {
-		return 1
-	}
-	if n < 0 {
-		return -1
-	}
-	return n
 }

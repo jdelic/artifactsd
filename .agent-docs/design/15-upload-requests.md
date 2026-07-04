@@ -242,20 +242,21 @@ Close without revoking (no new uploads, existing files kept):
 
 ```
 artifactctl upload-request create <collection>
-        [--folder <prefix>]
+        [--target-folder <prefix>]
         [--label <text>] [--description <text>]
         [--expires-in <dur>] [--expires <ts>]
-        [--max-files <n>] [--max-file-size <bytes>]
-        [--public|--unlisted|--private]
-        [--no-index] [--crawlable]
+        [--max-files <n>] [--max-file-size <size>]     # human sizes, 1024-based
+        [--public|--unlisted|--protected|--private]    # file_metadata visibility
+        [--crawlable|--no-crawlable] [--index|--no-index]
         [--allow-uploader-access]
         [--single-use]
-        [--submission-folders]
+        [--use-submission-folders]
 
 artifactctl upload-request list
-artifactctl upload-request show <request-id>
+artifactctl upload-request show <request-id>      # `get` kept as an alias
 artifactctl upload-request close <request-id>     # stops new uploads; files kept
-artifactctl upload-request revoke <request-id>    # alias for close (same API call)
+artifactctl upload-request revoke <request-id>    # permanent; escalates a closed link
+artifactctl upload-request submissions <request-id>
 ```
 
 `create` prints the upload URL prominently so it can be copied and shared.
@@ -268,7 +269,9 @@ artifactctl upload-request revoke <request-id>    # alias for close (same API ca
 | `upload-request create` | `POST /api/v1/upload-requests` |
 | `upload-request list` | `GET /api/v1/upload-requests` |
 | `upload-request show` | `GET /api/v1/upload-requests/{id}` |
-| `upload-request close` / `revoke` | `DELETE /api/v1/upload-requests/{id}` (or PATCH status=closed) |
+| `upload-request close` | `PATCH /api/v1/upload-requests/{id}` (`status=closed`) |
+| `upload-request revoke` | `DELETE /api/v1/upload-requests/{id}` |
+| `upload-request submissions` | `GET /api/v1/upload-requests/{id}/submissions` |
 
 ## 7. Admin UI
 

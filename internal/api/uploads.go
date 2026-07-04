@@ -140,7 +140,7 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "lookup session collection", err)
 		return
 	}
-	parentID, err := h.ensureParents(r.Context(), c.ID, session.TargetPath)
+	parentID, err := h.store.EnsureParentFolders(r.Context(), c.ID, session.TargetPath)
 	if err != nil {
 		h.storeWriteError(w, "materialize folders", err)
 		return

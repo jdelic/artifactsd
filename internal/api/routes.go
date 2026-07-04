@@ -14,6 +14,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("POST /api/v1/collections", h.requireScope(auth.ScopeCollectionsWrite, h.createCollection))
 	mux.Handle("GET /api/v1/collections", h.requireScope(auth.ScopeCollectionsRead, h.listCollections))
 	mux.Handle("GET /api/v1/collections/{c}", h.requireScope(auth.ScopeCollectionsRead, h.getCollection))
+	mux.Handle("GET /api/v1/collections/{c}/meta", h.requireScope(auth.ScopeCollectionsRead, h.getCollectionMeta))
 	mux.Handle("PATCH /api/v1/collections/{c}/meta", h.requireScope(auth.ScopeCollectionsWrite, h.patchCollectionMeta))
 	mux.Handle("DELETE /api/v1/collections/{c}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteCollection))
 

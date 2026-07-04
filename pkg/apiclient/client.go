@@ -82,6 +82,12 @@ func IsUnauthorized(err error) bool {
 	return errors.As(err, &apiErr) && (apiErr.Status == http.StatusUnauthorized || apiErr.Status == http.StatusForbidden)
 }
 
+// IsConflict reports whether err is an API 409.
+func IsConflict(err error) bool {
+	var apiErr *Error
+	return errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict
+}
+
 // errorEnvelope mirrors the API error body.
 type errorEnvelope struct {
 	Error struct {

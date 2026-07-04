@@ -14,8 +14,23 @@
       </label>
       <label>Target folder <input type="text" name="target_folder" placeholder="uploads (optional)"></label>
       <label>Label <input type="text" name="label" placeholder="e.g. Client deliverables (optional)"></label>
-      <label>Expires in <input type="text" name="expires_in" placeholder="7d or 2026-12-31T00:00:00Z (optional)"></label>
+      <label>Description <input type="text" name="description" placeholder="shown on the upload form (optional)"></label>
+      <label>Expires in <input type="text" name="expires_in" placeholder="7d (optional)"></label>
+      <label>Expires at <input type="text" name="expires_at" placeholder="2026-12-31T00:00:00Z (optional)"></label>
+      <label>Max files <input type="text" name="max_files" placeholder="50 (optional)"></label>
+      <label>Max file size <input type="text" name="max_file_size" placeholder="10MB (optional)"></label>
+      <label>Uploaded file visibility
+        <select name="file_visibility">
+          <option value="">server default</option>
+          <option value="public">public</option>
+          <option value="unlisted">unlisted</option>
+          <option value="protected">protected</option>
+          <option value="private">private</option>
+        </select>
+      </label>
       <label class="nc-scope"><input type="checkbox" name="single_use" value="on"> Single-use (auto-close after first upload)</label>
+      <label class="nc-scope"><input type="checkbox" name="use_submission_folders" value="on"> Submission folders (each upload batch in its own subfolder)</label>
+      <label class="nc-scope"><input type="checkbox" name="allow_uploader_access" value="on"> Show file URLs to uploaders (public/unlisted files only)</label>
       <button class="nc-button" type="submit">Create</button>
     </form>
     {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}

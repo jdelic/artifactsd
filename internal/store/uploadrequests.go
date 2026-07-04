@@ -160,11 +160,13 @@ func (s *Store) UpdateUploadRequest(ctx context.Context, ur *UploadRequest) erro
 }
 
 // CloseUploadRequest sets status to closed/revoked and records revoked_at.
+// Closing transitions only from active; revoking (the stronger state) also
+// escalates an already-closed request.
 func (s *Store) CloseUploadRequest(ctx context.Context, requestID, status string, at time.Time) error {
 	res, err := s.db.sql.ExecContext(ctx,
 		`UPDATE upload_requests SET status = ?, revoked_at = ?
-		 WHERE request_id = ? AND status = ?`,
-		status, fmtTime(at), requestID, UploadRequestActive)
+		 WHERE request_id = ? AND status IN (?, ?) AND status != ?`,
+		status, fmtTime(at), requestID, UploadRequestActive, UploadRequestClosed, status)
 	if err != nil {
 		return err
 	}

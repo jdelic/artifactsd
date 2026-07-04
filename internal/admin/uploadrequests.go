@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/durations"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
+	"github.com/jdelic/artifactsd/internal/units"
 )
 
 // uploadRequestRow is one row of the upload requests table.
@@ -69,6 +72,7 @@ func (h *Handler) createUploadRequestAdmin(w http.ResponseWriter, r *http.Reques
 
 	targetFolder := strings.TrimSpace(r.FormValue("target_folder"))
 	label := strings.TrimSpace(r.FormValue("label"))
+	description := strings.TrimSpace(r.FormValue("description"))
 
 	ur := &store.UploadRequest{
 		RequestID:    requestID,
@@ -79,22 +83,77 @@ func (h *Handler) createUploadRequestAdmin(w http.ResponseWriter, r *http.Reques
 	if label != "" {
 		ur.Label = &label
 	}
-	if expiresIn := strings.TrimSpace(r.FormValue("expires_in")); expiresIn != "" {
-		t, err := time.Parse(time.RFC3339, expiresIn)
+	if description != "" {
+		ur.Description = &description
+	}
+
+	// The absolute/relative expiry pair mirrors the CLI's --expires /
+	// --expires-in convention (design/10 §2).
+	expiresAt := strings.TrimSpace(r.FormValue("expires_at"))
+	expiresIn := strings.TrimSpace(r.FormValue("expires_in"))
+	switch {
+	case expiresAt != "" && expiresIn != "":
+		h.renderUploadRequestsPanel(w, r, "", "set either an absolute expiry or a duration, not both")
+		return
+	case expiresAt != "":
+		t, err := time.Parse(time.RFC3339, expiresAt)
 		if err != nil {
-			// Try as duration (e.g. 30d).
-			d, durErr := durations.Parse(expiresIn)
-			if durErr != nil {
-				h.renderUploadRequestsPanel(w, r, "", "invalid expires_in: "+expiresIn)
-				return
-			}
-			exp := time.Now().UTC().Add(d)
-			t = exp
+			h.renderUploadRequestsPanel(w, r, "", "invalid expires_at (want RFC3339): "+expiresAt)
+			return
 		}
 		ur.ExpiresAt = &t
+	case expiresIn != "":
+		d, err := durations.Parse(expiresIn)
+		if err != nil {
+			h.renderUploadRequestsPanel(w, r, "", "invalid expires_in (want a duration like 7d): "+expiresIn)
+			return
+		}
+		t := time.Now().UTC().Add(d)
+		ur.ExpiresAt = &t
 	}
+
 	if r.FormValue("single_use") == "on" {
 		ur.SingleUse = true
+	}
+	if r.FormValue("use_submission_folders") == "on" {
+		ur.UseSubmissionFolders = true
+	}
+	if r.FormValue("allow_uploader_access") == "on" {
+		ur.AllowUploaderAccess = true
+	}
+	if v := strings.TrimSpace(r.FormValue("max_files")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 1 {
+			h.renderUploadRequestsPanel(w, r, "", "invalid max files: "+v)
+			return
+		}
+		ur.MaxFiles = &n
+	}
+	if v := strings.TrimSpace(r.FormValue("max_file_size")); v != "" {
+		sz, err := units.ParseByteSize(v)
+		if err != nil {
+			h.renderUploadRequestsPanel(w, r, "", "invalid max file size: "+err.Error())
+			return
+		}
+		if sz > h.cfg.Limits.MaxUploadSize {
+			h.renderUploadRequestsPanel(w, r, "", "max file size exceeds the server upload limit")
+			return
+		}
+		ur.MaxFileSize = &sz
+	}
+	if vis := r.FormValue("file_visibility"); vis != "" {
+		switch vis {
+		case "public", "unlisted", "protected", "private":
+			meta, err := json.Marshal(map[string]any{"access": map[string]any{"visibility": vis}})
+			if err != nil {
+				http.Error(w, "encoding file metadata: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			ur.FileMetadata = meta
+		default:
+			h.renderUploadRequestsPanel(w, r, "", "invalid file visibility: "+vis)
+			return
+		}
 	}
 
 	if err := h.store.CreateUploadRequest(ctx, ur); err != nil {

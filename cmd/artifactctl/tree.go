@@ -22,6 +22,9 @@ func (a *app) newTreeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if depth < 0 {
+				return usagef("--depth must be >= 0 (0 = full tree)")
+			}
 			page, err := cli.Tree(cmd.Context(), args[0], path, depth)
 			if err != nil {
 				return err
@@ -42,6 +45,6 @@ func (a *app) newTreeCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&path, "path", "", "scope the listing to this subtree")
-	f.IntVar(&depth, "depth", 0, "limit how many levels below --path are returned (0 = unlimited)")
+	f.IntVar(&depth, "depth", 0, "limit how many levels below --path are returned (0 = full tree)")
 	return cmd
 }

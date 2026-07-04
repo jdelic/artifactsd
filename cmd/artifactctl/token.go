@@ -21,8 +21,8 @@ func (a *app) newTokenCmd() *cobra.Command {
 
 func (a *app) newTokenCreateCmd() *cobra.Command {
 	var (
-		scopes    []string
-		expiresIn string
+		scopes []string
+		expiry expiryFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "create <name>",
@@ -36,7 +36,7 @@ func (a *app) newTokenCreateCmd() *cobra.Command {
 			if len(scopes) == 0 {
 				return usagef("token create requires at least one --scope")
 			}
-			expiresAt, err := expiresAtFrom("", expiresIn)
+			expiresAt, err := expiry.expiresAt()
 			if err != nil {
 				return err
 			}
@@ -58,7 +58,7 @@ func (a *app) newTokenCreateCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringArrayVar(&scopes, "scope", nil, "token scope (repeatable): admin|collections:read|collections:write|shares:read|shares:write|tokens:read|tokens:write")
-	f.StringVar(&expiresIn, "expires-in", "", "expire after duration (e.g. 30d, 48h, 2w)")
+	expiry.register(f)
 	return cmd
 }
 
