@@ -81,16 +81,20 @@ artifactctl rm [-r] <collection>/<path>
 - `--generate-bearer-token` creates a random token and prints it **once**;
   `--bearer-token <t>` takes an explicit value.
 - `put-tree` walks the directory, applies `--include`/`--exclude` globs, and
-  uploads each file under `<collection>/<relative-path>`, switching to
-  large-upload sessions for files over `--large-upload-threshold`. It shows
-  progress on a TTY and prints a summary.
+  uploads each file under `<collection>/<relative-path>`. Both `put` and
+  `put-tree` switch to large-upload sessions for files at or over
+  `--large-upload-threshold` (default 8 MiB). `put-tree` shows progress on a
+  TTY and prints a summary; its metadata flags apply to every uploaded file.
+- `rm` deletes a single file; deleting a folder and its contents requires the
+  explicit `rm -r`.
 
 ### Metadata
 
 ```
 artifactctl meta get <collection>[/<path>]
 artifactctl meta set <collection>[/<path>] [--visibility ...] [--expires ...]
-                                           [--header k=v] [--list] [--no-list] [--crawlable]
+                                           [--header k=v] [--list] [--no-list]
+                                           [--crawlable] [--no-crawlable]
                                            [--index] [--no-index]
 artifactctl meta explain <collection>[/<path>] [--full-chain]
 ```
@@ -128,6 +132,31 @@ artifactctl share revoke <share-id>
 Omit the `/<path>` to share the whole collection. `create` prints the
 `/s/{share_id}/` URL.
 
+### Upload request links
+
+Shareable `/r/{id}` capability URLs that let third parties (humans via a
+browser form, or agents) upload files without API credentials:
+
+```
+artifactctl upload-request create <collection>
+        [--target-folder <path>] [--label <text>] [--description <text>]
+        [--expires <ts>] [--expires-in <dur>]
+        [--max-files <n>] [--max-file-size <size>]
+        [--public|--unlisted|--protected|--private]
+        [--crawlable|--no-crawlable] [--index|--no-index]
+        [--single-use] [--use-submission-folders] [--allow-uploader-access]
+artifactctl upload-request list
+artifactctl upload-request show <request-id>
+artifactctl upload-request close <request-id>     # stop new uploads; keep files
+artifactctl upload-request revoke <request-id>    # permanent
+artifactctl upload-request submissions <request-id>
+```
+
+The visibility/crawl flags set the metadata applied to every uploaded file.
+`--max-file-size` takes human sizes (`10MB`, `500KiB`) — all units are
+1024-based. `create` prints the shareable URL prominently. `ur` is a command
+alias.
+
 ### Listing & crawl
 
 ```
@@ -136,6 +165,8 @@ artifactctl crawl <collection> [--path <p>] [--depth <n>]
 ```
 
 `tree` is the management listing; `crawl` is the policy-filtered agent view.
+For both, `--depth 0` (the default) returns the full tree; a positive value
+limits the number of levels.
 
 ### Tokens
 
@@ -227,8 +258,12 @@ $ artifactctl put-tree web-assets ./public --public \
 | `put` | `PUT /collections/{c}/files/{path}` (or begin-upload for large files) |
 | `put-tree` | many `PUT` / begin-upload |
 | `get` | `GET /collections/{c}/files/{path}` |
-| `meta get/set` | `GET` / `PATCH .../meta` |
+| `rm` / `rm -r` | `DELETE .../files/{path}` / `DELETE .../folders/{path}` |
+| `meta get/set/explain` | `GET`/`PATCH` `.../meta` (collection, folder, or file level) |
 | `share create/list/revoke` | `/collections/{c}/shares`, `/shares/{id}` |
+| `upload-request create/list/show` | `/upload-requests`, `/upload-requests/{id}` |
+| `upload-request close` / `revoke` | `PATCH` status=closed / `DELETE /upload-requests/{id}` |
+| `upload-request submissions` | `GET /upload-requests/{id}/submissions` |
 | `tree` | `GET /collections/{c}/tree` |
 | `crawl` | `GET /collections/{c}/crawl` |
 | `token *` | `/tokens` |

@@ -60,13 +60,24 @@ artifactctl put <name>/report.pdf ./report.pdf \
 # fetch with:  curl -H "Authorization: Bearer <token>" https://<host>/c/<name>/report.pdf
 ```
 
+Ask a third party (human or agent) to send you files — no credentials needed
+on their side:
+
+```console
+artifactctl upload-request create <name> --target-folder inbox \
+  --private --expires-in 7d --use-submission-folders
+# prints an unguessable https://<host>/r/<request_id> URL — share THAT;
+# they open it in a browser or POST files to it directly
+```
+
 Inspect what exists:
 
 ```console
 artifactctl collection list
 artifactctl tree <name>
-artifactctl crawl <name>          # policy-filtered view for agents
+artifactctl crawl <name>              # policy-filtered view for agents
 artifactctl meta get <name>/<path>
+artifactctl meta explain <name>/<path>  # which layer set each policy value
 ```
 
 ## Common tasks (MCP)
@@ -82,7 +93,10 @@ artifactctl meta get <name>/<path>
 
 Other tools: `artifact_get_metadata`, `artifact_set_metadata`,
 `artifact_delete`, `artifact_list_tree`, `artifact_get_public_url`,
-`artifact_get_crawl_tree`.
+`artifact_get_crawl_tree`, and `artifact_create_upload_request` /
+`artifact_list_upload_requests` / `artifact_get_upload_request` /
+`artifact_revoke_upload_request` for collecting files *from* third parties
+via shareable `/r/...` links.
 
 ## Guidance
 
@@ -92,8 +106,9 @@ Other tools: `artifact_get_metadata`, `artifact_set_metadata`,
   text, so they don't bloat the message channel.
 - **Set content types** so browsers render artifacts correctly
   (`--content-type-auto` for trees, `--content-type` for single files).
-- **Don't leak secrets.** `--bearer-token` with no value generates a token and
-  prints it once; capture it and pass it to whoever needs access.
+- **Don't leak secrets.** `--generate-bearer-token` creates a token and prints
+  it once; capture it and pass it to whoever needs access. `--bearer-token`
+  always takes an explicit value.
 - **A missing protected/expired file returns 404, not 403** — that's by design,
   not an error to retry.
 

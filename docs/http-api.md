@@ -22,8 +22,13 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
 - **Timestamps** — RFC3339 UTC. **Durations** — `30d`, `48h`, `2w`.
 - **Idempotency** — `PUT` of a file is a full, idempotent replace; `PATCH .../meta`
   merges.
-- **Pagination** — list endpoints take `?limit=&cursor=` and return
-  `{ "items": [...], "next_cursor": "..." }`.
+- **Pagination** — `GET /collections` takes `?limit=&cursor=` and returns
+  `{ "items": [...], "next_cursor": "..." }`. The other list endpoints use the
+  same `items` envelope but are unpaginated (their result sets stay small at
+  artifactsd's intended scale).
+- **Tree depth** — `?depth=` (on `tree` and `crawl`) omitted or `0` returns
+  the full tree; a positive value limits the number of levels below the base
+  path; anything else is a `400`.
 - **Metadata** in request/response bodies is the JSON metadata document (access,
   content, crawl, expiry blocks).
 
@@ -33,6 +38,7 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
 POST   /api/v1/collections                 create                 collections:write
 GET    /api/v1/collections                 list (paginated)       collections:read
 GET    /api/v1/collections/{c}             get one (+ metadata)   collections:read
+GET    /api/v1/collections/{c}/meta        own + effective meta   collections:read
 PATCH  /api/v1/collections/{c}/meta        merge metadata         collections:write
 DELETE /api/v1/collections/{c}             delete (cascades)      collections:write
 ```
@@ -74,17 +80,30 @@ parent folders are implied. Oversized bodies get `413`. Response:
   "updated_at": "2026-06-21T10:15:00Z" }
 ```
 
-**Metadata (`GET .../meta`)** returns both the object's own metadata and the
-resolved **effective** metadata, with secrets redacted to presence booleans:
+**Metadata (`GET .../meta`)** — available at all three levels (collection,
+folder, file) in one shape: the object's own metadata, the resolved
+**effective** metadata (flat view, secrets redacted to presence booleans), and
+provenance — `chain` (the inheritance layers, lowest precedence first) and
+`sources` (which layer determined each effective property; headers per-key).
+This backs `artifactctl meta explain`:
 
 ```json
 { "path": "report.pdf",
-  "own": { "content": { "...": "..." }, "access": { "...": "..." } },
+  "own": { "access": { "visibility": "protected" } },
   "effective": {
-    "content": { "...": "..." },
-    "access":  { "visibility": "protected", "auth": [ { "type": "bearer", "configured": true } ] },
-    "crawl":   { "...": "..." },
-    "expiry":  { "expires_at": "2026-07-01T00:00:00Z" } } }
+    "visibility": "protected", "directory_listing": false,
+    "content_type": "application/pdf",
+    "headers": { "Cache-Control": "no-store" },
+    "sandbox": true, "crawlable": false, "indexable": false,
+    "auth": [ { "type": "bearer", "configured": true } ],
+    "expires_at": "2026-07-01T00:00:00Z" },
+  "chain": [
+    { "scope": "defaults",   "meta": { "...": "..." } },
+    { "scope": "collection", "meta": { "...": "..." } },
+    { "scope": "file", "path": "report.pdf", "meta": { "...": "..." } } ],
+  "sources": { "visibility": "file report.pdf",
+               "headers.Cache-Control": "file report.pdf",
+               "crawlable": "defaults" } }
 ```
 
 `PATCH .../meta` takes a partial document and merges it. Setting
@@ -103,6 +122,10 @@ GET    /api/v1/collections/{c}/tree?path=&depth=        structured listing      
 `tree` returns nodes with kind/size/content-type/expiry for the admin UI and the
 CLI `tree` command. It is the management listing — distinct from the
 policy-filtered crawl API below.
+
+Deletes are kind-checked in both directions: `DELETE .../files/{path}` on a
+folder and `DELETE .../folders/{path}` on a file each return `409` — recursive
+subtree deletion only happens through the folders route.
 
 ## Large uploads
 
@@ -156,6 +179,55 @@ Create body — `target_path: ""` shares the whole collection:
 
 The response includes the share URL `https://.../s/{share_id}/`.
 
+## Upload request links
+
+Shareable capability URLs (`/r/{request_id}`) that let third parties — humans
+via a browser form, or agents programmatically — upload files into a
+designated collection/folder **without any API credentials**. Distinct from
+upload sessions above: persistent, multi-file, multi-submitter. Management is
+admin-scoped:
+
+```
+POST   /api/v1/upload-requests                          create                admin
+GET    /api/v1/upload-requests                          list                  admin
+GET    /api/v1/upload-requests/{id}                     get one               admin
+PATCH  /api/v1/upload-requests/{id}                     update label/expiry/  admin
+                                                        status (e.g. closed)
+DELETE /api/v1/upload-requests/{id}                     revoke                admin
+GET    /api/v1/upload-requests/{id}/submissions         list submissions      admin
+```
+
+Create body (all fields except `collection` optional):
+
+```json
+{ "collection": "inbox", "target_folder": "q2-deliverables",
+  "label": "Q2 Deliverables", "description": "PDF or DOCX please.",
+  "file_metadata": { "access": { "visibility": "private" } },
+  "allow_uploader_access": false, "single_use": false,
+  "use_submission_folders": true,
+  "max_files": 50, "max_file_size": 52428800,
+  "expires_at": "2026-08-01T00:00:00Z" }
+```
+
+The response includes the shareable `url` (`https://.../r/{request_id}`).
+`file_metadata` is applied to every uploaded file; `use_submission_folders`
+nests each submission under `{target_folder}/{submission_id}/`. **Closing**
+(`PATCH {"status":"closed"}`) stops new uploads and keeps the files;
+**revoking** (`DELETE`) is the permanent form and also escalates an
+already-closed link. Neither deletes uploaded files.
+
+Public routes (no auth — possession of the URL is the capability):
+
+```
+GET  /r/{request_id}           upload form (HTML) or status (JSON clients)
+POST /r/{request_id}           accept upload(s): multipart file parts, or a raw body
+GET  /r/{request_id}/status    JSON status: active/closed/expired, counts
+```
+
+Status codes: `200` upload accepted · `404` unknown link · `410` expired,
+closed, or revoked · `409` max-files quota reached · `413` over the per-link
+or server size limit.
+
 ## Crawl API
 
 ```
@@ -206,6 +278,7 @@ under `/api/v1`:
 ```
 GET|HEAD /c/{collection}/{path...}    serve a collection file (or directory listing)
 GET|HEAD /s/{share_id}/{path...}      serve via a share URL
+GET|POST /r/{request_id}              upload request link (form / accept uploads)
 GET|HEAD /robots.txt                  generated crawl policy
 GET|HEAD /sitemap.xml                 generated sitemap (public, indexable URLs only)
 GET      /healthz, /readyz            liveness / readiness probes
