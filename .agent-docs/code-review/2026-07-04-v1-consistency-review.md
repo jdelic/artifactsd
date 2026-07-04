@@ -184,3 +184,42 @@ relitigation.
 3. `artifactsd-599`, `artifactsd-2db` — CLI capability/uniformity.
 4. `artifactsd-6v9` — docs rewrite against the settled surface.
 5. `artifactsd-nml`, `artifactsd-5zb`, then P4s as time allows; none block v1.0.
+
+## Resolution (2026-07-04)
+
+All ten findings were fixed on this same branch
+(`claude/artifactsd-b6l/v1-consistency-review`, Claude agent), one cohesive
+commit per finding; `go build`, `go vet`, `golangci-lint`, and the full test
+suite are green after every commit. Operator decisions taken during the work:
+
+- **Flag grammar** (`artifactsd-4k4`): implemented the documented surface.
+  Additionally, `--bearer-token` became a plain value flag and auto-generation
+  moved to an explicit `--generate-bearer-token` — pflag cannot parse both a
+  bare optional-value flag and a space-separated value, and the operator chose
+  grammar consistency over the SPEC §20.2 recipe (recipe updated). The CLI now
+  deliberately has **no optional-value flags**.
+- **Depth** (`artifactsd-y6s`): omitted/0 = full tree, positive = N levels,
+  else 400 — on both `/tree` and `/crawl`.
+- **Folder deletes** (`artifactsd-a0c`): files route 409s on folders;
+  `rm -r` added, mapping to the folders DELETE.
+- **Metadata targets** (`artifactsd-2db`): `meta get/set` accepts a bare
+  collection (collection meta), trailing slash (folder, materialized on set),
+  or file path; MCP metadata tools follow the same convention; new
+  `GET /collections/{c}/meta`.
+- **Byte sizes** (`artifactsd-qa8`/`nml`): all units 1024-based (KB ≡ KiB),
+  IEC spellings accepted — shared `internal/units.ParseByteSize` used by CLI
+  and admin.
+- **Expiry pair** (`artifactsd-599`): every expiry-taking command (and the
+  admin upload-request form) takes the `--expires`/`--expires-in` pair.
+- **upload-request parity** (`artifactsd-nml`): file_metadata settable from
+  CLI/MCP/admin; admin form carries the full field set; `revoke` now
+  escalates a closed link (store fix).
+- **`put` threshold** (`artifactsd-5zb`), **polish** (`artifactsd-9mp`:
+  `upload-request show`, `--no-crawlable`, `meta set --list/--no-list`),
+  **dedup** (`artifactsd-qa8`: `store.EnsureParentFolders`), and the **docs
+  rewrite** (`artifactsd-6v9`) landed as specified in the tickets.
+
+Beyond the review findings, the operator requested and received metadata
+provenance tooling: `meta.ResolveTraced` (single merge implementation with an
+optional tracer), `chain` + `sources` on all meta GET endpoints, and
+`artifactctl meta explain [--full-chain]`.
