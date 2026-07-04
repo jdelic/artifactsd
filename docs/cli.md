@@ -65,7 +65,7 @@ artifactctl collection delete <name> [--force]
 ### Files
 
 ```
-artifactctl put <collection>/<path> <localfile>
+artifactctl put <collection>/<path> <localfile> [--large-upload-threshold <bytes>]
         [--content-type <ct>] [--header k=v ...]
         [--public|--protected|--bearer-token <t>|--generate-bearer-token|--basic <user:pass>]
         [--expires <ts>] [--expires-in <dur>] [--no-index]

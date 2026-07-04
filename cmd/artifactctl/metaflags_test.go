@@ -348,6 +348,39 @@ func TestE2E_UniformExpiryFlags(t *testing.T) {
 	}
 }
 
+// TestE2E_Put_LargeUploadThreshold: put switches to a large-upload session at
+// the threshold, carrying the metadata flags along (artifactsd-5zb).
+func TestE2E_Put_LargeUploadThreshold(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "big.bin")
+	if err := os.WriteFile(local, []byte("0123456789abcdef"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Threshold below the file size forces the large-upload path.
+	if code, _, errOut := e.run("put", "demo/big.bin", local,
+		"--large-upload-threshold", "8", "--unlisted"); code != exitOK {
+		t.Fatalf("put large: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut := e.run("get", "demo/big.bin")
+	if code != exitOK || out != "0123456789abcdef" {
+		t.Fatalf("get: code=%d out=%q err=%s", code, out, errOut)
+	}
+	code, out, errOut = e.run("--output", "json", "meta", "get", "demo/big.bin")
+	if code != exitOK {
+		t.Fatalf("meta get: code=%d err=%s", code, errOut)
+	}
+	var got apiclient.FileMeta
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("json: %v (%s)", err, out)
+	}
+	if !strings.Contains(string(got.Own), "unlisted") {
+		t.Errorf("own = %s, want metadata carried through the session path", got.Own)
+	}
+}
+
 // TestE2E_Rm_FolderGuardAndRecursive: rm refuses folders with a hint; rm -r
 // deletes the subtree via the folders endpoint (artifactsd-a0c).
 func TestE2E_Rm_FolderGuardAndRecursive(t *testing.T) {
