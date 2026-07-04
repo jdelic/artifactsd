@@ -13,7 +13,7 @@
 #
 #      Create the directory and restart the client agent:
 #        sudo mkdir -p /opt/artifactsd-data
-#        sudo chown nobody:nogroup /opt/artifactsd-data   # distroless nonroot uid
+#        sudo chown 65532:65532 /opt/artifactsd-data   # distroless nonroot uid/gid
 #        sudo systemctl restart nomad
 #
 #   2. Ensure the Docker image is reachable from your clients:
