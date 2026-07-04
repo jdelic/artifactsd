@@ -30,6 +30,7 @@ func (f *fakeCleaner) RunOnce(context.Context) (any, error) {
 
 type harness struct {
 	h       http.Handler
+	st      *store.Store
 	sess    *session.Manager
 	cleaner *fakeCleaner
 }
@@ -70,7 +71,7 @@ func newHarness(t *testing.T) *harness {
 		Session: sess,
 		Logger:  audit.NewAppLogger(io.Discard, "error"),
 	})
-	return &harness{h: h.Routes(), sess: sess, cleaner: cleaner}
+	return &harness{h: h.Routes(), st: st, sess: sess, cleaner: cleaner}
 }
 
 // withIdentity simulates what adminGate does in the real deployment: stash

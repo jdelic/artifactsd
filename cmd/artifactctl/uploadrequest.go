@@ -1,10 +1,11 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 
 	"github.com/spf13/cobra"
 
+	"github.com/jdelic/artifactsd/internal/units"
 	"github.com/jdelic/artifactsd/pkg/apiclient"
 )
 
@@ -37,6 +38,11 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 		maxFiles             int64
 		maxFileSize          string
 		expiry               expiryFlags
+		vis                  visibilityFlags
+		crawlable            bool
+		noCrawlable          bool
+		index                bool
+		noIndex              bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create <collection>",
@@ -65,7 +71,7 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 				req.MaxFiles = &maxFiles
 			}
 			if maxFileSize != "" {
-				sz, err := parseByteSize(maxFileSize)
+				sz, err := units.ParseByteSize(maxFileSize)
 				if err != nil {
 					return usagef("invalid --max-file-size %q: %v", maxFileSize, err)
 				}
@@ -78,6 +84,15 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 			if expiresAt != "" {
 				req.ExpiresAt = &expiresAt
 			}
+			visibility, err := vis.resolve()
+			if err != nil {
+				return err
+			}
+			fileMeta, err := buildUploadRequestFileMetadata(visibility, crawlable, noCrawlable, index, noIndex)
+			if err != nil {
+				return err
+			}
+			req.FileMetadata = fileMeta
 
 			ur, err := cli.CreateUploadRequest(cmd.Context(), &req)
 			if err != nil {
@@ -96,7 +111,33 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 	f.Int64Var(&maxFiles, "max-files", 0, "maximum total files that may be uploaded (0 = unlimited)")
 	f.StringVar(&maxFileSize, "max-file-size", "", "per-file size limit, e.g. 10MB, 500KB")
 	expiry.register(f)
+	vis.register(f)
+	f.BoolVar(&crawlable, "crawlable", false, "mark uploaded files crawlable")
+	f.BoolVar(&noCrawlable, "no-crawlable", false, "mark uploaded files non-crawlable")
+	f.BoolVar(&index, "index", false, "mark uploaded files indexable")
+	f.BoolVar(&noIndex, "no-index", false, "mark uploaded files non-indexable")
 	return cmd
+}
+
+// buildUploadRequestFileMetadata assembles the file_metadata document applied
+// to every file uploaded through the request link (design/15 §6), or nil when
+// no metadata flag was used.
+func buildUploadRequestFileMetadata(visibility string, crawlable, noCrawlable, index, noIndex bool) (json.RawMessage, error) {
+	crawl, err := buildCrawlPatch(crawlable, noCrawlable, index, noIndex)
+	if err != nil {
+		return nil, err
+	}
+	doc := map[string]any{}
+	if visibility != "" {
+		doc["access"] = map[string]any{"visibility": visibility}
+	}
+	if len(crawl) > 0 {
+		doc["crawl"] = crawl
+	}
+	if len(doc) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(doc)
 }
 
 func (a *app) newUploadRequestListCmd() *cobra.Command {
@@ -248,34 +289,3 @@ func (a *app) renderUploadRequest(ur *apiclient.UploadRequest, textMsg string) e
 	return nil
 }
 
-// parseByteSize parses a human-readable byte size string, e.g. "10MB", "500KB".
-func parseByteSize(s string) (int64, error) {
-	if s == "" {
-		return 0, fmt.Errorf("empty size string")
-	}
-	var n float64
-	var unit string
-	if _, err := fmt.Sscanf(s, "%f%s", &n, &unit); err != nil {
-		// Maybe it's just a bare number.
-		if _, err2 := fmt.Sscanf(s, "%f", &n); err2 != nil {
-			return 0, fmt.Errorf("cannot parse %q", s)
-		}
-		return int64(n), nil
-	}
-	var mult int64
-	switch unit {
-	case "KB", "kb", "K", "k":
-		mult = 1024
-	case "MB", "mb", "M", "m":
-		mult = 1024 * 1024
-	case "GB", "gb", "G", "g":
-		mult = 1024 * 1024 * 1024
-	case "TB", "tb", "T", "t":
-		mult = 1024 * 1024 * 1024 * 1024
-	case "B", "b", "":
-		mult = 1
-	default:
-		return 0, fmt.Errorf("unknown unit %q (use KB, MB, GB, TB)", unit)
-	}
-	return int64(n * float64(mult)), nil
-}
