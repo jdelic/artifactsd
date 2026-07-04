@@ -19,7 +19,8 @@ func TestResolveTraced_Sources(t *testing.T) {
 		Content: &Content{ContentType: strp("text/html")},
 	}
 
-	eff, sources := ResolveTraced(defaults,
+	eff, sources := ResolveTraced(
+		defaults,
 		Layer{Label: "collection", Doc: collection},
 		Layer{Label: "folder docs", Doc: folder},
 		Layer{Label: "file docs/a.html", Doc: file},
@@ -61,7 +62,8 @@ func TestResolveTraced_AuthReplace(t *testing.T) {
 	empty := []AuthEntry{}
 	file := &Document{Access: &Access{Auth: &empty}}
 
-	_, sources := ResolveTraced(Defaults{Visibility: "public"},
+	_, sources := ResolveTraced(
+		Defaults{Visibility: "public"},
 		Layer{Label: "collection", Doc: collection},
 		Layer{Label: "file a.txt", Doc: file},
 	)

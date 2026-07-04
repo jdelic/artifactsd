@@ -297,4 +297,3 @@ func isAdmin(r *http.Request) bool {
 	p := auth.PrincipalFromContext(r.Context())
 	return p != nil && p.Scopes.Has(auth.ScopeAdmin)
 }
-

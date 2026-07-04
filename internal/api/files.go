@@ -260,7 +260,6 @@ func (h *Handler) uploadMetadata(w http.ResponseWriter, r *http.Request) (*meta.
 	return doc, true
 }
 
-
 func (h *Handler) toFileView(collection string, n *store.Node) fileView {
 	v := fileView{
 		Collection: collection, Path: n.Path, URL: h.fileURL(collection, n.Path),
@@ -416,7 +415,6 @@ func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath st
 	}
 	return effective, chain, sources
 }
-
 
 func docOrNil(raw json.RawMessage) *meta.Document {
 	d, err := meta.FromJSON(raw)

@@ -193,4 +193,3 @@ func relativeDepth(path, base string) int {
 	}
 	return strings.Count(rest, "/") + 1
 }
-

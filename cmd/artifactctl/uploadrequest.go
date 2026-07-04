@@ -171,7 +171,7 @@ func (a *app) newUploadRequestGetCmd() *cobra.Command {
 		Use:     "show <request-id>",
 		Aliases: []string{"get"},
 		Short:   "Show an upload request link",
-		Args:  exactArgs(1, "<request-id>"),
+		Args:    exactArgs(1, "<request-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()
 			if err != nil {
@@ -288,4 +288,3 @@ func (a *app) renderUploadRequest(ur *apiclient.UploadRequest, textMsg string) e
 	}
 	return nil
 }
-
