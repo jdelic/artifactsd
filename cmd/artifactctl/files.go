@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -14,7 +15,10 @@ import (
 )
 
 func (a *app) newPutCmd() *cobra.Command {
-	var contentType string
+	var (
+		contentType string
+		metaFlags   uploadMetaFlags
+	)
 	cmd := &cobra.Command{
 		Use:   "put <collection>/<path> <localfile>",
 		Short: "Upload a file",
@@ -28,6 +32,10 @@ func (a *app) newPutCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			doc, err := metaFlags.document()
+			if err != nil {
+				return err
+			}
 			f, err := os.Open(args[1]) //nolint:gosec // user-supplied local file to upload
 			if err != nil {
 				return err
@@ -38,14 +46,16 @@ func (a *app) newPutCmd() *cobra.Command {
 			if ct == "" {
 				ct = mime.TypeByExtension(filepath.Ext(args[1]))
 			}
-			info, err := cli.PutFile(cmd.Context(), collection, path, f, apiclient.PutFileOptions{ContentType: ct})
+			info, err := cli.PutFile(cmd.Context(), collection, path, f, apiclient.PutFileOptions{ContentType: ct, Metadata: doc})
 			if err != nil {
 				return err
 			}
+			a.printGeneratedToken(metaFlags.auth.genToken)
 			return a.renderFile(info, "uploaded %s (%d bytes)\n")
 		},
 	}
 	cmd.Flags().StringVar(&contentType, "content-type", "", "content type (default: inferred from extension)")
+	metaFlags.register(cmd.Flags())
 	return cmd
 }
 
@@ -121,12 +131,22 @@ func (a *app) newRmCmd() *cobra.Command {
 // enough to avoid buffering large bodies through the JSON-API request path.
 const defaultLargeUploadThreshold = 8 << 20 // 8 MiB
 
+// putTreeOpts carries put-tree's per-run settings into the walk.
+type putTreeOpts struct {
+	ctAuto    bool
+	include   string
+	exclude   string
+	threshold int64
+	metadata  json.RawMessage
+}
+
 func (a *app) newPutTreeCmd() *cobra.Command {
 	var (
 		contentTypeAuto      bool
 		include              string
 		exclude              string
 		largeUploadThreshold int64
+		metaFlags            uploadMetaFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "put-tree <collection> <localdir>",
@@ -137,7 +157,15 @@ func (a *app) newPutTreeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.putTree(cmd, cli, args[0], args[1], contentTypeAuto, include, exclude, largeUploadThreshold)
+			doc, err := metaFlags.document()
+			if err != nil {
+				return err
+			}
+			a.printGeneratedToken(metaFlags.auth.genToken)
+			return a.putTree(cmd, cli, args[0], args[1], putTreeOpts{
+				ctAuto: contentTypeAuto, include: include, exclude: exclude,
+				threshold: largeUploadThreshold, metadata: doc,
+			})
 		},
 	}
 	f := cmd.Flags()
@@ -146,6 +174,7 @@ func (a *app) newPutTreeCmd() *cobra.Command {
 	f.StringVar(&exclude, "exclude", "", "skip paths matching this glob")
 	f.Int64Var(&largeUploadThreshold, "large-upload-threshold", defaultLargeUploadThreshold,
 		"files at or above this size (bytes) use a large-upload session instead of a direct PUT")
+	metaFlags.register(f)
 	return cmd
 }
 
@@ -162,8 +191,8 @@ type treeFile struct {
 // large-upload session (design/07 §3) for files at or above it — and reports
 // a summary. A progress bar (design/10 intro) tracks completion on stderr
 // when it is a terminal.
-func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, localDir string, ctAuto bool, include, exclude string, threshold int64) error {
-	files, err := discoverTreeFiles(localDir, include, exclude)
+func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, localDir string, opts putTreeOpts) error {
+	files, err := discoverTreeFiles(localDir, opts.include, opts.exclude)
 	if err != nil {
 		return err
 	}
@@ -173,10 +202,10 @@ func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, loc
 	var totalBytes int64
 	for _, tf := range files {
 		ct := ""
-		if ctAuto {
+		if opts.ctAuto {
 			ct = mime.TypeByExtension(filepath.Ext(tf.abs))
 		}
-		if err := a.putTreeFile(cmd, cli, collection, tf, ct, threshold); err != nil {
+		if err := a.putTreeFile(cmd, cli, collection, tf, ct, opts.threshold, opts.metadata); err != nil {
 			prog.finish()
 			return err
 		}
@@ -197,8 +226,9 @@ func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, loc
 }
 
 // putTreeFile uploads one file: a direct PUT below threshold, a large-upload
-// session (begin + capability PUT) at or above it.
-func (a *app) putTreeFile(cmd *cobra.Command, cli *apiclient.Client, collection string, tf treeFile, contentType string, threshold int64) error {
+// session (begin + capability PUT) at or above it. metadata (optional) is
+// applied to every uploaded file.
+func (a *app) putTreeFile(cmd *cobra.Command, cli *apiclient.Client, collection string, tf treeFile, contentType string, threshold int64, metadata json.RawMessage) error {
 	f, err := os.Open(tf.abs) //nolint:gosec // walking a user-supplied directory to upload
 	if err != nil {
 		return err
@@ -206,7 +236,7 @@ func (a *app) putTreeFile(cmd *cobra.Command, cli *apiclient.Client, collection 
 	defer func() { _ = f.Close() }()
 
 	if threshold > 0 && tf.size >= threshold {
-		session, err := cli.BeginUpload(cmd.Context(), collection, apiclient.BeginUploadRequest{Path: tf.rel})
+		session, err := cli.BeginUpload(cmd.Context(), collection, apiclient.BeginUploadRequest{Path: tf.rel, Metadata: metadata})
 		if err != nil {
 			return fmt.Errorf("beginning upload for %s: %w", tf.rel, err)
 		}
@@ -216,7 +246,7 @@ func (a *app) putTreeFile(cmd *cobra.Command, cli *apiclient.Client, collection 
 		return nil
 	}
 
-	if _, err := cli.PutFile(cmd.Context(), collection, tf.rel, f, apiclient.PutFileOptions{ContentType: contentType}); err != nil {
+	if _, err := cli.PutFile(cmd.Context(), collection, tf.rel, f, apiclient.PutFileOptions{ContentType: contentType, Metadata: metadata}); err != nil {
 		return fmt.Errorf("uploading %s: %w", tf.rel, err)
 	}
 	return nil

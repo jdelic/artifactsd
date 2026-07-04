@@ -26,12 +26,13 @@ func (a *app) newCollectionCmd() *cobra.Command {
 
 func (a *app) newCollectionCreateCmd() *cobra.Command {
 	var (
-		visibility string
-		list       bool
-		noList     bool
-		crawlable  bool
-		index      bool
-		noIndex    bool
+		vis       visibilityFlags
+		expiry    expiryFlags
+		list      bool
+		noList    bool
+		crawlable bool
+		index     bool
+		noIndex   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create <name>",
@@ -42,7 +43,15 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			meta, err := buildCollectionMetadata(visibility, list, noList, crawlable, index, noIndex)
+			visibility, err := vis.resolve()
+			if err != nil {
+				return err
+			}
+			expiresAt, err := expiry.expiresAt()
+			if err != nil {
+				return err
+			}
+			meta, err := buildCollectionMetadata(visibility, expiresAt, list, noList, crawlable, index, noIndex)
 			if err != nil {
 				return err
 			}
@@ -56,7 +65,8 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&visibility, "visibility", "", "visibility: public|unlisted|protected|private")
+	vis.register(f)
+	expiry.register(f)
 	f.BoolVar(&list, "list", false, "enable directory listing")
 	f.BoolVar(&noList, "no-list", false, "disable directory listing")
 	f.BoolVar(&crawlable, "crawlable", false, "mark crawlable")
@@ -150,14 +160,12 @@ func (a *app) renderCollection(col *apiclient.Collection, textMsg string) error 
 	return nil
 }
 
-// buildCollectionMetadata assembles a metadata document from the create flags,
-// or nil when no access/crawl flags are set (server applies defaults).
-func buildCollectionMetadata(visibility string, list, noList, crawlable, index, noIndex bool) (json.RawMessage, error) {
+// buildCollectionMetadata assembles a metadata document from the create flags
+// (visibility and expiresAt already resolved), or nil when no flag is set
+// (server applies defaults).
+func buildCollectionMetadata(visibility, expiresAt string, list, noList, crawlable, index, noIndex bool) (json.RawMessage, error) {
 	if list && noList {
 		return nil, usagef("--list and --no-list are mutually exclusive")
-	}
-	if visibility != "" && !validVisibility(visibility) {
-		return nil, usagef("invalid --visibility %q: want public|unlisted|protected|private", visibility)
 	}
 	crawl, err := buildCrawlPatch(crawlable, index, noIndex)
 	if err != nil {
@@ -179,6 +187,9 @@ func buildCollectionMetadata(visibility string, list, noList, crawlable, index, 
 	}
 	if len(crawl) > 0 {
 		doc["crawl"] = crawl
+	}
+	if expiresAt != "" {
+		doc["expiry"] = map[string]any{"expires_at": expiresAt}
 	}
 	if len(doc) == 0 {
 		return nil, nil

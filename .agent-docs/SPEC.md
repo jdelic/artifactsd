@@ -560,7 +560,7 @@ artifactctl put-tree sales-demo-2026 ./dist \
 Create a protected share:
 ```javascript
 artifactctl share create sales-demo-2026/report.pdf \
-  --bearer-token \
+  --generate-bearer-token \
   --expires-in 7d
 ```
 List a tree:

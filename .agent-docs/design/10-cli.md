@@ -44,7 +44,7 @@ artifactctl collection delete <name> [--force]
 
 artifactctl put <collection>/<path> <localfile>
         [--content-type <ct>] [--header k=v ...]
-        [--public|--protected|--bearer-token <t>|--basic <user:pass>]
+        [--public|--protected|--bearer-token <t>|--generate-bearer-token|--basic <user:pass>]
         [--expires <ts>] [--expires-in <dur>] [--no-index]
 artifactctl put-tree <collection> <localdir>
         [--content-type-auto] [--public] [--no-index] [--header k=v ...]
@@ -57,7 +57,7 @@ artifactctl meta set <collection>/<path> [--visibility ...] [--expires ...]
                                          [--header k=v] [--crawlable] [--index] [--no-index]
 
 artifactctl share create <collection>[/<path>]
-        [--unlisted|--protected] [--bearer-token [<t>]] [--basic <user:pass>]
+        [--unlisted|--protected] [--bearer-token <t>|--generate-bearer-token] [--basic <user:pass>]
         [--expires-in <dur>] [--expires <ts>]
 artifactctl share list <collection>
 artifactctl share revoke <share-id>
@@ -77,8 +77,10 @@ artifactctl version
 
 - `put` infers content-type from extension unless `--content-type` is given;
   `put-tree --content-type-auto` does this per file (SPEC §15, §20.1).
-- `--bearer-token` with no value generates a random token and prints it once
-  (matching the share UX in SPEC §20.2/§20.3).
+- `--generate-bearer-token` creates a random token and prints it once
+  (SPEC §20.2/§20.3). `--bearer-token` always takes an explicit value; the CLI
+  deliberately has no optional-value flags, so every flag parses with the same
+  space-separated grammar.
 - `put-tree` walks the directory, applies include/exclude globs, uploads each
   file under `<collection>/<relative-path>`, using large-upload sessions for
   files over a threshold. Reports a summary.

@@ -185,7 +185,7 @@ func TestE2E_ShareCreate_GeneratedBearerToken(t *testing.T) {
 	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
 		t.Fatalf("create collection: code=%d err=%s", code, errOut)
 	}
-	code, out, errOut := e.run("--output", "json", "share", "create", "demo", "--protected", "--bearer-token")
+	code, out, errOut := e.run("--output", "json", "share", "create", "demo", "--protected", "--generate-bearer-token")
 	if code != exitOK {
 		t.Fatalf("share create: code=%d err=%s", code, errOut)
 	}

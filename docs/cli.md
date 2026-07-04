@@ -67,7 +67,7 @@ artifactctl collection delete <name> [--force]
 ```
 artifactctl put <collection>/<path> <localfile>
         [--content-type <ct>] [--header k=v ...]
-        [--public|--protected|--bearer-token <t>|--basic <user:pass>]
+        [--public|--protected|--bearer-token <t>|--generate-bearer-token|--basic <user:pass>]
         [--expires <ts>] [--expires-in <dur>] [--no-index]
 artifactctl put-tree <collection> <localdir>
         [--content-type-auto] [--public] [--no-index] [--header k=v ...]
@@ -78,8 +78,8 @@ artifactctl rm <collection>/<path>
 
 - `put` infers content type from the file extension unless `--content-type` is
   given.
-- `--bearer-token` with **no value** generates a random token and prints it
-  once.
+- `--generate-bearer-token` creates a random token and prints it **once**;
+  `--bearer-token <t>` takes an explicit value.
 - `put-tree` walks the directory, applies `--include`/`--exclude` globs, and
   uploads each file under `<collection>/<relative-path>`, switching to
   large-upload sessions for files over `--large-upload-threshold`. It shows
@@ -100,7 +100,7 @@ artifactctl meta set <collection>/<path> [--visibility ...] [--expires ...]
 
 ```
 artifactctl share create <collection>[/<path>]
-        [--unlisted|--protected] [--bearer-token [<t>]] [--basic <user:pass>]
+        [--unlisted|--protected] [--bearer-token <t>|--generate-bearer-token] [--basic <user:pass>]
         [--expires-in <dur>] [--expires <ts>]
 artifactctl share list <collection>
 artifactctl share revoke <share-id>
