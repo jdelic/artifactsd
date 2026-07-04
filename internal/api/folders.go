@@ -74,7 +74,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	parentID, err := h.ensureParents(r.Context(), c.ID, p)
+	parentID, err := h.store.EnsureParentFolders(r.Context(), c.ID, p)
 	if err != nil {
 		h.storeWriteError(w, "materialize folders", err)
 		return

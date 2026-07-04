@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"mime"
@@ -71,7 +70,7 @@ func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 		h.renderTreePanel(w, r, c, dir, "storing file: "+err.Error())
 		return
 	}
-	parentID, err := h.ensureParents(ctx, c.ID, p)
+	parentID, err := h.store.EnsureParentFolders(ctx, c.ID, p)
 	if err != nil {
 		if errors.Is(err, store.ErrKindConflict) {
 			h.renderTreePanel(w, r, c, dir, "a path segment already exists as a file, not a folder")
@@ -176,48 +175,6 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
-}
-
-// ensureParents materializes folder nodes for each ancestor of p, returning
-// the immediate parent's id (nil at collection root) — mirrors design/07 §4
-// ("always create parent folder rows on upload"); duplicated from
-// internal/api since that package's helper is unexported and the admin UI
-// goes through the store directly rather than looping back through the API.
-func (h *Handler) ensureParents(ctx context.Context, collectionID int64, p string) (*int64, error) {
-	segs := strings.Split(p, "/")
-	if len(segs) == 1 {
-		return nil, nil
-	}
-	var parentID *int64
-	prefix := ""
-	for _, seg := range segs[:len(segs)-1] {
-		if prefix == "" {
-			prefix = seg
-		} else {
-			prefix += "/" + seg
-		}
-		existing, err := h.store.GetNode(ctx, collectionID, prefix)
-		if err == nil {
-			if existing.Kind != store.KindFolder {
-				return nil, store.ErrKindConflict // an existing ancestor must be a folder
-			}
-			parentID = &existing.ID
-			continue
-		}
-		if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
-		}
-		folder := &store.Node{
-			CollectionID: collectionID, ParentID: parentID, Path: prefix,
-			Name: lastSegment(prefix), Kind: store.KindFolder, Metadata: json.RawMessage(`{}`),
-		}
-		if err := h.store.UpsertNode(ctx, folder); err != nil {
-			return nil, err
-		}
-		id := folder.ID
-		parentID = &id
-	}
-	return parentID, nil
 }
 
 func lastSegment(p string) string { return path.Base(p) }

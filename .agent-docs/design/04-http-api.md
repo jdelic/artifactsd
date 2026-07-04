@@ -18,8 +18,11 @@ envelope.
 - **Timestamps**: RFC3339 UTC. **Durations**: `30d`, `48h`, `2w`.
 - **Metadata** in bodies is the JSON form of the [metadata document](03-metadata-policy.md).
 - **Idempotency**: `PUT` file is idempotent (full replace). `PATCH` meta merges.
-- **Pagination**: list endpoints accept `?limit=&cursor=`; return
-  `{ "items": [...], "next_cursor": "..." }`.
+- **Pagination**: `GET /collections` accepts `?limit=&cursor=` and returns
+  `{ "items": [...], "next_cursor": "..." }`. The other list endpoints
+  (shares, tokens, upload-requests, submissions) return the same `items`
+  envelope but are deliberately unpaginated for v1 — at the intended scale
+  (decision N7) their result sets stay small; revisit if that changes.
 
 ## 2. Collections (SPEC §12.1)
 
