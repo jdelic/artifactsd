@@ -207,6 +207,36 @@ func TestE2E_Put_GeneratedBearerToken(t *testing.T) {
 	}
 }
 
+// TestE2E_UniformExpiryFlags: every expiry-taking command accepts both
+// --expires and --expires-in (artifactsd-599).
+func TestE2E_UniformExpiryFlags(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/a.txt", local); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+
+	// meta set now takes --expires-in (previously only --expires).
+	if code, _, errOut := e.run("meta", "set", "demo/a.txt", "--expires-in", "12h"); code != exitOK {
+		t.Fatalf("meta set --expires-in: code=%d err=%s", code, errOut)
+	}
+	// token create now takes --expires (previously only --expires-in).
+	if code, _, errOut := e.run("token", "create", "ci", "--scope", "collections:read",
+		"--expires", "2039-01-01T00:00:00Z"); code != exitOK {
+		t.Fatalf("token create --expires: code=%d err=%s", code, errOut)
+	}
+	// The pair stays mutually exclusive everywhere.
+	if code, _, _ := e.run("meta", "set", "demo/a.txt", "--expires", "2039-01-01T00:00:00Z", "--expires-in", "1d"); code != exitUsage {
+		t.Fatalf("mutually exclusive pair: code=%d, want %d", code, exitUsage)
+	}
+}
+
 // TestE2E_PutTree_MetadataFlags covers SPEC §20.1/§20.4: put-tree with
 // --public, --no-index, and --header applied to every uploaded file.
 func TestE2E_PutTree_MetadataFlags(t *testing.T) {

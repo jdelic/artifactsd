@@ -36,8 +36,7 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 		useSubmissionFolders bool
 		maxFiles             int64
 		maxFileSize          string
-		expires              string
-		expiresIn            string
+		expiry               expiryFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "create <collection>",
@@ -72,7 +71,7 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 				}
 				req.MaxFileSize = &sz
 			}
-			expiresAt, err := expiresAtFrom(expires, expiresIn)
+			expiresAt, err := expiry.expiresAt()
 			if err != nil {
 				return err
 			}
@@ -96,8 +95,7 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 	f.BoolVar(&useSubmissionFolders, "use-submission-folders", false, "store each submission in a unique subfolder")
 	f.Int64Var(&maxFiles, "max-files", 0, "maximum total files that may be uploaded (0 = unlimited)")
 	f.StringVar(&maxFileSize, "max-file-size", "", "per-file size limit, e.g. 10MB, 500KB")
-	f.StringVar(&expires, "expires", "", "expire at absolute RFC3339 timestamp")
-	f.StringVar(&expiresIn, "expires-in", "", "expire after duration (e.g. 30d, 48h, 2w)")
+	expiry.register(f)
 	return cmd
 }
 

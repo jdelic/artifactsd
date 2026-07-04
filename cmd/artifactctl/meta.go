@@ -48,12 +48,12 @@ func (a *app) newMetaGetCmd() *cobra.Command {
 
 func (a *app) newMetaSetCmd() *cobra.Command {
 	var (
-		visibility string
-		expires    string
-		headers    []string
-		crawlable  bool
-		index      bool
-		noIndex    bool
+		vis       visibilityFlags
+		expiry    expiryFlags
+		headers   []string
+		crawlable bool
+		index     bool
+		noIndex   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "set <collection>/<path>",
@@ -68,7 +68,15 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			patch, err := buildFileMetaPatch(visibility, expires, headers, crawlable, index, noIndex)
+			visibility, err := vis.resolve()
+			if err != nil {
+				return err
+			}
+			expiresAt, err := expiry.expiresAt()
+			if err != nil {
+				return err
+			}
+			patch, err := buildFileMetaPatch(visibility, expiresAt, headers, crawlable, index, noIndex)
 			if err != nil {
 				return err
 			}
@@ -84,8 +92,8 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&visibility, "visibility", "", "visibility: public|unlisted|protected|private")
-	f.StringVar(&expires, "expires", "", "expire at absolute RFC3339 timestamp")
+	vis.register(f)
+	expiry.register(f)
 	f.StringArrayVar(&headers, "header", nil, "response header k=v (repeatable)")
 	f.BoolVar(&crawlable, "crawlable", false, "mark crawlable")
 	f.BoolVar(&index, "index", false, "mark indexable")
@@ -94,11 +102,9 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 }
 
 // buildFileMetaPatch assembles a metadata document patch from the `meta set`
-// flags (design/03 §2 for the document shape).
-func buildFileMetaPatch(visibility, expires string, headers []string, crawlable, index, noIndex bool) (json.RawMessage, error) {
-	if visibility != "" && !validVisibility(visibility) {
-		return nil, usagef("invalid --visibility %q: want public|unlisted|protected|private", visibility)
-	}
+// flags (design/03 §2 for the document shape); visibility and expiresAt arrive
+// already resolved.
+func buildFileMetaPatch(visibility, expiresAt string, headers []string, crawlable, index, noIndex bool) (json.RawMessage, error) {
 	crawl, err := buildCrawlPatch(crawlable, index, noIndex)
 	if err != nil {
 		return nil, err
@@ -117,11 +123,11 @@ func buildFileMetaPatch(visibility, expires string, headers []string, crawlable,
 	if len(crawl) > 0 {
 		doc["crawl"] = crawl
 	}
-	if expires != "" {
-		doc["expiry"] = map[string]any{"expires_at": expires}
+	if expiresAt != "" {
+		doc["expiry"] = map[string]any{"expires_at": expiresAt}
 	}
 	if len(doc) == 0 {
-		return nil, usagef("meta set requires at least one of --visibility, --expires, --header, --crawlable, --index, --no-index")
+		return nil, usagef("meta set requires at least one of --visibility (or a shorthand), --expires, --expires-in, --header, --crawlable, --index, --no-index")
 	}
 	return json.Marshal(doc)
 }
