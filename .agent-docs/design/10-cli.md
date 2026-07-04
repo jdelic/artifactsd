@@ -50,7 +50,7 @@ artifactctl put-tree <collection> <localdir>
         [--content-type-auto] [--public] [--no-index] [--header k=v ...]
         [--include glob] [--exclude glob] [--large-upload-threshold <bytes>]
 artifactctl get <collection>/<path> [-o <localfile>]
-artifactctl rm <collection>/<path>
+artifactctl rm [-r] <collection>/<path>
 
 artifactctl meta get <collection>/<path>
 artifactctl meta set <collection>/<path> [--visibility ...] [--expires ...]

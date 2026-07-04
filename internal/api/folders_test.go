@@ -41,6 +41,23 @@ func TestFolders_DeleteFileViaFolderConflict(t *testing.T) {
 	}
 }
 
+// TestFiles_DeleteFolderViaFileConflict is the symmetric guard
+// (artifactsd-a0c): before it, DELETE .../files/{folder} cascade-deleted the
+// whole subtree through the single-file route.
+func TestFiles_DeleteFolderViaFileConflict(t *testing.T) {
+	h := newHarness(t)
+	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
+	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/docs/a.txt", []byte("a"), nil)
+
+	// Deleting a folder path via the files endpoint → 409, nothing removed.
+	if rec := h.do(t, h.token, http.MethodDelete, "/api/v1/collections/demo/files/docs", nil, nil); rec.Code != http.StatusConflict {
+		t.Errorf("delete folder via files = %d, want 409", rec.Code)
+	}
+	if rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/files/docs/a.txt", nil, nil); rec.Code != http.StatusOK {
+		t.Errorf("file after rejected delete = %d, want 200 (subtree must survive)", rec.Code)
+	}
+}
+
 func TestTree(t *testing.T) {
 	h := newHarness(t)
 	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)

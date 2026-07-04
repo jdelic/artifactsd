@@ -237,6 +237,50 @@ func TestE2E_UniformExpiryFlags(t *testing.T) {
 	}
 }
 
+// TestE2E_Rm_FolderGuardAndRecursive: rm refuses folders with a hint; rm -r
+// deletes the subtree via the folders endpoint (artifactsd-a0c).
+func TestE2E_Rm_FolderGuardAndRecursive(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/docs/a.txt", local); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+
+	// Plain rm on a folder: refused with the -r hint, nothing deleted.
+	code, _, errOut := e.run("rm", "demo/docs")
+	if code != exitError {
+		t.Fatalf("rm folder: code=%d err=%s, want %d", code, errOut, exitError)
+	}
+	if !strings.Contains(errOut, "use rm -r") {
+		t.Errorf("stderr = %q, want rm -r hint", errOut)
+	}
+	if code, _, _ := e.run("get", "demo/docs/a.txt"); code != exitOK {
+		t.Fatalf("file gone after refused rm: code=%d", code)
+	}
+
+	// rm -r removes the folder and its contents.
+	if code, _, errOut := e.run("rm", "-r", "demo/docs"); code != exitOK {
+		t.Fatalf("rm -r: code=%d err=%s", code, errOut)
+	}
+	if code, _, _ := e.run("get", "demo/docs/a.txt"); code != exitNotFound {
+		t.Fatalf("file after rm -r: code=%d, want %d", code, exitNotFound)
+	}
+
+	// rm -r on a file is the inverse conflict.
+	if code, _, errOut := e.run("put", "demo/b.txt", local); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+	if code, _, _ := e.run("rm", "-r", "demo/b.txt"); code != exitError {
+		t.Fatalf("rm -r on file: code=%d, want %d", code, exitError)
+	}
+}
+
 // TestE2E_PutTree_MetadataFlags covers SPEC §20.1/§20.4: put-tree with
 // --public, --no-index, and --header applied to every uploaded file.
 func TestE2E_PutTree_MetadataFlags(t *testing.T) {

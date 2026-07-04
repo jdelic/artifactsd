@@ -73,7 +73,7 @@ artifactctl put-tree <collection> <localdir>
         [--content-type-auto] [--public] [--no-index] [--header k=v ...]
         [--include glob] [--exclude glob] [--large-upload-threshold <bytes>]
 artifactctl get <collection>/<path> [-o <localfile>]
-artifactctl rm <collection>/<path>
+artifactctl rm [-r] <collection>/<path>
 ```
 
 - `put` infers content type from the file extension unless `--content-type` is

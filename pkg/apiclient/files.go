@@ -53,9 +53,16 @@ func (c *Client) GetFile(ctx context.Context, collection, path string) (io.ReadC
 	return c.openStream(ctx, filePath(collection, path))
 }
 
-// DeleteFile removes a file (design/04 §3).
+// DeleteFile removes a file (design/04 §3). Folder paths are rejected with a
+// 409 — use DeleteFolder for recursive subtree deletion.
 func (c *Client) DeleteFile(ctx context.Context, collection, path string) error {
 	return c.sendJSON(ctx, http.MethodDelete, filePath(collection, path), nil, nil)
+}
+
+// DeleteFolder removes a folder and its whole subtree (design/04 §4). File
+// paths are rejected with a 409.
+func (c *Client) DeleteFolder(ctx context.Context, collection, path string) error {
+	return c.sendJSON(ctx, http.MethodDelete, folderPath(collection, path), nil, nil)
 }
 
 // FileMeta is the response shape for file metadata reads and patches
@@ -91,6 +98,11 @@ func (c *Client) PatchFileMeta(ctx context.Context, collection, path string, pat
 // the slash separators the {path...} wildcard expects.
 func filePath(collection, path string) string {
 	return "/api/v1/collections/" + url.PathEscape(collection) + "/files/" + escapeSegments(path)
+}
+
+// folderPath builds the /folders/ route the same way.
+func folderPath(collection, path string) string {
+	return "/api/v1/collections/" + url.PathEscape(collection) + "/folders/" + escapeSegments(path)
 }
 
 // escapeSegments percent-escapes each "/"-separated segment.

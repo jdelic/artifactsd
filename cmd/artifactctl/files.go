@@ -103,9 +103,10 @@ func (a *app) newGetCmd() *cobra.Command {
 }
 
 func (a *app) newRmCmd() *cobra.Command {
-	return &cobra.Command{
+	var recursive bool
+	cmd := &cobra.Command{
 		Use:   "rm <collection>/<path>",
-		Short: "Delete a file",
+		Short: "Delete a file (or a folder subtree with -r)",
 		Args:  exactArgs(1, "<collection>/<path>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()
@@ -116,13 +117,25 @@ func (a *app) newRmCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if recursive {
+				if err := cli.DeleteFolder(cmd.Context(), collection, path); err != nil {
+					return err
+				}
+				a.printf("deleted %s/%s/ (recursive)\n", collection, path)
+				return nil
+			}
 			if err := cli.DeleteFile(cmd.Context(), collection, path); err != nil {
+				if apiclient.IsConflict(err) {
+					return fmt.Errorf("%s/%s is a folder; use rm -r to delete it and its contents", collection, path)
+				}
 				return err
 			}
 			a.printf("deleted %s/%s\n", collection, path)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "delete a folder and everything beneath it")
+	return cmd
 }
 
 // defaultLargeUploadThreshold is put-tree's default cutover point (bytes)

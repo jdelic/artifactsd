@@ -133,6 +133,13 @@ func (h *Handler) deleteFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Mirror deleteFolder's guard in the other direction: without this, the
+	// parent_id ON DELETE CASCADE would silently remove a whole subtree
+	// through the single-file route (artifactsd-a0c).
+	if node.Kind != store.KindFile {
+		writeError(w, http.StatusConflict, CodeConflict, "path is a folder, not a file; use the folders endpoint")
+		return
+	}
 	if err := h.store.DeleteNode(r.Context(), node.ID); err != nil {
 		h.internalServerError(w, "delete node", err)
 		return
