@@ -140,7 +140,11 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := strings.Trim(r.URL.Query().Get("path"), "/")
-	depth := parseDepth(r.URL.Query().Get("depth"))
+	depth, err := parseDepthParam(r.URL.Query().Get("depth"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
+		return
+	}
 
 	nodes, err := h.store.ListCollectionNodes(r.Context(), c.ID)
 	if err != nil {
@@ -189,13 +193,3 @@ func relativeDepth(path, base string) int {
 	return strings.Count(rest, "/") + 1
 }
 
-func parseDepth(s string) int {
-	if s == "" {
-		return 0 // unlimited
-	}
-	n := parseLimit(s)
-	if s == "0" {
-		return 0
-	}
-	return n
-}

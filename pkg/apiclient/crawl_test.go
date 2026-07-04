@@ -12,7 +12,7 @@ func TestClient_Crawl(t *testing.T) {
 		if r.URL.Path != "/api/v1/collections/demo/crawl" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		if r.URL.Query().Get("path") != "docs" || r.URL.Query().Get("depth") != "-1" {
+		if r.URL.Query().Get("path") != "docs" || r.URL.Query().Get("depth") != "2" {
 			t.Errorf("query = %s", r.URL.RawQuery)
 		}
 		_ = json.NewEncoder(w).Encode(CrawlResponse{
@@ -24,7 +24,7 @@ func TestClient_Crawl(t *testing.T) {
 			},
 		})
 	})
-	resp, err := c.Crawl(context.Background(), "demo", "docs", -1)
+	resp, err := c.Crawl(context.Background(), "demo", "docs", 2)
 	if err != nil {
 		t.Fatalf("crawl: %v", err)
 	}

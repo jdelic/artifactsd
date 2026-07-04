@@ -91,7 +91,7 @@ func (s *Server) deleteArtifact(ctx context.Context, _ *gosdk.CallToolRequest, i
 type ListTreeIn struct {
 	Collection string `json:"collection" jsonschema:"Collection name"`
 	Path       string `json:"path,omitempty" jsonschema:"Scope the listing to this subtree; the collection root if omitted"`
-	Depth      int    `json:"depth,omitempty" jsonschema:"Levels below path to return; 0 for the server default (immediate children)"`
+	Depth      int    `json:"depth,omitempty" jsonschema:"Levels below path to return; omit or 0 for the full tree"`
 }
 
 func (s *Server) listTree(ctx context.Context, _ *gosdk.CallToolRequest, in *ListTreeIn) (*gosdk.CallToolResult, apiclient.Page[apiclient.TreeNode], error) {

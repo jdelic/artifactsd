@@ -12,7 +12,7 @@ import (
 type GetCrawlTreeIn struct {
 	Collection string `json:"collection" jsonschema:"Collection name"`
 	Path       string `json:"path,omitempty" jsonschema:"Scope the crawl to this subtree; the collection root if omitted"`
-	Depth      int    `json:"depth,omitempty" jsonschema:"Levels below path to recurse; 0 for the server default, negative for unlimited"`
+	Depth      int    `json:"depth,omitempty" jsonschema:"Levels below path to return; omit or 0 for the full tree"`
 }
 
 func (s *Server) getCrawlTree(ctx context.Context, _ *gosdk.CallToolRequest, in *GetCrawlTreeIn) (*gosdk.CallToolResult, apiclient.CrawlResponse, error) {

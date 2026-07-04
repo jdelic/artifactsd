@@ -23,6 +23,9 @@ func (a *app) newCrawlCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if depth < 0 {
+				return usagef("--depth must be >= 0 (0 = full tree)")
+			}
 			resp, err := cli.Crawl(cmd.Context(), args[0], path, depth)
 			if err != nil {
 				return err
@@ -43,6 +46,6 @@ func (a *app) newCrawlCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&path, "path", "", "scope the crawl to this subtree")
-	f.IntVar(&depth, "depth", 0, "levels below --path to recurse (0 = server default, negative = unlimited)")
+	f.IntVar(&depth, "depth", 0, "limit how many levels below --path are returned (0 = full tree)")
 	return cmd
 }
