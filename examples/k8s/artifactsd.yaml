@@ -93,9 +93,9 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65534    # distroless "nonroot"
-        runAsGroup: 65534
-        fsGroup: 65534
+        runAsUser: 65532    # distroless "nonroot"
+        runAsGroup: 65532
+        fsGroup: 65532
       containers:
         - name: artifactsd
           image: registry.maurus.net/agent-tools/artifactsd:latest

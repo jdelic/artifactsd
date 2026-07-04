@@ -131,8 +131,8 @@ volume for persistent data. It includes Traefik tags for automatic routing and
 a Consul health check against `/healthz`.
 
 **Before submitting the job**, configure a `host_volume "artifactsd-data"`
-block on your Nomad client(s) pointing at a directory owned by `nobody`
-(uid 65534, which the distroless image runs as), then set `ARTIFACTSD_BASE_URL`
+block on your Nomad client(s) pointing at a directory owned by uid/gid 65532
+(the distroless `nonroot` image's runtime user), then set `ARTIFACTSD_BASE_URL`
 and replace `ARTIFACTSD_BOOTSTRAP_TOKEN` with a real random value.
 
 > **count must stay at 1.** artifactsd uses in-process SQLite; multiple
