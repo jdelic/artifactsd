@@ -92,12 +92,28 @@ artifactctl meta get <collection>[/<path>]
 artifactctl meta set <collection>[/<path>] [--visibility ...] [--expires ...]
                                            [--header k=v] [--crawlable]
                                            [--index] [--no-index]
+artifactctl meta explain <collection>[/<path>] [--full-chain]
 ```
 
 `meta get` shows both the object's own and the resolved effective metadata.
 A bare `<collection>` targets the collection's own metadata, a trailing slash
 (`demo/docs/`) targets a folder (materializing it on `set`), and any other
 path targets the file.
+
+`meta explain` shows where every effective property comes from:
+
+```console
+$ artifactctl meta explain demo/docs/a.html
+effective:
+  visibility:              "unlisted"             (from folder docs)
+  expires_at:              "2026-07-11T12:57:17Z" (from file docs/a.html)
+  headers.Cache-Control:   "no-store"             (from file docs/a.html)
+  crawlable:               false                  (from defaults)
+  ...
+```
+
+`--full-chain` additionally prints each inheritance layer's own metadata,
+lowest precedence first (server defaults → collection → folders → file).
 
 ### Shares
 

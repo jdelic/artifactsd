@@ -65,8 +65,13 @@ Upload:
     "updated_at":"2026-06-21T10:15:00Z" }
   ```
 
-`GET .../meta` returns both the object's own metadata and the resolved
-**effective** metadata (with secrets redacted to hash-presence booleans):
+`GET .../meta` (files, folders, and collections alike) returns the object's
+own metadata, the resolved **effective** metadata (with secrets redacted to
+hash-presence booleans), plus provenance: `chain` (the inheritance layers,
+lowest precedence first, each with its own metadata) and `sources` (a map
+from each effective property — including per-key `headers.<Name>` — to the
+label of the layer that determined it, e.g. `"visibility": "folder docs"`).
+This backs `artifactctl meta explain`:
 ```json
 { "path":"report.pdf",
   "own":   { "content": {...}, "access": {...} },

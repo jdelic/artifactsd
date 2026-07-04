@@ -257,6 +257,67 @@ func TestE2E_Meta_CollectionAndFolderTargets(t *testing.T) {
 	}
 }
 
+// TestE2E_MetaExplain: `meta explain` annotates every effective property
+// with the inheritance layer that set it; --full-chain prints the layers.
+func TestE2E_MetaExplain(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo", "--protected"); code != exitOK {
+		t.Fatalf("create: code=%d err=%s", code, errOut)
+	}
+	if code, _, errOut := e.run("meta", "set", "demo/docs/", "--unlisted"); code != exitOK {
+		t.Fatalf("folder set: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.html")
+	if err := os.WriteFile(local, []byte("<p>hi</p>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/docs/a.html", local,
+		"--header", "cache-control=no-store"); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+
+	code, out, errOut := e.run("meta", "explain", "demo/docs/a.html")
+	if code != exitOK {
+		t.Fatalf("explain: code=%d err=%s", code, errOut)
+	}
+	for _, want := range []string{
+		"visibility:", "unlisted", "(from folder docs)", // folder overrode collection
+		"headers.Cache-Control:", "(from file docs/a.html)",
+		"crawlable:", "(from defaults)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("explain output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "chain (lowest precedence first)") {
+		t.Errorf("plain explain must not print the chain:\n%s", out)
+	}
+
+	// --full-chain adds the layer dump, lowest precedence first.
+	code, out, errOut = e.run("meta", "explain", "demo/docs/a.html", "--full-chain")
+	if code != exitOK {
+		t.Fatalf("explain --full-chain: code=%d err=%s", code, errOut)
+	}
+	for _, want := range []string{"chain (lowest precedence first)", "defaults:", "collection:", "folder docs:", "file docs/a.html:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--full-chain output missing %q:\n%s", want, out)
+		}
+	}
+
+	// JSON mode returns the raw chain+sources for scripting.
+	code, out, errOut = e.run("--output", "json", "meta", "explain", "demo")
+	if code != exitOK {
+		t.Fatalf("explain json: code=%d err=%s", code, errOut)
+	}
+	var got apiclient.FileMeta
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("json: %v (%s)", err, out)
+	}
+	if len(got.Chain) < 2 || got.Sources["visibility"] != "collection" {
+		t.Errorf("chain=%d sources=%v, want ≥2 layers and visibility from collection", len(got.Chain), got.Sources)
+	}
+}
+
 // TestE2E_UniformExpiryFlags: every expiry-taking command accepts both
 // --expires and --expires-in (artifactsd-599).
 func TestE2E_UniformExpiryFlags(t *testing.T) {

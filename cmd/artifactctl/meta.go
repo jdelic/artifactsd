@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -44,10 +46,31 @@ func splitMetaTarget(arg string) (collection, path string, kind metaTargetKind, 
 func (a *app) newMetaCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "meta",
-		Short: "Read or update collection, folder, and file metadata",
+		Short: "Read, update, or explain collection, folder, and file metadata",
 	}
-	cmd.AddCommand(a.newMetaGetCmd(), a.newMetaSetCmd())
+	cmd.AddCommand(a.newMetaGetCmd(), a.newMetaSetCmd(), a.newMetaExplainCmd())
 	return cmd
+}
+
+// fetchMeta resolves a meta target and fetches its {own, effective, chain,
+// sources} view from the matching endpoint.
+func (a *app) fetchMeta(cmd *cobra.Command, target string) (*apiclient.FileMeta, error) {
+	cli, err := a.client()
+	if err != nil {
+		return nil, err
+	}
+	collection, path, kind, err := splitMetaTarget(target)
+	if err != nil {
+		return nil, err
+	}
+	switch kind {
+	case targetCollection:
+		return cli.GetCollectionMeta(cmd.Context(), collection)
+	case targetFolder:
+		return cli.GetFolderMeta(cmd.Context(), collection, path)
+	default:
+		return cli.GetFileMeta(cmd.Context(), collection, path)
+	}
 }
 
 func (a *app) newMetaGetCmd() *cobra.Command {
@@ -58,23 +81,7 @@ func (a *app) newMetaGetCmd() *cobra.Command {
 			"(trailing slash), or a file.",
 		Args: exactArgs(1, "<collection>[/<path>]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cli, err := a.client()
-			if err != nil {
-				return err
-			}
-			collection, path, kind, err := splitMetaTarget(args[0])
-			if err != nil {
-				return err
-			}
-			var meta *apiclient.FileMeta
-			switch kind {
-			case targetCollection:
-				meta, err = cli.GetCollectionMeta(cmd.Context(), collection)
-			case targetFolder:
-				meta, err = cli.GetFolderMeta(cmd.Context(), collection, path)
-			default:
-				meta, err = cli.GetFileMeta(cmd.Context(), collection, path)
-			}
+			meta, err := a.fetchMeta(cmd, args[0])
 			if err != nil {
 				return err
 			}
@@ -87,6 +94,111 @@ func (a *app) newMetaGetCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// explainOrder fixes a readable property order for `meta explain`; header and
+// robots keys (sorted) are appended after their section anchor.
+var explainOrder = []string{
+	"visibility", "directory_listing", "auth", "content_type", "sandbox",
+	"crawlable", "indexable", "expires_at", "x_robots_tag",
+}
+
+func (a *app) newMetaExplainCmd() *cobra.Command {
+	var fullChain bool
+	cmd := &cobra.Command{
+		Use:   "explain <collection>[/<path>]",
+		Short: "Show effective metadata with the layer each property came from",
+		Long: "Show the resolved effective metadata for a collection (bare name), folder\n" +
+			"(trailing slash), or file, annotating every property with the inheritance\n" +
+			"layer that determined it. --full-chain additionally prints each layer's own\n" +
+			"metadata, lowest precedence first.",
+		Args: exactArgs(1, "<collection>[/<path>]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			meta, err := a.fetchMeta(cmd, args[0])
+			if err != nil {
+				return err
+			}
+			if a.jsonOutput() {
+				return a.printJSON(meta)
+			}
+			if fullChain {
+				a.printf("chain (lowest precedence first):\n")
+				for _, e := range meta.Chain {
+					name := e.Scope
+					if e.Path != "" {
+						name += " " + e.Path
+					}
+					a.printf("  %-11s %s\n", name+":", compactJSON(e.Meta))
+				}
+				a.printf("\n")
+			}
+			a.printf("effective:\n")
+			var eff map[string]json.RawMessage
+			if err := json.Unmarshal(meta.Effective, &eff); err != nil {
+				return err
+			}
+			for _, prop := range explainProps(eff, meta.Sources) {
+				a.printf("  %-24s %-22s (from %s)\n", prop.name+":", prop.value, prop.source)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&fullChain, "full-chain", false, "also print every inheritance layer's own metadata")
+	return cmd
+}
+
+// explainProp is one annotated line of `meta explain` output.
+type explainProp struct {
+	name, value, source string
+}
+
+// explainProps flattens the effective view into ordered, source-annotated
+// rows: scalar properties in explainOrder order, then per-key headers and
+// robots rules (which carry per-key sources).
+func explainProps(eff map[string]json.RawMessage, sources map[string]string) []explainProp {
+	src := func(key string) string {
+		if s, ok := sources[key]; ok {
+			return s
+		}
+		return "defaults"
+	}
+	var props []explainProp
+	for _, name := range explainOrder {
+		raw, ok := eff[name]
+		if !ok || string(raw) == "null" {
+			continue
+		}
+		props = append(props, explainProp{name: name, value: compactJSON(raw), source: src(name)})
+	}
+	for _, section := range []string{"headers", "robots"} {
+		raw, ok := eff[section]
+		if !ok {
+			continue
+		}
+		var m map[string]json.RawMessage
+		if json.Unmarshal(raw, &m) != nil {
+			continue
+		}
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			full := section + "." + k
+			props = append(props, explainProp{name: full, value: compactJSON(m[k]), source: src(full)})
+		}
+	}
+	return props
+}
+
+// compactJSON renders raw JSON on one line for the text views.
+func compactJSON(raw json.RawMessage) string {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return string(raw)
+	}
+	return buf.String()
 }
 
 func (a *app) newMetaSetCmd() *cobra.Command {

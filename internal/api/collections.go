@@ -135,8 +135,9 @@ func (h *Handler) getCollectionMeta(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	effective, chain, sources := h.metaView(r.Context(), c, "")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"path": "", "own": redactMetadata(c.Metadata), "effective": h.effectiveMeta(r.Context(), c, ""),
+		"path": "", "own": redactMetadata(c.Metadata), "effective": effective, "chain": chain, "sources": sources,
 	})
 }
 

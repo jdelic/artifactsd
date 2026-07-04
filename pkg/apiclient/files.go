@@ -65,14 +65,28 @@ func (c *Client) DeleteFolder(ctx context.Context, collection, path string) erro
 	return c.sendJSON(ctx, http.MethodDelete, folderPath(collection, path), nil, nil)
 }
 
-// FileMeta is the response shape for file metadata reads and patches
-// (design/04 §3). Own and Effective are left as raw JSON since they have
-// different shapes (a metadata document vs. a flat resolved view); Effective
-// is absent from PATCH responses.
+// FileMeta is the response shape for collection, folder, and file metadata
+// reads and patches (design/04 §2-§4). Own and Effective are left as raw JSON
+// since they have different shapes (a metadata document vs. a flat resolved
+// view); Effective, Chain, and Sources are absent from PATCH responses.
 type FileMeta struct {
 	Path      string          `json:"path"`
 	Own       json.RawMessage `json:"own"`
 	Effective json.RawMessage `json:"effective,omitempty"`
+	// Chain is the inheritance chain, lowest precedence first (server
+	// defaults → collection → folders → file), each with its own metadata.
+	Chain []ChainEntry `json:"chain,omitempty"`
+	// Sources maps each effective property (e.g. "visibility",
+	// "headers.Cache-Control") to the label of the chain layer that
+	// determined it (e.g. "defaults", "collection", "folder docs").
+	Sources map[string]string `json:"sources,omitempty"`
+}
+
+// ChainEntry is one layer of a metadata inheritance chain.
+type ChainEntry struct {
+	Scope string          `json:"scope"`          // defaults | collection | folder | file
+	Path  string          `json:"path,omitempty"` // set for folder/file scopes
+	Meta  json.RawMessage `json:"meta"`
 }
 
 // GetFileMeta reads a file's own and effective metadata (design/04 §3).

@@ -280,7 +280,7 @@ func (h *Handler) dirURL(collection, p string) string {
 }
 
 // policyDefaults is the server-defaults base layer for metadata resolution
-// (design/12 §3), shared by effectiveMeta and the crawl API.
+// (design/12 §3), shared by metaView and the crawl API.
 func (h *Handler) policyDefaults() meta.Defaults {
 	return meta.Defaults{
 		Visibility:       string(h.cfg.Policy.Visibility),

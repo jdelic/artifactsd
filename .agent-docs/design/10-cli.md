@@ -55,8 +55,11 @@ artifactctl rm [-r] <collection>/<path>
 artifactctl meta get <collection>[/<path>]
 artifactctl meta set <collection>[/<path>] [--visibility ...] [--expires ...]
                                            [--header k=v] [--crawlable] [--index] [--no-index]
+artifactctl meta explain <collection>[/<path>] [--full-chain]
         # bare <collection> = collection metadata; trailing / = folder
-        # (materialized on set); otherwise the file at that path
+        # (materialized on set); otherwise the file at that path.
+        # explain annotates each effective property with the layer that set
+        # it; --full-chain also dumps every inheritance layer's own metadata
 
 artifactctl share create <collection>[/<path>]
         [--unlisted|--protected] [--bearer-token <t>|--generate-bearer-token] [--basic <user:pass>]
