@@ -30,6 +30,7 @@ func newRootCmd() *cobra.Command {
 		newMigrateCmd(),
 		newHashPasswordCmd(),
 		newMCPCmd(),
+		newSystemdCmd(),
 		newVersionCmd(),
 	)
 	return root
