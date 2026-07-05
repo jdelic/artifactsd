@@ -199,24 +199,33 @@ tooling, so it's picked up automatically in that agent's sessions. Supported
 agents: `claude`, `codex`, `copilot`, `crush`, `opencode`, `hermes`.
 
 By default it installs into the current project (the working directory);
-`--global` installs into the agent's user-wide location instead (not
-supported for `copilot`, which has no such location).
+`--global` installs into the agent's user-wide location instead.
 
 | Agent | Local path | Global path (`--global`) |
 |-------|------------|---------------------------|
 | `claude` | `.claude/skills/artifactsd/SKILL.md` | `~/.claude/skills/artifactsd/SKILL.md` |
-| `hermes` | `skills/artifactsd/SKILL.md` | `~/.hermes/skills/artifactsd/SKILL.md` |
-| `codex` | `AGENTS.md` | `~/.codex/AGENTS.md` |
-| `opencode` | `AGENTS.md` | `~/.config/opencode/AGENTS.md` |
-| `crush` | `AGENTS.md` | `~/.config/crush/CRUSH.md` |
-| `copilot` | `.github/copilot-instructions.md` | — |
+| `codex` | `.agents/skills/artifactsd/SKILL.md` | `~/.agents/skills/artifactsd/SKILL.md` |
+| `opencode` | `.agents/skills/artifactsd/SKILL.md` | `~/.agents/skills/artifactsd/SKILL.md` |
+| `copilot` | `.agents/skills/artifactsd/SKILL.md` | `~/.agents/skills/artifactsd/SKILL.md` |
+| `hermes` | — (installs user-wide) | `~/.hermes/skills/artifactsd/SKILL.md` |
+| `crush` | `AGENTS.md` (merged block) | `~/.config/crush/skills/artifactsd/SKILL.md` |
 
-`claude` and `hermes` use a directory-per-skill convention with the same
-`SKILL.md` frontmatter format, so the file is copied verbatim. The other
-agents read a single shared instructions file, so the skill's body (with its
-YAML frontmatter stripped) is written inside a marker-delimited block; the
-rest of the file — including content you wrote yourself — is left alone, and
-re-running `skill install` only updates that block.
+All of these agents implement the Agent Skills standard (a directory per
+skill containing a `SKILL.md` with frontmatter), so the file is copied
+verbatim wherever a skills directory exists. `codex`, `opencode`, and
+`copilot` all discover skills in the cross-agent `.agents/skills/` and
+`~/.agents/skills/` directories, so they share a single copy. Two agents
+deviate:
+
+- `hermes` has no project-local skills convention — it only reads
+  `~/.hermes/skills/` — so installing without `--global` falls back to the
+  user-wide location (with a notice).
+- `crush` only discovers skills user-wide (`$XDG_CONFIG_HOME/crush/skills/`,
+  honored by `--global`). Its project-local install instead merges the
+  skill's body (YAML frontmatter stripped) into a marker-delimited block in
+  `AGENTS.md`, which crush reads as a context file; the rest of the file —
+  including content you wrote yourself — is left alone, and re-running
+  `skill install` only updates that block.
 
 ## Recipes
 
