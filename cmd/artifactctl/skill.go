@@ -13,9 +13,9 @@ import (
 )
 
 // installMode distinguishes the two ways an agent consumes SKILL.md: a
-// verbatim copy into its own skill directory, or a merged section inside a
-// shared project-instructions file it already reads (design/13 ticket
-// artifactsd-hp9).
+// verbatim copy into a skill directory it discovers, or a merged section
+// inside a shared project-instructions file it already reads (design/13
+// ticket artifactsd-hp9, revised in artifactsd-e8k).
 type installMode int
 
 const (
@@ -27,17 +27,6 @@ const (
 	modeMergeDoc
 )
 
-// agentTarget describes where `skill install <agent>` writes, for the
-// project-local (default) and global (--global) cases.
-type agentTarget struct {
-	mode installMode
-	// localPath is relative to the current working directory.
-	localPath string
-	// global, if set, returns the absolute path under $HOME. A nil global
-	// means the agent has no established global/user-wide location.
-	global func(home string) string
-}
-
 func (m installMode) String() string {
 	if m == modeMergeDoc {
 		return "merge"
@@ -45,56 +34,75 @@ func (m installMode) String() string {
 	return "copy"
 }
 
+// skillDest is one install destination: a file path plus how SKILL.md is
+// written there.
+type skillDest struct {
+	mode installMode
+	path string
+}
+
+// agentTarget describes where `skill install <agent>` writes, for the
+// project-local (default) and user-wide (--global) cases.
+type agentTarget struct {
+	// local is the project-local destination, relative to the current
+	// working directory. A nil local means the agent has no project-local
+	// convention at all; the default install then falls back to the
+	// user-wide location instead of writing a file the agent never reads.
+	local *skillDest
+	// global returns the user-wide destination. home is $HOME and configDir
+	// is $XDG_CONFIG_HOME (or $HOME/.config when unset).
+	global func(home, configDir string) skillDest
+}
+
+// skillRel is the directory-per-skill layout shared by every agent that
+// implements the Agent Skills standard: <skills dir>/artifactsd/SKILL.md.
+var skillRel = filepath.Join("artifactsd", "SKILL.md")
+
 // skillTargets maps agent name to its install target. Paths and conventions
-// are per-agent documentation as of 2026-06 (see artifactsd-hp9):
-//   - claude (Claude Code) and hermes (Hermes Agent) read a SKILL.md with YAML
-//     frontmatter from a per-skill directory.
-//   - codex (OpenAI Codex CLI), opencode, and crush read a single shared
-//     AGENTS.md (crush also reads CRUSH.md/CLAUDE.md, but is pointed at the
-//     same AGENTS.md here so all three merge into one file rather than three).
-//   - copilot (GitHub Copilot) reads .github/copilot-instructions.md and has
-//     no global/user-wide equivalent.
+// are per-agent documentation as of 2026-07 (artifactsd-e8k):
+//   - claude (Claude Code) reads .claude/skills/ and ~/.claude/skills/.
+//   - codex (OpenAI Codex CLI), opencode, and copilot (GitHub Copilot) all
+//     discover skills in the cross-agent .agents/skills/ (project) and
+//     ~/.agents/skills/ (user) directories, so the three share one copy
+//     there rather than each getting its own.
+//   - hermes (Hermes Agent) only reads ~/.hermes/skills/ — it has no
+//     project-local skills convention, so install always goes user-wide.
+//   - crush discovers skills user-wide in $XDG_CONFIG_HOME/crush/skills/
+//     but has no project-local skills discovery, so the project-local
+//     install merges the skill body into AGENTS.md, which crush reads.
 var skillTargets = map[string]agentTarget{
 	"claude": {
-		mode:      modeCopySkill,
-		localPath: filepath.Join(".claude", "skills", "artifactsd", "SKILL.md"),
-		global: func(home string) string {
-			return filepath.Join(home, ".claude", "skills", "artifactsd", "SKILL.md")
+		local: &skillDest{modeCopySkill, filepath.Join(".claude", "skills", skillRel)},
+		global: func(home, _ string) skillDest {
+			return skillDest{modeCopySkill, filepath.Join(home, ".claude", "skills", skillRel)}
 		},
 	},
 	"hermes": {
-		mode:      modeCopySkill,
-		localPath: filepath.Join("skills", "artifactsd", "SKILL.md"),
-		global: func(home string) string {
-			return filepath.Join(home, ".hermes", "skills", "artifactsd", "SKILL.md")
+		local: nil,
+		global: func(home, _ string) skillDest {
+			return skillDest{modeCopySkill, filepath.Join(home, ".hermes", "skills", skillRel)}
 		},
 	},
-	"codex": {
-		mode:      modeMergeDoc,
-		localPath: "AGENTS.md",
-		global: func(home string) string {
-			return filepath.Join(home, ".codex", "AGENTS.md")
-		},
-	},
-	"opencode": {
-		mode:      modeMergeDoc,
-		localPath: "AGENTS.md",
-		global: func(home string) string {
-			return filepath.Join(home, ".config", "opencode", "AGENTS.md")
-		},
-	},
+	"codex":    agentsDirTarget(),
+	"opencode": agentsDirTarget(),
+	"copilot":  agentsDirTarget(),
 	"crush": {
-		mode:      modeMergeDoc,
-		localPath: "AGENTS.md",
-		global: func(home string) string {
-			return filepath.Join(home, ".config", "crush", "CRUSH.md")
+		local: &skillDest{modeMergeDoc, "AGENTS.md"},
+		global: func(_, configDir string) skillDest {
+			return skillDest{modeCopySkill, filepath.Join(configDir, "crush", "skills", skillRel)}
 		},
 	},
-	"copilot": {
-		mode:      modeMergeDoc,
-		localPath: filepath.Join(".github", "copilot-instructions.md"),
-		global:    nil,
-	},
+}
+
+// agentsDirTarget is the shared target for agents that read the cross-agent
+// .agents/skills/ directories (codex, opencode, copilot).
+func agentsDirTarget() agentTarget {
+	return agentTarget{
+		local: &skillDest{modeCopySkill, filepath.Join(".agents", "skills", skillRel)},
+		global: func(home, _ string) skillDest {
+			return skillDest{modeCopySkill, filepath.Join(home, ".agents", "skills", skillRel)}
+		},
+	}
 }
 
 const (
@@ -119,25 +127,30 @@ func (a *app) newSkillInstallCmd() *cobra.Command {
 		Short: "Install the artifactsd SKILL.md into an AI agent's tooling",
 		Long: "Install the artifactsd SKILL.md into an AI agent's tooling.\n\n" +
 			"Supported agents: " + supportedAgentsList() + ".\n\n" +
-			"claude and hermes get a verbatim copy of SKILL.md in their own skill\n" +
-			"directory. codex, opencode, crush, and copilot get the SKILL.md body merged\n" +
-			"into a marker-delimited block in the shared instructions file they read\n" +
-			"(AGENTS.md or .github/copilot-instructions.md); re-running install updates\n" +
-			"just that block and leaves the rest of the file alone.",
+			"claude gets a verbatim copy of SKILL.md in .claude/skills/. codex, opencode,\n" +
+			"and copilot all discover skills in the cross-agent .agents/skills/ directory,\n" +
+			"so they share one verbatim copy there. hermes only reads ~/.hermes/skills/, so\n" +
+			"its install always goes user-wide. crush discovers skills user-wide (--global);\n" +
+			"its project-local install merges the SKILL.md body into a marker-delimited\n" +
+			"block in AGENTS.md, and re-running install updates just that block, leaving\n" +
+			"the rest of the file alone.",
 		Args: exactArgs(1, "<agent>"),
 		RunE: func(_ *cobra.Command, args []string) error {
 			target, ok := skillTargets[args[0]]
 			if !ok {
 				return usagef("unknown agent %q: want one of %s", args[0], supportedAgentsList())
 			}
-			path, err := target.resolvePath(global, a.env)
+			dest, fellBack, err := target.resolve(global, a.env)
 			if err != nil {
 				return err
 			}
-			if err := installSkill(path, target.mode); err != nil {
+			if fellBack {
+				a.printf("%s has no project-local skills location; installing user-wide\n", args[0])
+			}
+			if err := installSkill(dest.path, dest.mode); err != nil {
 				return err
 			}
-			a.printf("installed artifactsd skill for %s (%s): %s\n", args[0], target.mode, path)
+			a.printf("installed artifactsd skill for %s (%s): %s\n", args[0], dest.mode, dest.path)
 			return nil
 		},
 	}
@@ -154,19 +167,22 @@ func supportedAgentsList() string {
 	return strings.Join(names, ", ")
 }
 
-// resolvePath returns the destination file path for this target.
-func (t agentTarget) resolvePath(global bool, env func(string) string) (string, error) {
-	if !global {
-		return t.localPath, nil
-	}
-	if t.global == nil {
-		return "", usagef("--global is not supported for this agent: it has no established user-wide instructions location")
+// resolve returns the destination for this target. fellBack reports that a
+// project-local install was requested but the agent has no project-local
+// location, so the user-wide one is used instead.
+func (t agentTarget) resolve(global bool, env func(string) string) (dest skillDest, fellBack bool, err error) {
+	if !global && t.local != nil {
+		return *t.local, false, nil
 	}
 	home := env("HOME")
 	if home == "" {
-		return "", fmt.Errorf("could not resolve home directory: $HOME is not set")
+		return skillDest{}, false, fmt.Errorf("could not resolve home directory: $HOME is not set")
 	}
-	return t.global(home), nil
+	configDir := env("XDG_CONFIG_HOME")
+	if configDir == "" {
+		configDir = filepath.Join(home, ".config")
+	}
+	return t.global(home, configDir), !global, nil
 }
 
 // installSkill writes or merges SKILL.md into path according to mode,

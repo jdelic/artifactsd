@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,38 +21,95 @@ func TestSkillBody_StripsFrontmatter(t *testing.T) {
 	}
 }
 
-func TestAgentTarget_ResolvePath(t *testing.T) {
+func TestAgentTarget_Resolve(t *testing.T) {
 	env := envFrom(map[string]string{"HOME": "/home/u"})
 
 	for name, target := range skillTargets {
-		local, err := target.resolvePath(false, env)
+		local, fellBack, err := target.resolve(false, env)
 		if err != nil {
-			t.Fatalf("%s: local resolvePath: %v", name, err)
+			t.Fatalf("%s: local resolve: %v", name, err)
 		}
-		if local != target.localPath {
-			t.Errorf("%s: local = %q, want %q", name, local, target.localPath)
+		if target.local != nil {
+			if fellBack {
+				t.Errorf("%s: local resolve reported fallback", name)
+			}
+			if local != *target.local {
+				t.Errorf("%s: local = %+v, want %+v", name, local, *target.local)
+			}
+		} else {
+			if !fellBack {
+				t.Errorf("%s: expected fallback to user-wide location", name)
+			}
+			if !strings.HasPrefix(local.path, "/home/u") {
+				t.Errorf("%s: fallback path = %q, want prefix /home/u", name, local.path)
+			}
 		}
 
-		global, err := target.resolvePath(true, env)
-		if target.global == nil {
-			if err == nil {
-				t.Errorf("%s: expected --global to error, got path %q", name, global)
-			}
-			continue
-		}
+		global, fellBack, err := target.resolve(true, env)
 		if err != nil {
-			t.Fatalf("%s: global resolvePath: %v", name, err)
+			t.Fatalf("%s: global resolve: %v", name, err)
 		}
-		if !strings.HasPrefix(global, "/home/u") {
-			t.Errorf("%s: global = %q, want prefix /home/u", name, global)
+		if fellBack {
+			t.Errorf("%s: global resolve reported fallback", name)
+		}
+		if !strings.HasPrefix(global.path, "/home/u") {
+			t.Errorf("%s: global = %q, want prefix /home/u", name, global.path)
 		}
 	}
 }
 
-func TestAgentTarget_ResolvePath_NoHome(t *testing.T) {
-	target := skillTargets["claude"]
-	if _, err := target.resolvePath(true, envFrom(nil)); err == nil {
+func TestAgentTarget_Resolve_SharedAgentsDir(t *testing.T) {
+	env := envFrom(map[string]string{"HOME": "/home/u"})
+	want := filepath.Join(".agents", "skills", "artifactsd", "SKILL.md")
+	wantGlobal := "/home/u/.agents/skills/artifactsd/SKILL.md"
+	for _, name := range []string{"codex", "opencode", "copilot"} {
+		local, _, err := skillTargets[name].resolve(false, env)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if local.path != want || local.mode != modeCopySkill {
+			t.Errorf("%s: local = %+v, want copy to %q", name, local, want)
+		}
+		global, _, err := skillTargets[name].resolve(true, env)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if global.path != wantGlobal || global.mode != modeCopySkill {
+			t.Errorf("%s: global = %+v, want copy to %q", name, global, wantGlobal)
+		}
+	}
+}
+
+func TestAgentTarget_Resolve_CrushHonorsXDGConfigHome(t *testing.T) {
+	target := skillTargets["crush"]
+
+	global, _, err := target.resolve(true, envFrom(map[string]string{"HOME": "/home/u", "XDG_CONFIG_HOME": "/xdg"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/xdg/crush/skills/artifactsd/SKILL.md"
+	if global.path != want {
+		t.Errorf("global with XDG_CONFIG_HOME = %q, want %q", global.path, want)
+	}
+
+	global, _, err = target.resolve(true, envFrom(map[string]string{"HOME": "/home/u"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = "/home/u/.config/crush/skills/artifactsd/SKILL.md"
+	if global.path != want {
+		t.Errorf("global without XDG_CONFIG_HOME = %q, want %q", global.path, want)
+	}
+}
+
+func TestAgentTarget_Resolve_NoHome(t *testing.T) {
+	if _, _, err := skillTargets["claude"].resolve(true, envFrom(nil)); err == nil {
 		t.Fatal("expected error when $HOME is unset")
+	}
+	// hermes falls back to the user-wide location even without --global, so
+	// it too needs $HOME.
+	if _, _, err := skillTargets["hermes"].resolve(false, envFrom(nil)); err == nil {
+		t.Fatal("expected hermes local install to error when $HOME is unset")
 	}
 }
 
@@ -117,6 +176,15 @@ func TestMergeSkillBlock_PreservesExistingContentAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// runCLIHome is like runCLI but with a stable, inspectable $HOME.
+func runCLIHome(t *testing.T, home string, args ...string) (int, string, string) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	env := envFrom(map[string]string{"HOME": home})
+	code := run(context.Background(), args, &out, &errOut, env)
+	return code, out.String(), errOut.String()
+}
+
 func TestRun_SkillInstall_UnknownAgent(t *testing.T) {
 	dir := t.TempDir()
 	chdir(t, dir)
@@ -145,13 +213,46 @@ func TestRun_SkillInstall_Claude(t *testing.T) {
 	}
 }
 
-func TestRun_SkillInstall_CodexMergesIntoAgentsMD(t *testing.T) {
+func TestRun_SkillInstall_CodexCopiesToAgentsSkills(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+	code, _, errOut := runCLI(t, "skill", "install", "codex")
+	if code != exitOK {
+		t.Fatalf("exit = %d, stderr = %q", code, errOut)
+	}
+	got := readFile(t, filepath.Join(dir, ".agents", "skills", "artifactsd", "SKILL.md"))
+	if got != artifactsd.SkillMD {
+		t.Errorf("expected verbatim SKILL.md copy in .agents/skills")
+	}
+}
+
+func TestRun_SkillInstall_HermesFallsBackToUserDir(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	chdir(t, dir)
+	code, out, errOut := runCLIHome(t, home, "skill", "install", "hermes")
+	if code != exitOK {
+		t.Fatalf("exit = %d, stderr = %q", code, errOut)
+	}
+	if !strings.Contains(out, "no project-local skills location") {
+		t.Errorf("expected fallback notice, stdout = %q", out)
+	}
+	got := readFile(t, filepath.Join(home, ".hermes", "skills", "artifactsd", "SKILL.md"))
+	if got != artifactsd.SkillMD {
+		t.Errorf("expected verbatim SKILL.md copy in ~/.hermes/skills")
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Errorf("expected nothing written to the project directory, got %v (err %v)", entries, err)
+	}
+}
+
+func TestRun_SkillInstall_CrushMergesIntoAgentsMD(t *testing.T) {
 	dir := t.TempDir()
 	chdir(t, dir)
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# Existing project notes\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, _, errOut := runCLI(t, "skill", "install", "codex")
+	code, _, errOut := runCLI(t, "skill", "install", "crush")
 	if code != exitOK {
 		t.Fatalf("exit = %d, stderr = %q", code, errOut)
 	}
@@ -164,15 +265,17 @@ func TestRun_SkillInstall_CodexMergesIntoAgentsMD(t *testing.T) {
 	}
 }
 
-func TestRun_SkillInstall_CopilotGlobalUnsupported(t *testing.T) {
+func TestRun_SkillInstall_CopilotGlobal(t *testing.T) {
 	dir := t.TempDir()
+	home := t.TempDir()
 	chdir(t, dir)
-	code, _, errOut := runCLI(t, "skill", "install", "copilot", "--global")
-	if code != exitUsage {
-		t.Fatalf("exit = %d, want %d, stderr = %q", code, exitUsage, errOut)
+	code, _, errOut := runCLIHome(t, home, "skill", "install", "copilot", "--global")
+	if code != exitOK {
+		t.Fatalf("exit = %d, stderr = %q", code, errOut)
 	}
-	if !strings.Contains(errOut, "not supported") {
-		t.Errorf("stderr = %q", errOut)
+	got := readFile(t, filepath.Join(home, ".agents", "skills", "artifactsd", "SKILL.md"))
+	if got != artifactsd.SkillMD {
+		t.Errorf("expected verbatim SKILL.md copy in ~/.agents/skills")
 	}
 }
 
