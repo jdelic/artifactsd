@@ -28,6 +28,9 @@ html, body {
   padding: 0;
   height: 100%;
   background: #000;
+  /* Keep iOS Safari from inflating font sizes on rotate. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -41,7 +44,12 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--nc-blue);
+  /* With viewport-fit=cover the blue screen extends behind the notch/home
+     indicator; keep the content out of those areas. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .nc-topbar,
@@ -55,7 +63,7 @@ body {
 }
 
 .nc-topbar {
-  height: 32px;
+  min-height: 32px;
 }
 
 .nc-nav {
@@ -291,8 +299,9 @@ body {
 }
 
 .nc-footer {
-  height: 28px;
+  min-height: 28px;
   padding: 0 8px;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .nc-fkeys b {
@@ -309,7 +318,7 @@ body {
   padding: 0 10px;
   background: var(--nc-yellow);
   font-weight: bold;
-  height: 100%;
+  align-self: stretch;
   display: flex;
   align-items: center;
 }
@@ -478,4 +487,67 @@ body {
 
 .nc-upload input[type="file"] {
   max-width: 22em;
+}
+
+/* Phone-portrait layout (artifactsd-bhn). The shell is fluid, but at 21px the
+   menu bar's min-content width is ~730px; on a ~400px viewport its flex items
+   overflowed the screen onto the black body background and iOS zoomed the
+   whole page out to fit. Below the breakpoint (portrait phones — landscape
+   and desktop are untouched) the bars wrap like a two-row TUI menu, wide
+   tables scroll inside their panel instead of widening the page, and long
+   paths/URLs break. Nothing here may reintroduce page-level horizontal
+   overflow — that is the bug. */
+@media (max-width: 780px) {
+  body {
+    /* Last-resort guard: anything still wider than the viewport gets clipped
+       instead of resizing the page (clip creates no scroll container). */
+    overflow-x: clip;
+  }
+
+  .nc-topbar,
+  .nc-footer {
+    flex-wrap: wrap;
+  }
+
+  .nc-nav {
+    padding: 3px 8px;
+  }
+
+  .nc-user {
+    /* Long OIDC emails must not widen the bar: shrink with an ellipsis. */
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nc-content {
+    padding: 12px 8px;
+  }
+
+  /* Wide listings stay usable by scrolling within the panel, never the page. */
+  .nc-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* File paths, share URLs, hashes: break anywhere rather than force width. */
+  .nc-panel,
+  .nc-breadcrumb {
+    overflow-wrap: anywhere;
+  }
+
+  .nc-form input[type="text"],
+  .nc-form input[type="file"],
+  .nc-form select,
+  .nc-form textarea,
+  .nc-upload input[type="file"] {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .nc-info::after {
+    max-width: min(320px, 85vw);
+  }
 }
