@@ -117,11 +117,47 @@ with `make docker-build` or `docker build .`.
 
 ## systemd service
 
-For bare-metal/VM deployments, [`packaging/systemd/artifactsd.service`](../packaging/systemd/artifactsd.service)
-is an example unit that runs `artifactsd serve` as a dedicated `artifactsd`
-system user, with an `EnvironmentFile` for configuration — see
+The binary generates its own systemd units:
+
+```
+artifactsd systemd [--server|--mcp] [--user] [--runtime local|docker|podman] [--install]
+```
+
+This produces a unit that runs the HTTP server (default) or the
+[MCP adapter](mcp.md) (`--mcp`) under the selected runtime:
+
+- `--runtime local` (default) — runs the generating binary directly, with the
+  same hardening as the packaged example unit. Data lives in a
+  systemd-managed `StateDirectory` (`/var/lib/artifactsd`, or
+  `~/.local/state/artifactsd` for `--user`).
+- `--runtime docker` / `--runtime podman` — runs the release image (override
+  with `--image`) via `docker/podman run --rm`, with the `artifactsd-data`
+  volume mounted at `/data` for the server.
+
+Without `--install` the unit is printed to stdout so you can inspect or
+redirect it. With `--install` it is written to `/etc/systemd/system/` (or
+`~/.config/systemd/user/` with `--user`), a commented env-file skeleton is
+created if none exists — `/etc/artifactsd.env` / `/etc/artifactsd-mcp.env`
+system-wide, `$XDG_CONFIG_HOME/artifactsd/*.env` per-user — and the
+`systemctl` commands to enable the service are printed. Re-running
+`--install` refreshes the unit but never touches an existing env file.
+
+```console
+$ sudo artifactsd systemd --install                 # server, local binary, system-wide
+$ artifactsd systemd --mcp --user --runtime podman --install
+$ artifactsd systemd --runtime docker > artifactsd.service   # just print it
+```
+
+System-wide `--runtime local` expects the dedicated `artifactsd` system user
+(the printed next steps include the `useradd` line). Rootless `podman` pairs
+naturally with `--user`; `--runtime docker --user` requires your user to be
+able to talk to the Docker daemon.
+
+For a hand-maintained starting point,
+[`packaging/systemd/artifactsd.service`](../packaging/systemd/artifactsd.service)
+remains as an example unit, with
 [`packaging/systemd/artifactsd.env.example`](../packaging/systemd/artifactsd.env.example)
-and the install steps in the unit file's header comment.
+and install steps in its header comment.
 
 ## Nomad
 

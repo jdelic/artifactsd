@@ -23,6 +23,11 @@ host. See [Configuration → MCP adapter](configuration.md#mcp-adapter).
 The token the adapter holds determines what agents can do through it: give it
 only the scopes you want exposed.
 
+To run the adapter as a service, `artifactsd systemd --mcp [--user]
+[--runtime local|docker|podman] [--install]` generates (and optionally
+installs) a systemd unit for it — see
+[Installation → systemd service](installation.md#systemd-service).
+
 ## Tools
 
 | Tool | Maps to | Notes |
