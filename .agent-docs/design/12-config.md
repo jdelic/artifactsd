@@ -190,6 +190,7 @@ artifactsd serve            # run the server (reads flags/env above)
 artifactsd migrate          # apply migrations only
 artifactsd hash-password    # produce an argon2id hash for the basic fallback
 artifactsd mcp              # run the MCP adapter (see 11)
+artifactsd systemd          # generate/install a systemd unit for serve or mcp (artifactsd-46t)
 artifactsd version
 ```
 

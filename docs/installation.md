@@ -77,6 +77,7 @@ artifactsd-data/
 | `artifactsd migrate` | Apply database migrations and exit. |
 | `artifactsd hash-password` | Produce an argon2id hash for the admin basic-auth fallback. |
 | `artifactsd mcp` | Run the MCP adapter (see [MCP](mcp.md)). |
+| `artifactsd systemd` | Generate or install a [systemd unit](#systemd-service) for the server or MCP adapter. |
 | `artifactsd version` | Print version/build information. |
 
 ## TLS
