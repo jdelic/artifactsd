@@ -11,8 +11,9 @@ Each tagged release publishes static binaries for `linux`/`darwin` ×
 `amd64`/`arm64` as `.tar.gz` archives on the
 [GitHub releases page](https://github.com/jdelic/artifactsd/releases), built
 with [GoReleaser](https://goreleaser.com) (see [`.goreleaser.yml`](../.goreleaser.yml)).
-Each archive also bundles `LICENSE`, `README.md`, and — for `artifactsd` — an
-example [systemd unit](#systemd-service). Verify against `checksums.txt`:
+Each archive also bundles `LICENSE` and `README.md`; for a
+[systemd unit](#systemd-service), the binary generates one itself. Verify
+against `checksums.txt`:
 
 ```console
 $ curl -LO https://github.com/jdelic/artifactsd/releases/download/vX.Y.Z/artifactsd_X.Y.Z_linux_amd64.tar.gz

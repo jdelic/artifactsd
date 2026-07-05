@@ -46,13 +46,11 @@ archives:
     ids: [artifactsd]
     name_template: "artifactsd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
+    # No bundled systemd example: `artifactsd systemd` generates and installs
+    # units itself (artifactsd-46t/51k).
     files:
       - LICENSE
       - README.md
-      - src: packaging/systemd/artifactsd.service
-        dst: artifactsd.service
-      - src: packaging/systemd/artifactsd.env.example
-        dst: artifactsd.env.example
 
   - id: artifactctl
     ids: [artifactctl]
