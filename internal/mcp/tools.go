@@ -10,7 +10,7 @@ import (
 func registerTools(s *Server) {
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_create_collection",
-		Description: "Create a collection: the top-level namespace for a published artifact tree.",
+		Description: "Create a collection: the top-level namespace for a published artifact tree. To give it an expiry or auth requirements, call artifact_set_metadata on it afterwards.",
 	}, s.createCollection)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_put_text",
@@ -18,7 +18,7 @@ func registerTools(s *Server) {
 	}, s.putText)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_begin_upload",
-		Description: "Start a large or binary upload: returns a direct HTTP PUT URL the agent sends bytes to out of band.",
+		Description: "Start a large or binary upload: returns a direct HTTP PUT URL the agent sends bytes to out of band. Set the file's MIME type via the Content-Type header on that PUT.",
 	}, s.beginUpload)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_get_metadata",
@@ -26,7 +26,7 @@ func registerTools(s *Server) {
 	}, s.getMetadata)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_set_metadata",
-		Description: "Merge a metadata patch (access/crawl/expiry/content headers) onto a collection, folder, or file (omit path for the collection; end path with / for a folder).",
+		Description: "Merge a metadata patch onto a collection, folder, or file (omit path for the collection; end path with / for a folder). This is how to set visibility, auth, crawl policy, response headers, and expiry — e.g. metadata {\"expiry\":{\"expires_at\":\"2026-08-01T00:00:00Z\"}} expires the object at that instant.",
 	}, s.setMetadata)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_delete",
