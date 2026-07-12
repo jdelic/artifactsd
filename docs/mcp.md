@@ -52,12 +52,36 @@ and discoverability. API error codes are mapped to MCP tool errors with
 actionable messages, and returned URLs are absolute (built from the server
 `base_url`).
 
+## Metadata documents
+
+`artifact_set_metadata`'s `metadata` and `artifact_create_upload_request`'s
+`file_metadata` take the same JSON metadata document used everywhere in the
+[HTTP API](http-api.md): optional `access`, `content`, `crawl`, and `expiry`
+sections. The adapter publishes the full field-by-field schema in the tool
+definition and validates input against it, so a malformed patch (say, a
+misspelled expiry field) is rejected with an error naming the offending
+property before anything reaches the server.
+
+Setting an expiry on a collection (omit `path` for the collection itself; end
+it with `/` for a folder):
+
+```json
+{ "collection": "run-8f31c2",
+  "metadata": { "expiry": { "expires_at": "2026-08-01T00:00:00Z" } } }
+```
+
+`expiry.expires_at` takes an absolute RFC3339 UTC timestamp;
+`expiry.delete_after_creation` and `expiry.delete_after_last_access` take
+durations like `7d`, `48h`, or `2w`. Any combination may be set — the earliest
+resulting instant wins.
+
 ## Upload strategy
 
 - **Small text** → `artifact_put_text` (the content is an inline string in the
   tool call).
 - **Large or binary** → `artifact_begin_upload` returns an HTTP `upload_url`;
-  the agent `PUT`s the bytes directly, out of band, then optionally
+  the agent `PUT`s the bytes directly, out of band (setting the file's MIME
+  type via the `Content-Type` request header), then optionally
   `artifact_create_share`. This keeps large binaries out of the MCP message
   channel.
 
@@ -66,8 +90,8 @@ actionable messages, and returned URLs are absolute (built from the server
 ```
 1. artifact_create_collection("run-8f31c2")
 2. artifact_put_text("run-8f31c2", "index.html", "<html>...</html>")
-3. artifact_begin_upload("run-8f31c2", "report.pdf", "application/pdf") -> upload_url
-4. agent PUTs PDF bytes to upload_url
+3. artifact_begin_upload("run-8f31c2", "report.pdf") -> upload_url
+4. agent PUTs PDF bytes to upload_url with a "Content-Type: application/pdf" header
 5. artifact_create_share("run-8f31c2", visibility="unlisted", expires_in="7d") -> /s/...
 6. agent returns the share URL to the user
 ```

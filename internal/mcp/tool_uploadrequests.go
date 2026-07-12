@@ -9,6 +9,7 @@ import (
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jdelic/artifactsd/internal/durations"
+	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/pkg/apiclient"
 )
 
@@ -24,7 +25,7 @@ type CreateUploadRequestIn struct {
 	MaxFiles             int64          `json:"max_files,omitempty" jsonschema:"Maximum total files that may be uploaded; 0 = unlimited"`
 	MaxFileSizeBytes     int64          `json:"max_file_size_bytes,omitempty" jsonschema:"Per-file size limit in bytes; 0 = server default"`
 	ExpiresIn            string         `json:"expires_in,omitempty" jsonschema:"Duration like 24h, 7d, or 2w; the link never expires if omitted"`
-	FileMetadata         map[string]any `json:"file_metadata,omitempty" jsonschema:"Metadata document applied to every uploaded file (access/crawl/expiry sections), e.g. {\"access\":{\"visibility\":\"private\"}}"`
+	FileMetadata         *meta.Document `json:"file_metadata,omitempty" jsonschema:"Metadata document applied to every uploaded file, e.g. {\"access\":{\"visibility\":\"private\"}} or {\"expiry\":{\"delete_after_creation\":\"7d\"}}"`
 }
 
 // CreateUploadRequestOut is the output of artifact_create_upload_request.
@@ -66,7 +67,7 @@ func (s *Server) createUploadRequest(ctx context.Context, _ *gosdk.CallToolReque
 		s := time.Now().UTC().Add(d).Format(time.RFC3339)
 		req.ExpiresAt = &s
 	}
-	if len(in.FileMetadata) > 0 {
+	if in.FileMetadata != nil {
 		raw, err := json.Marshal(in.FileMetadata)
 		if err != nil {
 			return nil, CreateUploadRequestOut{}, err

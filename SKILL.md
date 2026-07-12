@@ -84,19 +84,62 @@ artifactctl meta explain <name>/<path>  # which layer set each policy value
 
 ```
 1. artifact_create_collection(name)
-2. artifact_put_text(name, "index.html", "<html>...</html>")     # small text inline
-3. artifact_begin_upload(name, "report.pdf", "application/pdf")  # large/binary -> upload_url
-4. PUT the bytes directly to the returned upload_url
+2. artifact_put_text(name, "index.html", "<html>...</html>")   # small text inline
+3. artifact_begin_upload(name, "report.pdf")                   # large/binary -> upload_url
+4. PUT the bytes to upload_url with a "Content-Type: application/pdf" header
 5. artifact_create_share(name, visibility="unlisted", expires_in="7d")
 6. return the /s/... share URL to the user
 ```
 
-Other tools: `artifact_get_metadata`, `artifact_set_metadata`,
-`artifact_delete`, `artifact_list_tree`, `artifact_get_public_url`,
-`artifact_get_crawl_tree`, and `artifact_create_upload_request` /
-`artifact_list_upload_requests` / `artifact_get_upload_request` /
-`artifact_revoke_upload_request` for collecting files *from* third parties
-via shareable `/r/...` links.
+Other tools: `artifact_get_metadata`, `artifact_set_metadata` (see "Metadata
+and expiry" below), `artifact_delete`, `artifact_list_tree`,
+`artifact_get_public_url`, `artifact_get_crawl_tree`, and
+`artifact_create_upload_request` / `artifact_list_upload_requests` /
+`artifact_get_upload_request` / `artifact_revoke_upload_request` for
+collecting files *from* third parties via shareable `/r/...` links.
+
+## Metadata and expiry
+
+Collections, folders, files, and shares all carry the same optional metadata
+document; policy is resolved by inheritance down that chain. **MCP:**
+`artifact_set_metadata` merges a partial document onto the target — omit
+`path` to address the collection itself, end the path with `/` for a folder.
+**CLI:** `artifactctl meta set` does the same via flags. The full document
+shape (every field is optional):
+
+```json
+{ "access":  { "visibility": "public | unlisted | protected | private",
+               "directory_listing": true,
+               "auth": [ { "type": "bearer", "token": "<cleartext, hashed server-side>" } ] },
+  "crawl":   { "crawlable": true, "indexable": false },
+  "content": { "content_type": "text/html; charset=utf-8",
+               "headers": { "Cache-Control": "no-store" } },
+  "expiry":  { "expires_at": "2026-08-01T00:00:00Z",
+               "delete_after_creation": "7d",
+               "delete_after_last_access": "30d" } }
+```
+
+The three `expiry` fields: `expires_at` is an **absolute RFC3339 UTC
+timestamp**; `delete_after_creation` and `delete_after_last_access` are
+**durations** (`7d`, `48h`, `2w` — units `s`/`m`/`h`/`d`/`w`). Set any
+combination; the earliest resulting instant wins, and the janitor deletes the
+object then.
+
+Make a collection delete itself 7 days after creation:
+
+```
+MCP:  artifact_set_metadata(collection="run-1",
+                            metadata={"expiry": {"delete_after_creation": "7d"}})
+CLI:  artifactctl meta set run-1 --expires-in 7d
+```
+
+(The CLI's `--expires-in <duration>` is converted to an absolute `expires_at`
+at call time; `--expires <RFC3339>` sets it directly. Both work on
+`collection create`, `put`, `share create`, and `meta set`.)
+
+Check what a patch produced with `artifact_get_metadata` /
+`artifactctl meta get` — the response shows the object's `own` document and
+the resolved `effective` policy.
 
 ## Guidance
 

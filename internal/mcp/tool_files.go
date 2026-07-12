@@ -7,6 +7,7 @@ import (
 
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/pkg/apiclient"
 )
 
@@ -73,13 +74,15 @@ func metaPathKind(path string) (string, metaPathKindT) {
 	return path, metaPathNode
 }
 
-// SetMetadataIn is the input for artifact_set_metadata. Metadata is a
-// map (not json.RawMessage) so the SDK infers an "object" input schema
-// instead of treating the field as an opaque byte array (see metadata.go).
+// SetMetadataIn is the input for artifact_set_metadata. Metadata is the typed
+// document (not a map or json.RawMessage) so the SDK infers the full object
+// schema from meta.Document's fields and jsonschema tags — agents see every
+// valid field with a description, and malformed patches are rejected with a
+// precise validation error before reaching the server (artifactsd-696).
 type SetMetadataIn struct {
 	Collection string         `json:"collection" jsonschema:"Collection name"`
 	Path       string         `json:"path,omitempty" jsonschema:"File or folder path within the collection; omit for the collection's own metadata, end with / to address a folder (materialized if absent)"`
-	Metadata   map[string]any `json:"metadata" jsonschema:"Metadata document patch (access/crawl/expiry/content sections), merged onto the existing metadata"`
+	Metadata   *meta.Document `json:"metadata" jsonschema:"Metadata document patch, merged section-by-section onto the object's existing metadata; e.g. {\"expiry\":{\"expires_at\":\"2026-08-01T00:00:00Z\"}} or {\"expiry\":{\"delete_after_creation\":\"7d\"}}"`
 }
 
 func (s *Server) setMetadata(ctx context.Context, _ *gosdk.CallToolRequest, in *SetMetadataIn) (*gosdk.CallToolResult, FileMetaOut, error) {
