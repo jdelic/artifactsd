@@ -42,6 +42,10 @@ $ artifactsd serve --listen :443 \
 - **MCP adapter** — ten agent-friendly tools over Streamable HTTP.
 - **TLS built in** — serve TLS directly from files or via automatic Let's
   Encrypt (ACME), or run behind a reverse proxy.
+- **Deploys itself** — `artifactsd systemd` generates (or installs) a systemd
+  unit that runs the server or MCP adapter as the bare binary or under
+  docker/podman, system-wide or per-user; release Docker images and example
+  Nomad/Kubernetes specs are also provided.
 
 ## Documentation
 

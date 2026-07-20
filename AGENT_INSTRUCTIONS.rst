@@ -5,7 +5,7 @@ General guidelines
 ------------------
 
  1. Always start off by considering state-of-the-art linters and build checks.
- 2. Refer to ``.agent-notes/*`` for understanding the environment.
+ 2. Refer to ``.agent-docs/*`` for understanding the environment.
  3. Use the tools described in this file to find work to do, structure the work,
     coordinate the work with other agents, and record the work and follow-up
     tasks.
