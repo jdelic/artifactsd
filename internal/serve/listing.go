@@ -86,11 +86,12 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, expiry, sh != nil)
 	case policy.NotFound:
 		// Decide returns NotFound here for one of: private/under-private-
-		// ancestor, expired, or (only reachable once those are ruled out)
-		// directory_listing == false (design/03 §5.5). The first two must stay
-		// a hard 404 (non-disclosure); the last falls back to an index
-		// document instead of giving up (design/05 §1 step 5).
-		if ancestorPrivate || eff.Visibility == meta.VisibilityPrivate || expired {
+		// ancestor, expired, protected without auth, or (only reachable once
+		// those are ruled out) directory_listing == false (design/03 §5.5).
+		// The first three must stay a hard 404 (non-disclosure / fail closed);
+		// the last falls back to an index document instead of giving up
+		// (design/05 §1 step 5).
+		if ancestorPrivate || eff.Visibility == meta.VisibilityPrivate || eff.ProtectedWithoutAuth() || expired {
 			http.NotFound(w, r)
 			return
 		}

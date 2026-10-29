@@ -49,6 +49,17 @@ func TestDecide_ExpiredIs404(t *testing.T) {
 	}
 }
 
+// A protected object with no auth entries can never be satisfied: it must fail
+// closed (404) instead of being served like public, even with credentials.
+func TestDecide_ProtectedWithoutAuthIs404(t *testing.T) {
+	for _, r := range []*http.Request{req(nil), req(map[string]string{"Authorization": "Bearer anything"})} {
+		d := Decide(Input{Effective: effective(meta.VisibilityProtected, nil), Request: r})
+		if d.Outcome != NotFound {
+			t.Errorf("protected-without-auth outcome = %v, want NotFound", d.Outcome)
+		}
+	}
+}
+
 func TestDecide_BearerAuthSucceeds(t *testing.T) {
 	entries := []meta.AuthEntry{{Type: meta.AuthBearer, TokenHash: auth.HashToken("s3cret")}}
 	d := Decide(Input{

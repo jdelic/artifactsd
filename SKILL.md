@@ -26,7 +26,7 @@ namespace for one artifact tree. Files are served at
 |------|---------------|
 | `public` | anyone with the URL; may appear in listings/sitemaps |
 | `unlisted` | anyone with the URL, but hidden from listings and indexes |
-| `protected` | only with a configured credential (bearer/basic/OIDC) |
+| `protected` | only with a configured credential (bearer/basic/OIDC); with none configured it is never served (404) |
 | `private` | nobody via public serving — only the management API; expose via a share |
 
 Default to **non-indexable** (`--no-index`) unless the user explicitly wants
