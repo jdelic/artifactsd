@@ -21,6 +21,9 @@ Implements SPEC §14. Served at `/admin`, always behind authentication.
   them reliably (artifactsd-9sy). Shortcuts cover the single, unambiguous action
   per screen (create/upload/filter/save/cleanup) plus logout; per-row actions
   (delete/revoke) stay as on-row buttons since a global key cannot pick a row.
+  When a letter is bound both in the page content and in the top nav (`Alt-U`:
+  Upload on the tree screen, Upload Requests elsewhere), the page's binding
+  wins, matching what its footer advertises.
 
 Rationale for htmx over a JS framework: the UI is CRUD over collections/files/
 metadata — well served by server rendering; avoids a build step and large
