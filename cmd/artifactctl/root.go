@@ -51,6 +51,7 @@ func newRootCmd(a *app) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "artifactctl",
 		Short:         "artifactctl — command-line client for an artifactsd server",
+		Long:          rootLong,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -64,9 +65,9 @@ func newRootCmd(a *app) *cobra.Command {
 	})
 
 	pf := root.PersistentFlags()
-	pf.StringVar(&a.baseURL, "base-url", "", "artifactsd server base URL")
-	pf.StringVar(&a.token, "token", "", "management API token")
-	pf.StringVar(&a.profile, "profile", "", "config profile to use")
+	pf.StringVar(&a.baseURL, "base-url", "", "artifactsd server base URL (env "+envBaseURL+")")
+	pf.StringVar(&a.token, "token", "", "management API token (env "+envToken+"; prefer it over this flag)")
+	pf.StringVar(&a.profile, "profile", "", "config file profile to use (file: $"+envConfig+" or ~/.config/artifactctl/config.yaml)")
 	pf.StringVar(&a.output, "output", outputText, "output format: text|json")
 	pf.BoolVarP(&a.quiet, "quiet", "q", false, "suppress non-essential output")
 	pf.BoolVarP(&a.verbose, "verbose", "v", false, "verbose output")
@@ -87,6 +88,7 @@ func newRootCmd(a *app) *cobra.Command {
 		a.newMaintenanceCmd(),
 		a.newSkillCmd(),
 		newVersionCmd(),
+		newVisibilityHelpTopic(),
 	)
 	return root
 }

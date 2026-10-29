@@ -279,12 +279,12 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 	vis.register(f)
 	expiry.register(f)
 	f.StringArrayVar(&headers, "header", nil, "response header k=v (repeatable)")
-	f.BoolVar(&list, "list", false, "enable directory listing")
+	f.BoolVar(&list, "list", false, "enable directory listing on folder URLs")
 	f.BoolVar(&noList, "no-list", false, "disable directory listing")
-	f.BoolVar(&crawlable, "crawlable", false, "mark crawlable")
-	f.BoolVar(&noCrawlable, "no-crawlable", false, "mark non-crawlable")
-	f.BoolVar(&index, "index", false, "mark indexable")
-	f.BoolVar(&noIndex, "no-index", false, "mark non-indexable")
+	f.BoolVar(&crawlable, "crawlable", false, "include in the crawl tree (artifactctl crawl)")
+	f.BoolVar(&noCrawlable, "no-crawlable", false, "exclude from the crawl tree")
+	f.BoolVar(&index, "index", false, "allow search indexing (robots.txt, sitemap)")
+	f.BoolVar(&noIndex, "no-index", false, "send X-Robots-Tag: noindex")
 	return cmd
 }
 

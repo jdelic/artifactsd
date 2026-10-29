@@ -29,6 +29,26 @@ profiles:
 
 Select one with `--profile staging`.
 
+Prefer `ARTIFACTSD_TOKEN` or a profile over `--token`, which leaves the secret
+in shell history and the process list. The token is a management API token
+(e.g. the `admin`-scoped one seeded from `ARTIFACTSD_BOOTSTRAP_TOKEN`), not the
+admin UI login. `artifactctl --help` repeats all of this, and
+`artifactctl token create --help` explains each scope.
+
+## Visibility and access
+
+`artifactctl help visibility` explains the four visibility levels
+(`public`, `unlisted`, `protected`, `private`), object auth
+(`--bearer-token`/`--basic`), the listing/crawl/index flags, and how shares
+interact with them. In short:
+
+| Visibility | Served on `/c/...` | Listed / in sitemap |
+|------------|--------------------|---------------------|
+| `public` | to anyone with the URL | if `--list` / `--index` |
+| `unlisted` | to anyone with the URL | never |
+| `protected` | only with the object's auth (no auth entry → served like public) | never |
+| `private` | never (404); reachable via the API and share links | never |
+
 > This client config is distinct from the **server**, which takes flags and env
 > only ([Configuration](configuration.md)).
 
@@ -36,8 +56,8 @@ Select one with `--profile staging`.
 
 | Flag | Meaning |
 |------|---------|
-| `--base-url` | artifactsd server base URL. |
-| `--token` | management API token. |
+| `--base-url` | artifactsd server base URL (or `ARTIFACTSD_BASE_URL`). |
+| `--token` | management API token (or `ARTIFACTSD_TOKEN`). |
 | `--profile <name>` | config profile to use. |
 | `--output text\|json` | output format (`text` default; `json` for scripts/agents). |
 | `-q`, `--quiet` | suppress non-essential output. |

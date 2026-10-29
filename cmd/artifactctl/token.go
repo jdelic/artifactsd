@@ -27,7 +27,19 @@ func (a *app) newTokenCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create an API token",
-		Args:  exactArgs(1, "<name>"),
+		Long: "Create a management API token and print its secret once (the server stores\n" +
+			"only a hash). Use it via --token, ARTIFACTSD_TOKEN, or a config profile.\n\n" +
+			"Scopes:\n" +
+			"  admin               everything; the only scope that can manage tokens and\n" +
+			"                      upload requests, run maintenance, or crawl non-crawlable\n" +
+			"                      objects\n" +
+			"  collections:read    list/show collections, read files, metadata, and crawl\n" +
+			"  collections:write   create/delete collections, upload/delete files, set metadata\n" +
+			"  shares:read         list and show shares\n" +
+			"  shares:write        create/revoke shares\n" +
+			"  tokens:read/write   accepted, but currently not required by any endpoint\n\n" +
+			"A :write scope implies the matching :read.",
+		Args: exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()
 			if err != nil {

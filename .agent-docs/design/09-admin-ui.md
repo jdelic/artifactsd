@@ -64,7 +64,9 @@ auth is env-configured, not edited in the UI.)
 
 ## 4. Upload UX
 
-- Small files: direct form `PUT` to the API.
+- Small files: direct multipart form `POST` to the admin upload handler (htmx),
+  with a progress bar and status line fed by htmx's `htmx:xhr:progress` /
+  `htmx:responseError` events, so slow or rejected uploads are visible.
 - Large files: the UI calls the begin-upload endpoint and streams via the
   returned `upload_url` (fetch + progress), per [07](07-storage-uploads.md).
 - Folder/tree upload mirrors `artifactctl put-tree` (multiple files under a

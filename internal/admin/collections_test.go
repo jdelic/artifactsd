@@ -123,6 +123,13 @@ func TestCollectionTree_BrowseUploadDelete(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No files") {
 		t.Fatalf("empty tree = %d, body %s", rec.Code, rec.Body.String())
 	}
+	// The small-upload form carries the progress/status hooks upload.js drives
+	// via htmx events; without them a slow or rejected upload shows nothing.
+	_, small, found := strings.Cut(rec.Body.String(), "nc-small-upload")
+	small, _, _ = strings.Cut(small, "</form>")
+	if !found || !strings.Contains(small, "nc-upload-progress") || !strings.Contains(small, "nc-upload-status") {
+		t.Errorf("small upload form lacks progress/status elements: %s", small)
+	}
 
 	// Upload a small file at the root.
 	rec = uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "report.txt", "hello world")

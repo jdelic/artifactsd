@@ -55,7 +55,7 @@ func (a *app) newShareCreateCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.BoolVar(&unlisted, "unlisted", false, "share visibility: unlisted")
+	f.BoolVar(&unlisted, "unlisted", false, "share visibility: unlisted (hidden from listings and sitemap)")
 	f.BoolVar(&protected, "protected", false, "share visibility: protected (requires --bearer-token, --generate-bearer-token, or --basic)")
 	auth.register(f)
 	expiry.register(f)

@@ -94,3 +94,68 @@ function putWithProgress(url, file, progress) {
     xhr.send(file);
   });
 }
+
+// Small-file upload feedback. The small form is a plain htmx multipart POST;
+// without this it showed nothing while the bytes were in flight, and htmx
+// silently drops 4xx/5xx responses (e.g. a reverse proxy's 413), so a slow or
+// rejected upload looked like a dead button. A successful response swaps the
+// whole #tree-panel, which removes the progress bar along with the form.
+function smallUploadParts(event) {
+  var form = event.target.closest && event.target.closest(".nc-small-upload");
+  if (!form) {
+    return null;
+  }
+  return {
+    status: form.querySelector(".nc-upload-status"),
+    progress: form.querySelector(".nc-upload-progress"),
+  };
+}
+
+document.addEventListener("htmx:beforeRequest", function (event) {
+  var parts = smallUploadParts(event);
+  if (!parts) {
+    return;
+  }
+  parts.progress.value = 0;
+  parts.progress.hidden = false;
+  parts.status.textContent = "uploading...";
+});
+
+document.addEventListener("htmx:xhr:progress", function (event) {
+  var parts = smallUploadParts(event);
+  if (!parts || !event.detail.lengthComputable) {
+    return;
+  }
+  parts.progress.value = Math.round((event.detail.loaded / event.detail.total) * 100);
+  if (event.detail.loaded === event.detail.total) {
+    parts.status.textContent = "processing...";
+  }
+});
+
+document.addEventListener("htmx:responseError", function (event) {
+  var parts = smallUploadParts(event);
+  if (!parts) {
+    return;
+  }
+  var xhr = event.detail.xhr;
+  // Our handlers answer errors in plain text; a proxy's HTML error page is
+  // not worth echoing, so only the status is shown for those.
+  var message = (xhr.responseText || "").trim().split("\n")[0];
+  if (message.charAt(0) === "<") {
+    message = "";
+  }
+  if (xhr.status === 413) {
+    message = "file too large for the server or a proxy in front of it; try Upload large";
+  }
+  parts.progress.hidden = true;
+  parts.status.textContent = "error (" + xhr.status + ")" + (message ? ": " + message : "");
+});
+
+document.addEventListener("htmx:sendError", function (event) {
+  var parts = smallUploadParts(event);
+  if (!parts) {
+    return;
+  }
+  parts.progress.hidden = true;
+  parts.status.textContent = "error: upload failed (network error or connection reset)";
+});

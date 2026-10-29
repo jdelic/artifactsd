@@ -19,11 +19,11 @@ type visibilityFlags struct {
 }
 
 func (v *visibilityFlags) register(f *pflag.FlagSet) {
-	f.StringVar(&v.visibility, "visibility", "", "visibility: public|unlisted|protected|private")
-	f.BoolVar(&v.public, "public", false, "shorthand for --visibility public")
-	f.BoolVar(&v.unlisted, "unlisted", false, "shorthand for --visibility unlisted")
-	f.BoolVar(&v.protected, "protected", false, "shorthand for --visibility protected")
-	f.BoolVar(&v.private, "private", false, "shorthand for --visibility private")
+	f.StringVar(&v.visibility, "visibility", "", "visibility: public|unlisted|protected|private (see \"artifactctl help visibility\")")
+	f.BoolVar(&v.public, "public", false, "--visibility public: served to anyone with the URL")
+	f.BoolVar(&v.unlisted, "unlisted", false, "--visibility unlisted: served by URL, hidden from listings and sitemap")
+	f.BoolVar(&v.protected, "protected", false, "--visibility protected: fetching requires the object's auth entries")
+	f.BoolVar(&v.private, "private", false, "--visibility private: never served on /c/ routes (API and shares only)")
 }
 
 // resolve returns the selected visibility ("" when no flag was used), or a
@@ -73,9 +73,9 @@ type authFlags struct {
 }
 
 func (a *authFlags) register(f *pflag.FlagSet) {
-	f.StringVar(&a.bearerToken, "bearer-token", "", "require this bearer token")
-	f.BoolVar(&a.generateBearer, "generate-bearer-token", false, "generate a random bearer token and print it once")
-	f.StringVar(&a.basic, "basic", "", "require basic auth <user:pass>")
+	f.StringVar(&a.bearerToken, "bearer-token", "", "require this bearer token to fetch (unauthenticated callers get 404)")
+	f.BoolVar(&a.generateBearer, "generate-bearer-token", false, "like --bearer-token with a random token, printed once")
+	f.StringVar(&a.basic, "basic", "", "require basic auth <user:pass> to fetch (browser login dialog)")
 }
 
 // entries resolves the auth flags into access.auth entries, generating a
@@ -146,7 +146,7 @@ func (u *uploadMetaFlags) register(f *pflag.FlagSet) {
 	u.auth.register(f)
 	u.expiry.register(f)
 	f.StringArrayVar(&u.headers, "header", nil, "response header k=v (repeatable)")
-	f.BoolVar(&u.noIndex, "no-index", false, "mark non-indexable")
+	f.BoolVar(&u.noIndex, "no-index", false, "send X-Robots-Tag: noindex")
 }
 
 // document assembles the metadata document the flags describe, or nil when no
