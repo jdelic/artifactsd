@@ -1,11 +1,9 @@
 package main
 
-import "github.com/spf13/cobra"
-
-// Help text shared across the command tree. The concepts (visibility, auth,
-// listing/crawl flags) are explained once in the "visibility" help topic and
-// referenced from the flags that set them, rather than repeated per command.
-
+// rootLong is the top-level help text. The concepts shared across commands
+// (connection, tokens, visibility, auth, listing/crawl flags, shares) are
+// explained once here and referenced from the flags that set them, rather
+// than repeated per command.
 const rootLong = `artifactctl — command-line client for an artifactsd server.
 
 Connecting
@@ -32,23 +30,20 @@ Connecting
 Tokens
   The token is an API token, not the admin UI's login. The server seeds one
   "admin"-scoped token from ARTIFACTSD_BOOTSTRAP_TOKEN at startup; mint narrower
-  ones with "artifactctl token create --scope ...". "admin" grants everything;
-  <resource>:write implies <resource>:read.
-
-See "artifactctl help visibility" for what public, unlisted, protected, and
-private mean, and how object auth, listing, and crawl flags combine.`
-
-const visibilityLong = `Every collection, folder, and file has metadata that controls who can fetch
-it from the public routes (/c/... and share links /s/...). The management API
-and artifactctl always see everything their token's scopes allow.
+  ones with "artifactctl token create --scope ..." (its --help lists the
+  scopes).
 
 Visibility
+  Every collection, folder, and file has metadata that controls who can fetch
+  it from the public routes (/c/... and share links /s/...). The management
+  API always returns whatever the token's scopes allow.
+
   public     Served to anyone with the URL. The default.
   unlisted   Served to anyone with the URL, but hidden from directory
              listings, robots.txt, and the sitemap.
-  protected  Fetching requires the object's auth entries (see below). The
-             entries are what enforce it: a protected object without any is
-             served like public.
+  protected  Served only to callers that pass the object's auth entries (see
+             below). A protected object without any auth entry is never
+             served (404) until auth is added.
   private    Never served on /c/ routes: always 404, even with valid auth.
              Reachable through the management API and share links.
 
@@ -56,12 +51,13 @@ Visibility
   that anything under a private ancestor is private: a public file inside a
   private folder does not leak.
 
-Object auth (--bearer-token, --generate-bearer-token, --basic)
-  These flags exist on put, put-tree, and share create. Auth entries are
-  any-of: one matching credential is enough. Auth is inherited like
-  visibility, and setting it on a child replaces the inherited list. Any
-  object with auth requires it, whatever its visibility. An unauthenticated
-  request is answered according to the auth type:
+Object auth (--bearer-token, --generate-bearer-token, --basic, --clear-auth)
+  Set on collection create, meta set, put, put-tree, and share create. Auth
+  entries are any-of: one matching credential is enough. Auth is inherited
+  like visibility, and setting it on a child replaces the inherited list
+  (--clear-auth on "meta set" sets an empty list). Any object with auth
+  requires it, whatever its visibility. An unauthenticated request is
+  answered according to the auth type:
     basic    401 with a browser login dialog
     bearer   404, so the object's existence is not revealed
   --generate-bearer-token prints the token once; the server keeps only a hash.
@@ -85,13 +81,3 @@ Shares
 
 Use "artifactctl meta explain <collection>[/<path>]" to see the effective
 settings for an object and which layer each one came from.`
-
-// newVisibilityHelpTopic is a help-only command: cobra lists commands without a
-// Run under "Additional help topics", reachable via "artifactctl help visibility".
-func newVisibilityHelpTopic() *cobra.Command {
-	return &cobra.Command{
-		Use:   "visibility",
-		Short: "What public, unlisted, protected, and private mean; object auth, listing, and crawl flags",
-		Long:  visibilityLong,
-	}
-}

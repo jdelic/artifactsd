@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -479,5 +481,69 @@ func TestE2E_MaintenanceCleanup_TextOutput(t *testing.T) {
 	}
 	if !strings.HasPrefix(out, "cleanup: ") {
 		t.Errorf("text output = %q, want a \"cleanup: \" prefix", out)
+	}
+}
+
+// TestE2E_MetaSetAndCollectionCreate_Auth covers object auth on collections
+// and folders: collection create and meta set take the same auth flags as put,
+// so a collection or folder can be protected without hand-written JSON, and
+// --clear-auth lifts an inherited requirement.
+func TestE2E_MetaSetAndCollectionCreate_Auth(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo", "--protected", "--bearer-token", "coll-secret"); code != exitOK {
+		t.Fatalf("create collection: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/docs/a.txt", local); code != exitOK {
+		t.Fatalf("put: code=%d err=%s", code, errOut)
+	}
+
+	fetch := func(token string) int {
+		t.Helper()
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, e.ts.BaseURL+"/c/demo/docs/a.txt", http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := fetch(""); got != http.StatusNotFound {
+		t.Errorf("inherited collection auth, no token = %d, want 404", got)
+	}
+	if got := fetch("coll-secret"); got != http.StatusOK {
+		t.Errorf("inherited collection auth, valid token = %d, want 200", got)
+	}
+
+	// A folder-level token replaces the inherited one.
+	if code, _, errOut := e.run("meta", "set", "demo/docs/", "--bearer-token", "folder-secret"); code != exitOK {
+		t.Fatalf("meta set --bearer-token: code=%d err=%s", code, errOut)
+	}
+	if got := fetch("coll-secret"); got != http.StatusNotFound {
+		t.Errorf("replaced auth, old token = %d, want 404", got)
+	}
+	if got := fetch("folder-secret"); got != http.StatusOK {
+		t.Errorf("replaced auth, new token = %d, want 200", got)
+	}
+
+	// --clear-auth plus --public lifts the requirement for the subtree.
+	if code, _, errOut := e.run("meta", "set", "demo/docs/", "--clear-auth", "--public"); code != exitOK {
+		t.Fatalf("meta set --clear-auth: code=%d err=%s", code, errOut)
+	}
+	if got := fetch(""); got != http.StatusOK {
+		t.Errorf("cleared auth = %d, want 200", got)
+	}
+
+	if code, _, _ := e.run("meta", "set", "demo/docs/", "--clear-auth", "--basic", "u:p"); code != exitUsage {
+		t.Errorf("--clear-auth with --basic exit = %d, want %d", code, exitUsage)
 	}
 }

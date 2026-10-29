@@ -19,10 +19,10 @@ type visibilityFlags struct {
 }
 
 func (v *visibilityFlags) register(f *pflag.FlagSet) {
-	f.StringVar(&v.visibility, "visibility", "", "visibility: public|unlisted|protected|private (see \"artifactctl help visibility\")")
+	f.StringVar(&v.visibility, "visibility", "", "visibility: public|unlisted|protected|private (see \"artifactctl --help\")")
 	f.BoolVar(&v.public, "public", false, "--visibility public: served to anyone with the URL")
 	f.BoolVar(&v.unlisted, "unlisted", false, "--visibility unlisted: served by URL, hidden from listings and sitemap")
-	f.BoolVar(&v.protected, "protected", false, "--visibility protected: fetching requires the object's auth entries")
+	f.BoolVar(&v.protected, "protected", false, "--visibility protected: served only with the object's auth (404 if none is set)")
 	f.BoolVar(&v.private, "private", false, "--visibility private: never served on /c/ routes (API and shares only)")
 }
 

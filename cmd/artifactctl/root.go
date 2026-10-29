@@ -88,7 +88,6 @@ func newRootCmd(a *app) *cobra.Command {
 		a.newMaintenanceCmd(),
 		a.newSkillCmd(),
 		newVersionCmd(),
-		newVisibilityHelpTopic(),
 	)
 	return root
 }

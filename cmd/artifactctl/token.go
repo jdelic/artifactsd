@@ -31,13 +31,12 @@ func (a *app) newTokenCreateCmd() *cobra.Command {
 			"only a hash). Use it via --token, ARTIFACTSD_TOKEN, or a config profile.\n\n" +
 			"Scopes:\n" +
 			"  admin               everything; the only scope that can manage tokens and\n" +
-			"                      upload requests, run maintenance, or crawl non-crawlable\n" +
-			"                      objects\n" +
+			"                      upload requests, read the audit log and stats, run\n" +
+			"                      maintenance, or crawl non-crawlable objects\n" +
 			"  collections:read    list/show collections, read files, metadata, and crawl\n" +
 			"  collections:write   create/delete collections, upload/delete files, set metadata\n" +
 			"  shares:read         list and show shares\n" +
-			"  shares:write        create/revoke shares\n" +
-			"  tokens:read/write   accepted, but currently not required by any endpoint\n\n" +
+			"  shares:write        create/revoke shares\n\n" +
 			"A :write scope implies the matching :read.",
 		Args: exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -69,7 +68,7 @@ func (a *app) newTokenCreateCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringArrayVar(&scopes, "scope", nil, "token scope (repeatable): admin|collections:read|collections:write|shares:read|shares:write|tokens:read|tokens:write")
+	f.StringArrayVar(&scopes, "scope", nil, "token scope (repeatable): admin|collections:read|collections:write|shares:read|shares:write")
 	expiry.register(f)
 	return cmd
 }
@@ -93,7 +92,11 @@ func (a *app) newTokenListCmd() *cobra.Command {
 				return a.printJSON(page)
 			}
 			for _, t := range page.Items {
-				a.printf("%d\t%s\t%s\t%s\n", t.ID, t.Name, t.Prefix, strings.Join(t.Scopes, ","))
+				status := ""
+				if t.RevokedAt != nil {
+					status = "\trevoked"
+				}
+				a.printf("%d\t%s\t%s\t%s%s\n", t.ID, t.Name, t.Prefix, strings.Join(t.Scopes, ","), status)
 			}
 			return nil
 		},

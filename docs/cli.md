@@ -37,7 +37,7 @@ admin UI login. `artifactctl --help` repeats all of this, and
 
 ## Visibility and access
 
-`artifactctl help visibility` explains the four visibility levels
+`artifactctl --help` explains the four visibility levels
 (`public`, `unlisted`, `protected`, `private`), object auth
 (`--bearer-token`/`--basic`), the listing/crawl/index flags, and how shares
 interact with them. In short:
@@ -46,7 +46,7 @@ interact with them. In short:
 |------------|--------------------|---------------------|
 | `public` | to anyone with the URL | if `--list` / `--index` |
 | `unlisted` | to anyone with the URL | never |
-| `protected` | only with the object's auth (no auth entry → served like public) | never |
+| `protected` | only with the object's auth (no auth entry → always 404) | never |
 | `private` | never (404); reachable via the API and share links | never |
 
 > This client config is distinct from the **server**, which takes flags and env
@@ -72,6 +72,7 @@ Exit codes: `0` ok, `1` generic error, `2` usage, `4` auth, `5` not-found.
 
 ```
 artifactctl collection create <name> [--public|--unlisted|--protected|--private]
+                                     [--bearer-token <t>|--generate-bearer-token] [--basic <user:pass>]
                                      [--list] [--no-list]
                                      [--crawlable] [--no-crawlable] [--index] [--no-index]
                                      [--expires <ts>] [--expires-in <dur>]
@@ -113,6 +114,8 @@ artifactctl rm [-r] <collection>/<path>
 ```
 artifactctl meta get <collection>[/<path>]
 artifactctl meta set <collection>[/<path>] [--visibility ...] [--expires ...]
+                                           [--bearer-token <t>|--generate-bearer-token]
+                                           [--basic <user:pass>] [--clear-auth]
                                            [--header k=v] [--list] [--no-list]
                                            [--crawlable] [--no-crawlable]
                                            [--index] [--no-index]
@@ -198,7 +201,8 @@ artifactctl token revoke <id>
 
 `token create` prints the secret **once** — store it then. Available scopes:
 `admin`, `collections:read`, `collections:write`, `shares:read`,
-`shares:write`, `tokens:read`, `tokens:write`.
+`shares:write` (`artifactctl token create --help` explains each). Managing
+tokens and upload requests requires `admin`.
 
 ### Maintenance & version
 

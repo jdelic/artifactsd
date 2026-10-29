@@ -27,6 +27,7 @@ func (a *app) newCollectionCmd() *cobra.Command {
 func (a *app) newCollectionCreateCmd() *cobra.Command {
 	var (
 		vis         visibilityFlags
+		auth        authFlags
 		expiry      expiryFlags
 		list        bool
 		noList      bool
@@ -52,10 +53,15 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			meta, err := buildCollectionMetadata(visibility, expiresAt, list, noList, crawlable, noCrawlable, index, noIndex)
+			authEntries, err := auth.entries()
 			if err != nil {
 				return err
 			}
+			meta, err := buildCollectionMetadata(visibility, expiresAt, authEntries, list, noList, crawlable, noCrawlable, index, noIndex)
+			if err != nil {
+				return err
+			}
+			a.printGeneratedToken(auth.genToken)
 			col, err := cli.CreateCollection(cmd.Context(), apiclient.CreateCollectionRequest{
 				Name: args[0], Metadata: meta,
 			})
@@ -67,6 +73,7 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	vis.register(f)
+	auth.register(f)
 	expiry.register(f)
 	f.BoolVar(&list, "list", false, "enable directory listing on folder URLs")
 	f.BoolVar(&noList, "no-list", false, "disable directory listing")
@@ -165,7 +172,7 @@ func (a *app) renderCollection(col *apiclient.Collection, textMsg string) error 
 // buildCollectionMetadata assembles a metadata document from the create flags
 // (visibility and expiresAt already resolved), or nil when no flag is set
 // (server applies defaults).
-func buildCollectionMetadata(visibility, expiresAt string, list, noList, crawlable, noCrawlable, index, noIndex bool) (json.RawMessage, error) {
+func buildCollectionMetadata(visibility, expiresAt string, authEntries []map[string]any, list, noList, crawlable, noCrawlable, index, noIndex bool) (json.RawMessage, error) {
 	if list && noList {
 		return nil, usagef("--list and --no-list are mutually exclusive")
 	}
@@ -182,6 +189,9 @@ func buildCollectionMetadata(visibility, expiresAt string, list, noList, crawlab
 	}
 	if noList {
 		access["directory_listing"] = false
+	}
+	if len(authEntries) > 0 {
+		access["auth"] = authEntries
 	}
 	doc := map[string]any{}
 	if len(access) > 0 {
