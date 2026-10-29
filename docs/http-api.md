@@ -11,8 +11,9 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   <api-token>` (or an authenticated admin session). Tokens carry scopes; a
   request needs the scope listed for its endpoint or it gets `403`.
 - **Scopes** — `admin`, `collections:read`, `collections:write`,
-  `shares:read`, `shares:write`, `tokens:read`, `tokens:write`. `admin` implies
-  the rest.
+  `shares:read`, `shares:write`. `admin` implies the rest, and is the only
+  scope for tokens, upload requests, audit, stats, and maintenance;
+  `<resource>:write` implies `<resource>:read`.
 - **Errors** — a consistent JSON envelope:
   ```json
   { "error": { "code": "not_found", "message": "collection does not exist" } }
