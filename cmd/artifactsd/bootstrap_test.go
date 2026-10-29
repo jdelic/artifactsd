@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -61,5 +62,40 @@ func TestSeedBootstrapToken_SeedsOnce(t *testing.T) {
 	}
 	if string(toks[0].Scopes) != `["admin"]` {
 		t.Errorf("scopes = %s, want admin", toks[0].Scopes)
+	}
+}
+
+// A bootstrap secret that already carries tok_ is stored under its own hash,
+// not "tok_tok_...", and a row seeded that way by an older release is revoked
+// so it does not linger as a second live admin token.
+func TestSeedBootstrapToken_PrefixedSecret(t *testing.T) {
+	st := openTestStore(t)
+	log := audit.NewAppLogger(io.Discard, "error")
+	ctx := context.Background()
+
+	legacy := &store.APIToken{
+		Name: "bootstrap", TokenHash: auth.HashToken("tok_tok_ci-secret"),
+		TokenPrefix: auth.TokenPrefix("tok_tok_ci-secret"), Scopes: []byte(`["admin"]`),
+	}
+	if err := st.CreateToken(ctx, legacy); err != nil {
+		t.Fatalf("CreateToken legacy: %v", err)
+	}
+
+	if err := seedBootstrapToken(ctx, st, "tok_ci-secret", log); err != nil {
+		t.Fatalf("seedBootstrapToken: %v", err)
+	}
+	seeded, err := st.GetTokenByHash(ctx, auth.HashToken("tok_ci-secret"))
+	if err != nil {
+		t.Fatalf("seeded token not stored under the secret's own hash: %v", err)
+	}
+	if seeded.TokenPrefix != auth.TokenPrefix("tok_ci-secret") {
+		t.Errorf("prefix = %q, want %q", seeded.TokenPrefix, auth.TokenPrefix("tok_ci-secret"))
+	}
+	old, err := st.GetTokenByHash(ctx, legacy.TokenHash)
+	if err != nil {
+		t.Fatalf("GetTokenByHash legacy: %v", err)
+	}
+	if old.RevokedAt == nil {
+		t.Error("legacy double-prefixed bootstrap token was not revoked")
 	}
 }
