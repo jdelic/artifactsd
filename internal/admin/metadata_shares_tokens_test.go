@@ -43,7 +43,7 @@ func TestMetadata_NodeLevel_InvalidHeaderSurfacesError(t *testing.T) {
 	ha := newFullHarness(t)
 	form := url.Values{"name": {"demo-run"}}
 	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "report.txt", "hello")
+	seedFile(t, ha, "demo-run", "report.txt", "hello")
 
 	fields := url.Values{"headers": {"not-a-valid-header-line"}}
 	rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/meta/fields?path=report.txt", strings.NewReader(fields.Encode()), "application/x-www-form-urlencoded")
@@ -177,7 +177,7 @@ func TestMetadata_SandboxToggle(t *testing.T) {
 func TestMetadata_ExpiryEnableAndBanner(t *testing.T) {
 	ha := newFullHarness(t)
 	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "report.txt", "hello")
+	seedFile(t, ha, "demo-run", "report.txt", "hello")
 
 	// Enabled: value is honored and the effective-expiry banner appears.
 	on := url.Values{"delete_after_creation_enabled": {"on"}, "delete_after_creation": {"30d"}}
@@ -235,8 +235,8 @@ func TestMetadata_RawErrorAndPolicyRename(t *testing.T) {
 func TestQuickShare(t *testing.T) {
 	ha := newFullHarness(t)
 	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "report.txt", "hi")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": "", "subdir": "reports"}, "data.txt", "x")
+	seedFile(t, ha, "demo-run", "report.txt", "hi")
+	seedFile(t, ha, "demo-run", "reports/data.txt", "x")
 
 	for _, target := range []string{"report.txt", "reports", ""} {
 		rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/share", strings.NewReader(url.Values{"target_path": {target}}.Encode()), "application/x-www-form-urlencoded")
@@ -264,7 +264,7 @@ func TestQuickShare(t *testing.T) {
 func TestShareUnshareToggle(t *testing.T) {
 	ha := newFullHarness(t)
 	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "report.txt", "hi")
+	seedFile(t, ha, "demo-run", "report.txt", "hi")
 
 	// Not shared yet: the tree has no /s/ link and offers Unshare nowhere.
 	rec := doReq(t, ha, http.MethodGet, "/collections/demo-run/tree", http.NoBody, "")

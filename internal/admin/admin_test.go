@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/blob"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
@@ -31,6 +32,7 @@ func (f *fakeCleaner) RunOnce(context.Context) (any, error) {
 type harness struct {
 	h       http.Handler
 	st      *store.Store
+	blob    blob.Store
 	sess    *session.Manager
 	cleaner *fakeCleaner
 }

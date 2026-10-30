@@ -41,8 +41,8 @@ func TestAllSharesPage(t *testing.T) {
 func TestAllFilesPage(t *testing.T) {
 	ha := newFullHarness(t)
 	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "small.txt", "hi")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "big.txt", strings.Repeat("x", 500))
+	seedFile(t, ha, "demo-run", "small.txt", "hi")
+	seedFile(t, ha, "demo-run", "big.txt", strings.Repeat("x", 500))
 
 	rec := doReq(t, ha, http.MethodGet, "/files", http.NoBody, "")
 	body := rec.Body.String()
@@ -70,8 +70,8 @@ func TestAllFilesPage(t *testing.T) {
 func TestAllFilesPage_ExpiryColumnAndSort(t *testing.T) {
 	ha := newFullHarness(t)
 	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "keep.txt", "k")
-	uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": ""}, "temp.txt", "t")
+	seedFile(t, ha, "demo-run", "keep.txt", "k")
+	seedFile(t, ha, "demo-run", "temp.txt", "t")
 
 	// Give temp.txt an expiry; keep.txt never expires.
 	exp := url.Values{"delete_after_creation_enabled": {"on"}, "delete_after_creation": {"30d"}}
@@ -88,28 +88,6 @@ func TestAllFilesPage_ExpiryColumnAndSort(t *testing.T) {
 	}
 	if tempIdx > keepIdx {
 		t.Errorf("sort=expiry should list the expiring file (temp.txt) before the never-expiring one (keep.txt)")
-	}
-}
-
-// TestUpload_SubdirCreatesFolders covers artifactsd-ok0: an upload with a
-// destination subfolder materializes the nested folders.
-func TestUpload_SubdirCreatesFolders(t *testing.T) {
-	ha := newFullHarness(t)
-	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
-
-	rec := uploadMultipart(t, ha, "/collections/demo-run/upload", map[string]string{"dir": "", "subdir": "reports/q3"}, "data.txt", "x")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("subdir upload = %d: %s", rec.Code, rec.Body.String())
-	}
-	// The new top-level folder appears in the root tree.
-	rec = doReq(t, ha, http.MethodGet, "/collections/demo-run/tree", http.NoBody, "")
-	if !strings.Contains(rec.Body.String(), "reports") {
-		t.Fatalf("subdir folder not created: %s", rec.Body.String())
-	}
-	// And the file is reachable at the nested path.
-	rec = doReq(t, ha, http.MethodGet, "/collections/demo-run/tree?path=reports/q3", http.NoBody, "")
-	if !strings.Contains(rec.Body.String(), "data.txt") {
-		t.Fatalf("file not at nested path: %s", rec.Body.String())
 	}
 }
 

@@ -69,8 +69,9 @@ auth is env-configured, not edited in the UI.)
 
 - The tree page has a single upload form for files of any size: it calls the
   begin-upload endpoint and streams via the returned `upload_url` (XHR PUT with
-  a progress bar), per [07](07-storage-uploads.md). The direct multipart
-  `POST .../upload` handler still exists but has no form in the UI.
+  a progress bar), per [07](07-storage-uploads.md). The admin UI has no direct
+  small-file upload of its own; the API's direct `PUT .../files/{path}` for
+  small files is unaffected.
 - Folder/tree upload mirrors `artifactctl put-tree` (multiple files under a
   prefix) — optional for first cut.
 
