@@ -99,6 +99,22 @@ func (h *harness) file(t *testing.T, c *store.Collection, p, content, metaJSON, 
 	}
 }
 
+// folderMeta sets an existing folder's own metadata.
+func (h *harness) folderMeta(t *testing.T, c *store.Collection, p, metaJSON string) {
+	t.Helper()
+	n, err := h.st.GetNode(context.Background(), c.ID, p)
+	if err != nil {
+		t.Fatalf("GetNode %s: %v", p, err)
+	}
+	n.Metadata = []byte(metaJSON)
+	if err := h.st.UpsertNode(context.Background(), n); err != nil {
+		t.Fatalf("UpsertNode folder: %v", err)
+	}
+	if err := h.st.RecomputeNodeDenormalized(context.Background(), n.ID); err != nil {
+		t.Fatalf("recompute folder: %v", err)
+	}
+}
+
 // ensureParents materializes folder nodes for p's ancestors (mirroring the
 // real upload pipeline's design/07 §4 invariant: parent folder rows always
 // exist), returning the immediate parent's id.
@@ -225,6 +241,32 @@ func TestServe_BearerProtected(t *testing.T) {
 	rec := h.get("/c/demo/private.txt", map[string]string{"Authorization": "Bearer s3cret"})
 	if rec.Code != http.StatusOK || rec.Body.String() != "top secret" {
 		t.Errorf("bearer valid = %d %q, want 200", rec.Code, rec.Body)
+	}
+}
+
+// A protected object without any auth entry fails closed: 404 on direct file
+// and folder access (no index.html fallback), and through a plain share. A
+// share that sets its own visibility still grants access.
+func TestServe_ProtectedWithoutAuthFailsClosed(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public"}}`)
+	h.file(t, c, "p.txt", "should not leak", `{"access":{"visibility":"protected"}}`, "text/plain")
+	h.file(t, c, "dir/index.html", "<p>index</p>", `{}`, "text/html")
+	h.folderMeta(t, c, "dir", `{"access":{"visibility":"protected","directory_listing":true}}`)
+
+	for _, target := range []string{"/c/demo/p.txt", "/c/demo/dir/", "/c/demo/dir/index.html"} {
+		if rec := h.get(target, nil); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", target, rec.Code)
+		}
+	}
+
+	h.share(t, c, "shr_plain", "p.txt", "file", `{}`)
+	if rec := h.get("/s/shr_plain/", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("plain share of protected-without-auth = %d, want 404", rec.Code)
+	}
+	h.share(t, c, "shr_unlisted", "p.txt", "file", `{"access":{"visibility":"unlisted"}}`)
+	if rec := h.get("/s/shr_unlisted/", nil); rec.Code != http.StatusOK {
+		t.Errorf("unlisted share of protected-without-auth = %d, want 200", rec.Code)
 	}
 }
 

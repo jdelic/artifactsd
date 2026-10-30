@@ -144,14 +144,15 @@ func (a *app) newSkillInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if fellBack {
+			if fellBack && !a.jsonOutput() {
 				a.printf("%s has no project-local skills location; installing user-wide\n", args[0])
 			}
 			if err := installSkill(dest.path, dest.mode); err != nil {
 				return err
 			}
-			a.printf("installed artifactsd skill for %s (%s): %s\n", args[0], dest.mode, dest.path)
-			return nil
+			return a.printResult(map[string]any{
+				"agent": args[0], "mode": dest.mode.String(), "path": dest.path, "user_wide_fallback": fellBack,
+			}, "installed artifactsd skill for %s (%s): %s\n", args[0], dest.mode, dest.path)
 		},
 	}
 	cmd.Flags().BoolVar(&global, "global", false, "install into the agent's global/user-wide location instead of the current project")

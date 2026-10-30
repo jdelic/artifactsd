@@ -14,13 +14,19 @@ var (
 	Date = "unknown"
 )
 
-// String returns a human-readable one-line version summary.
-func String() string {
+// ResolvedVersion returns Version, or for a "dev" build the Go module version
+// when one is recorded (e.g. after `go install ...@vX`).
+func ResolvedVersion() string {
 	v := Version
 	if v == "dev" {
 		if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
 			v = bi.Main.Version
 		}
 	}
-	return v + " (commit " + Commit + ", built " + Date + ")"
+	return v
+}
+
+// String returns a human-readable one-line version summary.
+func String() string {
+	return ResolvedVersion() + " (commit " + Commit + ", built " + Date + ")"
 }

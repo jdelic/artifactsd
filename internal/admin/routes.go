@@ -24,7 +24,6 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("POST /collections/{name}/delete", http.HandlerFunc(h.deleteCollection))
 
 	mux.Handle("GET /collections/{name}/tree", http.HandlerFunc(h.collectionTree))
-	mux.Handle("POST /collections/{name}/upload", http.HandlerFunc(h.uploadFile))
 	mux.Handle("POST /collections/{name}/upload/begin", http.HandlerFunc(h.beginUpload))
 	mux.Handle("POST /collections/{name}/delete-file/{path...}", http.HandlerFunc(h.deleteFile))
 	mux.Handle("POST /collections/{name}/delete-folder/{path...}", http.HandlerFunc(h.deleteFolder))

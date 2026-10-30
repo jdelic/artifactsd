@@ -188,3 +188,10 @@ func (eff *Effective) applyRobots(r *Robots, t *tracer) {
 func (eff *Effective) RequiresAuth() bool {
 	return len(eff.Auth) > 0
 }
+
+// ProtectedWithoutAuth reports a protected object with no auth entries: no
+// credential can satisfy it, so it must never be served (fails closed rather
+// than degrading to public).
+func (eff *Effective) ProtectedWithoutAuth() bool {
+	return eff.Visibility == VisibilityProtected && !eff.RequiresAuth()
+}

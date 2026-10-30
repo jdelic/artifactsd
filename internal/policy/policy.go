@@ -74,6 +74,12 @@ func Decide(in Input) Decision {
 		return Decision{Outcome: NotFound}
 	}
 
+	// 2b. Protected but no auth configured → 404: nothing can satisfy the
+	// requirement, so fail closed instead of serving it like public.
+	if eff.ProtectedWithoutAuth() {
+		return Decision{Outcome: NotFound}
+	}
+
 	// 3. Auth-required → verify any-of, else challenge by type.
 	if eff.RequiresAuth() {
 		verifiers := compileVerifiers(eff.Auth, in.OIDC)

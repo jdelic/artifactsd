@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -19,11 +21,11 @@ type visibilityFlags struct {
 }
 
 func (v *visibilityFlags) register(f *pflag.FlagSet) {
-	f.StringVar(&v.visibility, "visibility", "", "visibility: public|unlisted|protected|private")
-	f.BoolVar(&v.public, "public", false, "shorthand for --visibility public")
-	f.BoolVar(&v.unlisted, "unlisted", false, "shorthand for --visibility unlisted")
-	f.BoolVar(&v.protected, "protected", false, "shorthand for --visibility protected")
-	f.BoolVar(&v.private, "private", false, "shorthand for --visibility private")
+	f.StringVar(&v.visibility, "visibility", "", "visibility: public|unlisted|protected|private (see \"artifactctl --help\")")
+	f.BoolVar(&v.public, "public", false, "--visibility public: served to anyone with the URL")
+	f.BoolVar(&v.unlisted, "unlisted", false, "--visibility unlisted: served by URL, hidden from listings and sitemap")
+	f.BoolVar(&v.protected, "protected", false, "--visibility protected: served only with the object's auth (404 if none is set)")
+	f.BoolVar(&v.private, "private", false, "--visibility private: never served on /c/ routes (API and shares only)")
 }
 
 // resolve returns the selected visibility ("" when no flag was used), or a
@@ -73,9 +75,9 @@ type authFlags struct {
 }
 
 func (a *authFlags) register(f *pflag.FlagSet) {
-	f.StringVar(&a.bearerToken, "bearer-token", "", "require this bearer token")
-	f.BoolVar(&a.generateBearer, "generate-bearer-token", false, "generate a random bearer token and print it once")
-	f.StringVar(&a.basic, "basic", "", "require basic auth <user:pass>")
+	f.StringVar(&a.bearerToken, "bearer-token", "", "require this bearer token to fetch (unauthenticated callers get 404)")
+	f.BoolVar(&a.generateBearer, "generate-bearer-token", false, "like --bearer-token with a random token, printed once")
+	f.StringVar(&a.basic, "basic", "", "require basic auth <user:pass> to fetch (browser login dialog)")
 }
 
 // entries resolves the auth flags into access.auth entries, generating a
@@ -146,7 +148,7 @@ func (u *uploadMetaFlags) register(f *pflag.FlagSet) {
 	u.auth.register(f)
 	u.expiry.register(f)
 	f.StringArrayVar(&u.headers, "header", nil, "response header k=v (repeatable)")
-	f.BoolVar(&u.noIndex, "no-index", false, "mark non-indexable")
+	f.BoolVar(&u.noIndex, "no-index", false, "send X-Robots-Tag: noindex")
 }
 
 // document assembles the metadata document the flags describe, or nil when no
@@ -196,9 +198,39 @@ func (u *uploadMetaFlags) document() (json.RawMessage, error) {
 }
 
 // printGeneratedToken shows an auto-generated bearer token once (the server
-// only ever stores its hash).
+// only ever stores its hash). It is text-mode only: in --output json mode the
+// token travels in the command's JSON object (printJSONWithToken).
 func (a *app) printGeneratedToken(genToken string) {
-	if genToken != "" {
+	if genToken != "" && !a.jsonOutput() {
 		a.printf("bearer token (shown once, save it): %s\n", genToken)
 	}
+}
+
+// printJSONWithToken writes v as JSON, adding a "generated_bearer_token" field
+// to the object when genToken is set, so --output json stays a single JSON
+// document while still carrying the only copy of the token.
+func (a *app) printJSONWithToken(v any, genToken string) error {
+	if genToken == "" {
+		return a.printJSON(v)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if len(b) < 2 || b[0] != '{' || b[len(b)-1] != '}' {
+		return errors.New("internal error: generated token needs a JSON object to attach to")
+	}
+	tok, err := json.Marshal(genToken)
+	if err != nil {
+		return err
+	}
+	var out bytes.Buffer
+	out.Write(b[:len(b)-1])
+	if len(b) > 2 {
+		out.WriteByte(',')
+	}
+	out.WriteString(`"generated_bearer_token":`)
+	out.Write(tok)
+	out.WriteByte('}')
+	return a.printJSON(json.RawMessage(out.Bytes()))
 }

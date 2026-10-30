@@ -144,6 +144,9 @@ earliest-wins rule holds transitively without re-walking the whole tree.
 Algorithm for public serve routes:
 1. If object/effective is `private` → **404** (never reveal existence, SPEC §17).
 2. If expired → **404** (SPEC §11, not 403).
+2b. If `protected` with no effective `access.auth` → **404**: no credential can
+   satisfy it, so it fails closed instead of degrading to public. A directory
+   in this state gets no `index.html` fallback either.
 3. If there is effective `access.auth` (object is `protected`, or any visibility
    with auth configured):
    - If a presented credential satisfies any entry (any-of) → continue.

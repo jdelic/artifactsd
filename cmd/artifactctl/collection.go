@@ -27,6 +27,7 @@ func (a *app) newCollectionCmd() *cobra.Command {
 func (a *app) newCollectionCreateCmd() *cobra.Command {
 	var (
 		vis         visibilityFlags
+		auth        authFlags
 		expiry      expiryFlags
 		list        bool
 		noList      bool
@@ -52,28 +53,34 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			meta, err := buildCollectionMetadata(visibility, expiresAt, list, noList, crawlable, noCrawlable, index, noIndex)
+			authEntries, err := auth.entries()
 			if err != nil {
 				return err
 			}
+			meta, err := buildCollectionMetadata(visibility, expiresAt, authEntries, list, noList, crawlable, noCrawlable, index, noIndex)
+			if err != nil {
+				return err
+			}
+			a.printGeneratedToken(auth.genToken)
 			col, err := cli.CreateCollection(cmd.Context(), apiclient.CreateCollectionRequest{
 				Name: args[0], Metadata: meta,
 			})
 			if err != nil {
 				return err
 			}
-			return a.renderCollection(col, "created collection %s\n")
+			return a.renderCollection(col, auth.genToken, "created collection %s\n")
 		},
 	}
 	f := cmd.Flags()
 	vis.register(f)
+	auth.register(f)
 	expiry.register(f)
-	f.BoolVar(&list, "list", false, "enable directory listing")
+	f.BoolVar(&list, "list", false, "enable directory listing on folder URLs")
 	f.BoolVar(&noList, "no-list", false, "disable directory listing")
-	f.BoolVar(&crawlable, "crawlable", false, "mark crawlable")
-	f.BoolVar(&noCrawlable, "no-crawlable", false, "mark non-crawlable")
-	f.BoolVar(&index, "index", false, "mark indexable")
-	f.BoolVar(&noIndex, "no-index", false, "mark non-indexable")
+	f.BoolVar(&crawlable, "crawlable", false, "include in the crawl tree (artifactctl crawl)")
+	f.BoolVar(&noCrawlable, "no-crawlable", false, "exclude from the crawl tree")
+	f.BoolVar(&index, "index", false, "allow search indexing (robots.txt, sitemap)")
+	f.BoolVar(&noIndex, "no-index", false, "send X-Robots-Tag: noindex")
 	return cmd
 }
 
@@ -117,7 +124,7 @@ func (a *app) newCollectionShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.renderCollection(col, "")
+			return a.renderCollection(col, "", "")
 		},
 	}
 }
@@ -137,8 +144,7 @@ func (a *app) newCollectionDeleteCmd() *cobra.Command {
 			if err := cli.DeleteCollection(cmd.Context(), args[0], force); err != nil {
 				return err
 			}
-			a.printf("deleted collection %s\n", args[0])
-			return nil
+			return a.printResult(map[string]any{"deleted": args[0]}, "deleted collection %s\n", args[0])
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "delete even if non-empty (cascade)")
@@ -147,9 +153,11 @@ func (a *app) newCollectionDeleteCmd() *cobra.Command {
 
 // renderCollection prints a collection as JSON or a short text summary. textMsg
 // (if non-empty) is a printf-style line shown before the text summary.
-func (a *app) renderCollection(col *apiclient.Collection, textMsg string) error {
+// genToken, if set, is added to the JSON object (text mode printed it before
+// the request).
+func (a *app) renderCollection(col *apiclient.Collection, genToken, textMsg string) error {
 	if a.jsonOutput() {
-		return a.printJSON(col)
+		return a.printJSONWithToken(col, genToken)
 	}
 	if textMsg != "" {
 		a.printf(textMsg, col.Name)
@@ -165,7 +173,7 @@ func (a *app) renderCollection(col *apiclient.Collection, textMsg string) error 
 // buildCollectionMetadata assembles a metadata document from the create flags
 // (visibility and expiresAt already resolved), or nil when no flag is set
 // (server applies defaults).
-func buildCollectionMetadata(visibility, expiresAt string, list, noList, crawlable, noCrawlable, index, noIndex bool) (json.RawMessage, error) {
+func buildCollectionMetadata(visibility, expiresAt string, authEntries []map[string]any, list, noList, crawlable, noCrawlable, index, noIndex bool) (json.RawMessage, error) {
 	if list && noList {
 		return nil, usagef("--list and --no-list are mutually exclusive")
 	}
@@ -182,6 +190,9 @@ func buildCollectionMetadata(visibility, expiresAt string, list, noList, crawlab
 	}
 	if noList {
 		access["directory_listing"] = false
+	}
+	if len(authEntries) > 0 {
+		access["auth"] = authEntries
 	}
 	doc := map[string]any{}
 	if len(access) > 0 {

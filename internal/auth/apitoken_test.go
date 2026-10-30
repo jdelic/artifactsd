@@ -119,6 +119,17 @@ func TestAuthenticate_BootstrapToken(t *testing.T) {
 	}
 }
 
+// A bootstrap secret that already starts with tok_ is looked up as-is, not
+// double-prefixed.
+func TestAuthenticate_PrefixedBootstrapToken(t *testing.T) {
+	store := newFakeStore()
+	store.add("tok_ci-secret", &TokenRecord{ID: 9, Name: "bootstrap", Scopes: NewScopeSet(ScopeAdmin)})
+	a := NewAuthenticator(store).WithClock(fixedClock).WithBootstrapToken("tok_ci-secret")
+	if _, err := a.Authenticate(context.Background(), apiReq("Bearer tok_ci-secret")); err != nil {
+		t.Fatalf("Authenticate with prefixed bootstrap token: %v", err)
+	}
+}
+
 func TestMiddleware_ScopeEnforcement(t *testing.T) {
 	store := newFakeStore()
 	store.add("tok_reader", &TokenRecord{ID: 1, Prefix: "tok_reader", Scopes: NewScopeSet(ScopeCollectionsRead)})

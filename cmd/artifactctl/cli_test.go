@@ -65,3 +65,21 @@ func TestRun_UnknownFlag(t *testing.T) {
 		t.Fatalf("unknown flag exit = %d, want %d", code, exitUsage)
 	}
 }
+
+// TestRun_HelpDocumentsConceptsAndEnv pins that --help names the environment
+// variables the client reads (so the token can be supplied without --token)
+// and explains the visibility levels and the flags that set access.
+func TestRun_HelpDocumentsConceptsAndEnv(t *testing.T) {
+	code, out, _ := runCLI(t, "--help")
+	if code != exitOK {
+		t.Fatalf("--help exit = %d", code)
+	}
+	for _, want := range []string{
+		envBaseURL, envToken, envConfig,
+		"public", "unlisted", "protected", "private", "--bearer-token", "--crawlable",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--help output missing %q", want)
+		}
+	}
+}

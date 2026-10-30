@@ -51,6 +51,7 @@ func newRootCmd(a *app) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "artifactctl",
 		Short:         "artifactctl — command-line client for an artifactsd server",
+		Long:          rootLong,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -64,9 +65,9 @@ func newRootCmd(a *app) *cobra.Command {
 	})
 
 	pf := root.PersistentFlags()
-	pf.StringVar(&a.baseURL, "base-url", "", "artifactsd server base URL")
-	pf.StringVar(&a.token, "token", "", "management API token")
-	pf.StringVar(&a.profile, "profile", "", "config profile to use")
+	pf.StringVar(&a.baseURL, "base-url", "", "artifactsd server base URL (env "+envBaseURL+")")
+	pf.StringVar(&a.token, "token", "", "management API token (env "+envToken+"; prefer it over this flag)")
+	pf.StringVar(&a.profile, "profile", "", "config file profile to use (file: $"+envConfig+" or ~/.config/artifactctl/config.yaml)")
 	pf.StringVar(&a.output, "output", outputText, "output format: text|json")
 	pf.BoolVarP(&a.quiet, "quiet", "q", false, "suppress non-essential output")
 	pf.BoolVarP(&a.verbose, "verbose", "v", false, "verbose output")
@@ -86,7 +87,7 @@ func newRootCmd(a *app) *cobra.Command {
 		a.newTokenCmd(),
 		a.newMaintenanceCmd(),
 		a.newSkillCmd(),
-		newVersionCmd(),
+		a.newVersionCmd(),
 	)
 	return root
 }
@@ -130,6 +131,17 @@ func (a *app) printJSON(v any) error {
 	return enc.Encode(v)
 }
 
+// printResult reports the outcome of a command whose API call returns no body
+// (deletes, revokes): v as JSON in --output json mode, else the printf-style
+// text line.
+func (a *app) printResult(v any, format string, args ...any) error {
+	if a.jsonOutput() {
+		return a.printJSON(v)
+	}
+	a.printf(format, args...)
+	return nil
+}
+
 // printf writes a formatted line to stdout unless --quiet is set.
 func (a *app) printf(format string, args ...any) {
 	if a.quiet {
@@ -138,12 +150,18 @@ func (a *app) printf(format string, args ...any) {
 	_, _ = fmt.Fprintf(a.out, format, args...)
 }
 
-func newVersionCmd() *cobra.Command {
+func (a *app) newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if a.jsonOutput() {
+				return a.printJSON(map[string]string{
+					"name": "artifactctl", "version": buildinfo.ResolvedVersion(),
+					"commit": buildinfo.Commit, "date": buildinfo.Date,
+				})
+			}
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), "artifactctl", buildinfo.String())
 			return err
 		},

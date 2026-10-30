@@ -21,7 +21,11 @@ document.addEventListener("keydown", function (event) {
   if (!/^[a-z0-9]$/.test(key)) {
     return;
   }
-  var target = document.querySelector('[data-shortcut="' + key + '"]');
+  // A shortcut on the current page's content wins over the same letter in the
+  // top nav (e.g. Alt+U is "Upload" on the tree page, "Upload Requests"
+  // elsewhere), matching what each page's footer advertises.
+  var selector = '[data-shortcut="' + key + '"]';
+  var target = document.querySelector(".nc-content " + selector) || document.querySelector(selector);
   if (!target) {
     return;
   }

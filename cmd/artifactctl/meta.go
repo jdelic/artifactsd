@@ -204,6 +204,8 @@ func compactJSON(raw json.RawMessage) string {
 func (a *app) newMetaSetCmd() *cobra.Command {
 	var (
 		vis         visibilityFlags
+		auth        authFlags
+		clearAuth   bool
 		expiry      expiryFlags
 		headers     []string
 		list        bool
@@ -236,11 +238,22 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			patch, err := buildFileMetaPatch(visibility, expiresAt, headers,
+			authEntries, err := auth.entries()
+			if err != nil {
+				return err
+			}
+			if clearAuth {
+				if authEntries != nil {
+					return usagef("--clear-auth cannot be combined with --bearer-token, --generate-bearer-token, or --basic")
+				}
+				authEntries = []map[string]any{}
+			}
+			patch, err := buildFileMetaPatch(visibility, expiresAt, headers, authEntries,
 				metaSetBools{list: list, noList: noList, crawlable: crawlable, noCrawlable: noCrawlable, index: index, noIndex: noIndex})
 			if err != nil {
 				return err
 			}
+			a.printGeneratedToken(auth.genToken)
 			switch kind {
 			case targetCollection:
 				col, err := cli.PatchCollectionMeta(cmd.Context(), collection, patch)
@@ -248,7 +261,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 					return err
 				}
 				if a.jsonOutput() {
-					return a.printJSON(col)
+					return a.printJSONWithToken(col, auth.genToken)
 				}
 				a.printf("updated metadata for %s\n", col.Name)
 				return nil
@@ -258,7 +271,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 					return err
 				}
 				if a.jsonOutput() {
-					return a.printJSON(meta)
+					return a.printJSONWithToken(meta, auth.genToken)
 				}
 				a.printf("updated metadata for %s/\n", meta.Path)
 				return nil
@@ -268,7 +281,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 					return err
 				}
 				if a.jsonOutput() {
-					return a.printJSON(meta)
+					return a.printJSONWithToken(meta, auth.genToken)
 				}
 				a.printf("updated metadata for %s\n", meta.Path)
 				return nil
@@ -277,14 +290,16 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	vis.register(f)
+	auth.register(f)
+	f.BoolVar(&clearAuth, "clear-auth", false, "remove this object's own auth entries (set an empty list, overriding inherited auth)")
 	expiry.register(f)
 	f.StringArrayVar(&headers, "header", nil, "response header k=v (repeatable)")
-	f.BoolVar(&list, "list", false, "enable directory listing")
+	f.BoolVar(&list, "list", false, "enable directory listing on folder URLs")
 	f.BoolVar(&noList, "no-list", false, "disable directory listing")
-	f.BoolVar(&crawlable, "crawlable", false, "mark crawlable")
-	f.BoolVar(&noCrawlable, "no-crawlable", false, "mark non-crawlable")
-	f.BoolVar(&index, "index", false, "mark indexable")
-	f.BoolVar(&noIndex, "no-index", false, "mark non-indexable")
+	f.BoolVar(&crawlable, "crawlable", false, "include in the crawl tree (artifactctl crawl)")
+	f.BoolVar(&noCrawlable, "no-crawlable", false, "exclude from the crawl tree")
+	f.BoolVar(&index, "index", false, "allow search indexing (robots.txt, sitemap)")
+	f.BoolVar(&noIndex, "no-index", false, "send X-Robots-Tag: noindex")
 	return cmd
 }
 
@@ -295,8 +310,9 @@ type metaSetBools struct {
 
 // buildFileMetaPatch assembles a metadata document patch from the `meta set`
 // flags (design/03 §2 for the document shape); visibility and expiresAt arrive
-// already resolved.
-func buildFileMetaPatch(visibility, expiresAt string, headers []string, b metaSetBools) (json.RawMessage, error) {
+// already resolved. authEntries nil leaves auth untouched; a non-nil empty
+// slice replaces it with "no auth".
+func buildFileMetaPatch(visibility, expiresAt string, headers []string, authEntries []map[string]any, b metaSetBools) (json.RawMessage, error) {
 	if b.list && b.noList {
 		return nil, usagef("--list and --no-list are mutually exclusive")
 	}
@@ -318,6 +334,9 @@ func buildFileMetaPatch(visibility, expiresAt string, headers []string, b metaSe
 	if b.noList {
 		access["directory_listing"] = false
 	}
+	if authEntries != nil {
+		access["auth"] = authEntries
+	}
 	doc := map[string]any{}
 	if len(access) > 0 {
 		doc["access"] = access
@@ -332,7 +351,7 @@ func buildFileMetaPatch(visibility, expiresAt string, headers []string, b metaSe
 		doc["expiry"] = map[string]any{"expires_at": expiresAt}
 	}
 	if len(doc) == 0 {
-		return nil, usagef("meta set requires at least one metadata flag (visibility, expiry, --header, --list/--no-list, --crawlable/--no-crawlable, --index/--no-index)")
+		return nil, usagef("meta set requires at least one metadata flag (visibility, auth, expiry, --header, --list/--no-list, --crawlable/--no-crawlable, --index/--no-index)")
 	}
 	return json.Marshal(doc)
 }

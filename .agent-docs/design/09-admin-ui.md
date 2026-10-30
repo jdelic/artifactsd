@@ -21,6 +21,9 @@ Implements SPEC §14. Served at `/admin`, always behind authentication.
   them reliably (artifactsd-9sy). Shortcuts cover the single, unambiguous action
   per screen (create/upload/filter/save/cleanup) plus logout; per-row actions
   (delete/revoke) stay as on-row buttons since a global key cannot pick a row.
+  When a letter is bound both in the page content and in the top nav (`Alt-U`:
+  Upload on the tree screen, Upload Requests elsewhere), the page's binding
+  wins, matching what its footer advertises.
 
 Rationale for htmx over a JS framework: the UI is CRUD over collections/files/
 metadata — well served by server rendering; avoids a build step and large
@@ -64,9 +67,15 @@ auth is env-configured, not edited in the UI.)
 
 ## 4. Upload UX
 
-- Small files: direct form `PUT` to the API.
-- Large files: the UI calls the begin-upload endpoint and streams via the
-  returned `upload_url` (fetch + progress), per [07](07-storage-uploads.md).
+- The tree page has a single upload form for files of any size: it calls the
+  begin-upload endpoint and streams via the returned `upload_url` (XHR PUT with
+  a progress bar), per [07](07-storage-uploads.md). The admin UI has no direct
+  small-file upload of its own; the API's direct `PUT .../files/{path}` for
+  small files is unaffected.
+  A failed begin or PUT shows `error (<status>): <message>`, taking the message
+  from the admin's or the API's JSON error body, or the first line of a
+  plain-text one (the CSRF gate); a proxy's HTML error page shows only the
+  status.
 - Folder/tree upload mirrors `artifactctl put-tree` (multiple files under a
   prefix) — optional for first cut.
 

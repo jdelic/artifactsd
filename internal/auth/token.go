@@ -130,6 +130,17 @@ func GenerateSubmissionID() (string, error) {
 	return SubmissionPrefixValue + secret, nil
 }
 
+// NormalizeBootstrapToken maps the operator-chosen bootstrap secret
+// (ARTIFACTSD_BOOTSTRAP_TOKEN) to the tok_-prefixed form it is stored and
+// looked up under. A secret that already carries the prefix is used as-is,
+// so "tok_x" is stored as "tok_x", not "tok_tok_x".
+func NormalizeBootstrapToken(token string) string {
+	if strings.HasPrefix(token, TokenPrefixValue) {
+		return token
+	}
+	return TokenPrefixValue + token
+}
+
 // TokenPrefix returns the leading prefixLen characters of a token for display.
 func TokenPrefix(token string) string {
 	if len(token) <= prefixLen {

@@ -197,14 +197,13 @@ func (a *app) newUploadRequestCloseCmd() *cobra.Command {
 				return err
 			}
 			status := "closed"
-			_, err = cli.PatchUploadRequest(cmd.Context(), args[0], apiclient.PatchUploadRequestRequest{
+			ur, err := cli.PatchUploadRequest(cmd.Context(), args[0], apiclient.PatchUploadRequestRequest{
 				Status: &status,
 			})
 			if err != nil {
 				return err
 			}
-			a.printf("closed upload request %s\n", args[0])
-			return nil
+			return a.printResult(ur, "closed upload request %s\n", args[0])
 		},
 	}
 }
@@ -222,8 +221,7 @@ func (a *app) newUploadRequestRevokeCmd() *cobra.Command {
 			if err := cli.RevokeUploadRequest(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			a.printf("revoked upload request %s\n", args[0])
-			return nil
+			return a.printResult(map[string]any{"revoked": args[0]}, "revoked upload request %s\n", args[0])
 		},
 	}
 }

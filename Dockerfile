@@ -6,7 +6,7 @@
 #   docker build -t artifactsd .
 #   docker buildx build --platform linux/amd64,linux/arm64 -t artifactsd .
 
-FROM golang:1.25-trixie AS build
+FROM golang:1.26-trixie AS build
 WORKDIR /src
 ARG TARGETOS
 ARG TARGETARCH

@@ -10,15 +10,15 @@ import (
 type Scope string
 
 // Known scopes. `admin` is a superscope granting everything; `<resource>:write`
-// implies `<resource>:read`.
+// implies `<resource>:read`. Token management, upload requests, audit, and
+// maintenance are admin-only (design/04 §8): there are deliberately no
+// tokens:* scopes, since a token that can mint tokens can mint an admin one.
 const (
 	ScopeAdmin            Scope = "admin"
 	ScopeCollectionsRead  Scope = "collections:read"
 	ScopeCollectionsWrite Scope = "collections:write"
 	ScopeSharesRead       Scope = "shares:read"
 	ScopeSharesWrite      Scope = "shares:write"
-	ScopeTokensRead       Scope = "tokens:read"
-	ScopeTokensWrite      Scope = "tokens:write"
 )
 
 // KnownScopes lists every scope a token may be granted (design/04 §1). Used to
@@ -27,7 +27,6 @@ var KnownScopes = []Scope{
 	ScopeAdmin,
 	ScopeCollectionsRead, ScopeCollectionsWrite,
 	ScopeSharesRead, ScopeSharesWrite,
-	ScopeTokensRead, ScopeTokensWrite,
 }
 
 // IsKnownScope reports whether sc is a recognized scope.

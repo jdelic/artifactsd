@@ -56,7 +56,7 @@ func (a *app) newPutCmd() *cobra.Command {
 				return err
 			}
 			a.printGeneratedToken(metaFlags.auth.genToken)
-			return a.renderFile(info, "uploaded %s (%d bytes)\n")
+			return a.renderFile(info, metaFlags.auth.genToken, "uploaded %s (%d bytes)\n")
 		},
 	}
 	cmd.Flags().StringVar(&contentType, "content-type", "", "content type (default: inferred from extension)")
@@ -118,11 +118,12 @@ func (a *app) newGetCmd() *cobra.Command {
 				defer func() { _ = f.Close() }()
 				dst = f
 			}
-			if _, err := io.Copy(dst, rc); err != nil {
+			n, err := io.Copy(dst, rc)
+			if err != nil {
 				return err
 			}
 			if outFile != "" {
-				a.printf("wrote %s\n", outFile)
+				return a.printResult(map[string]any{"wrote": outFile, "bytes": n}, "wrote %s\n", outFile)
 			}
 			return nil
 		},
@@ -150,8 +151,8 @@ func (a *app) newRmCmd() *cobra.Command {
 				if err := cli.DeleteFolder(cmd.Context(), collection, path); err != nil {
 					return err
 				}
-				a.printf("deleted %s/%s/ (recursive)\n", collection, path)
-				return nil
+				return a.printResult(map[string]any{"deleted": collection + "/" + path, "recursive": true},
+					"deleted %s/%s/ (recursive)\n", collection, path)
 			}
 			if err := cli.DeleteFile(cmd.Context(), collection, path); err != nil {
 				if apiclient.IsConflict(err) {
@@ -159,8 +160,8 @@ func (a *app) newRmCmd() *cobra.Command {
 				}
 				return err
 			}
-			a.printf("deleted %s/%s\n", collection, path)
-			return nil
+			return a.printResult(map[string]any{"deleted": collection + "/" + path, "recursive": false},
+				"deleted %s/%s\n", collection, path)
 		},
 	}
 	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "delete a folder and everything beneath it")
@@ -180,6 +181,7 @@ type putTreeOpts struct {
 	exclude   string
 	threshold int64
 	metadata  json.RawMessage
+	genToken  string // --generate-bearer-token value, reported in JSON mode
 }
 
 func (a *app) newPutTreeCmd() *cobra.Command {
@@ -204,9 +206,9 @@ func (a *app) newPutTreeCmd() *cobra.Command {
 				return err
 			}
 			a.printGeneratedToken(metaFlags.auth.genToken)
-			return a.putTree(cmd, cli, args[0], args[1], putTreeOpts{
+			return a.putTree(cmd, cli, args[0], args[1], &putTreeOpts{
 				ctAuto: contentTypeAuto, include: include, exclude: exclude,
-				threshold: largeUploadThreshold, metadata: doc,
+				threshold: largeUploadThreshold, metadata: doc, genToken: metaFlags.auth.genToken,
 			})
 		},
 	}
@@ -233,7 +235,7 @@ type treeFile struct {
 // large-upload session (design/07 §3) for files at or above it — and reports
 // a summary. A progress bar (design/10 intro) tracks completion on stderr
 // when it is a terminal.
-func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, localDir string, opts putTreeOpts) error {
+func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, localDir string, opts *putTreeOpts) error {
 	files, err := discoverTreeFiles(localDir, opts.include, opts.exclude)
 	if err != nil {
 		return err
@@ -249,19 +251,28 @@ func (a *app) putTree(cmd *cobra.Command, cli *apiclient.Client, collection, loc
 		}
 		if err := a.putTreeFile(cmd, cli, collection, tf, ct, opts.threshold, opts.metadata); err != nil {
 			prog.finish()
+			if a.jsonOutput() && opts.genToken != "" && uploaded > 0 {
+				// The files already uploaded require the token, and the JSON
+				// summary that would carry it is never written.
+				_, _ = fmt.Fprintf(a.err, "bearer token for the files already uploaded (shown once, save it): %s\n", opts.genToken)
+			}
 			return err
 		}
 		uploaded++
 		totalBytes += tf.size
 		prog.advance(tf.rel)
 		if a.verbose {
-			a.printf("  %s\n", tf.rel)
+			if a.jsonOutput() {
+				_, _ = fmt.Fprintf(a.err, "  %s\n", tf.rel)
+			} else {
+				a.printf("  %s\n", tf.rel)
+			}
 		}
 	}
 	prog.finish()
 
 	if a.jsonOutput() {
-		return a.printJSON(map[string]any{"uploaded": uploaded, "bytes": totalBytes})
+		return a.printJSONWithToken(map[string]any{"uploaded": uploaded, "bytes": totalBytes}, opts.genToken)
 	}
 	a.printf("uploaded %d files (%d bytes) to %s\n", uploaded, totalBytes, collection)
 	return nil
@@ -311,10 +322,11 @@ func discoverTreeFiles(localDir, include, exclude string) ([]treeFile, error) {
 	return files, nil
 }
 
-// renderFile prints a file info as JSON or a short text summary.
-func (a *app) renderFile(info *apiclient.FileInfo, textMsg string) error {
+// renderFile prints a file info as JSON or a short text summary. genToken, if
+// set, is added to the JSON object (text mode printed it before the upload).
+func (a *app) renderFile(info *apiclient.FileInfo, genToken, textMsg string) error {
 	if a.jsonOutput() {
-		return a.printJSON(info)
+		return a.printJSONWithToken(info, genToken)
 	}
 	if textMsg != "" {
 		a.printf(textMsg, info.Path, info.Size)

@@ -66,9 +66,9 @@ func (a *Authenticator) WithClock(now func() time.Time) *Authenticator {
 
 // WithBootstrapToken registers the operator-chosen bootstrap secret
 // (ARTIFACTSD_BOOTSTRAP_TOKEN, design/12 §2.1). Unlike every other token, it
-// carries no tok_ prefix, so Authenticate recognizes it by exact match and
-// normalizes it to tok_+token before the usual hash lookup — matching how
-// cmd/artifactsd/bootstrap.go seeded it into the store.
+// need not carry the tok_ prefix, so Authenticate recognizes it by exact match
+// and normalizes it with NormalizeBootstrapToken before the usual hash lookup
+// — matching how cmd/artifactsd/bootstrap.go seeded it into the store.
 func (a *Authenticator) WithBootstrapToken(token string) *Authenticator {
 	a.bootstrapToken = token
 	return a
@@ -83,7 +83,7 @@ func (a *Authenticator) Authenticate(ctx context.Context, r *http.Request) (*Pri
 		return nil, ErrNoCredentials
 	}
 	if a.bootstrapToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(a.bootstrapToken)) == 1 {
-		token = TokenPrefixValue + token
+		token = NormalizeBootstrapToken(token)
 	}
 	if !strings.HasPrefix(token, TokenPrefixValue) {
 		return nil, ErrNoCredentials

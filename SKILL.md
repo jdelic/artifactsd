@@ -12,7 +12,7 @@ a link to something you made instead of pasting large content inline.
 You reach it two ways — pick whichever your environment provides:
 
 - **`artifactctl`** CLI (over the HTTP API). Add `--output json` for parseable
-  output.
+  output: stdout is then a single JSON object.
 - **MCP tools** (`artifact_*`), if an artifactsd MCP server is configured.
 
 The model is `collection / folder / file`. A **collection** is the top-level
@@ -26,7 +26,7 @@ namespace for one artifact tree. Files are served at
 |------|---------------|
 | `public` | anyone with the URL; may appear in listings/sitemaps |
 | `unlisted` | anyone with the URL, but hidden from listings and indexes |
-| `protected` | only with a configured credential (bearer/basic/OIDC) |
+| `protected` | only with a configured credential (bearer/basic/OIDC); with none configured it is never served (404) |
 | `private` | nobody via public serving — only the management API; expose via a share |
 
 Default to **non-indexable** (`--no-index`) unless the user explicitly wants
@@ -150,8 +150,9 @@ the resolved `effective` policy.
 - **Set content types** so browsers render artifacts correctly
   (`--content-type-auto` for trees, `--content-type` for single files).
 - **Don't leak secrets.** `--generate-bearer-token` creates a token and prints
-  it once; capture it and pass it to whoever needs access. `--bearer-token`
-  always takes an explicit value.
+  it once (the `generated_bearer_token` field with `--output json`); capture it
+  and pass it to whoever needs access. `--bearer-token` always takes an
+  explicit value.
 - **A missing protected/expired file returns 404, not 403** — that's by design,
   not an error to retry.
 

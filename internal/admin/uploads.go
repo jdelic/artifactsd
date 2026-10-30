@@ -2,7 +2,6 @@ package admin
 
 import (
 	"encoding/json"
-	"errors"
 	"mime"
 	"net/http"
 	"path"
@@ -15,94 +14,6 @@ import (
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 )
-
-// uploadFile handles the small-file upload form: a direct multipart POST,
-// stored synchronously (design/09 §4). The body is already capped at
-// ARTIFACTSD_MAX_UPLOAD_SIZE by the server's global body-limit middleware.
-func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	c, ok := h.lookupCollectionByName(w, r, name)
-	if !ok {
-		return
-	}
-	dir := r.FormValue("dir")
-
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		h.renderTreePanel(w, r, c, dir, "no file selected")
-		return
-	}
-	defer func() { _ = file.Close() }()
-
-	// The destination is the current dir, optionally extended by a subfolder
-	// path the operator typed (artifactsd-ok0). Intermediate folders are
-	// materialized by ensureParents below, so this is how folders are created
-	// through the UI. The filename is reduced to its base; only the subdir field
-	// introduces new path segments.
-	target := path.Base(strings.ReplaceAll(header.Filename, "\\", "/"))
-	prefix := dir
-	if subdir := strings.Trim(r.FormValue("subdir"), "/"); subdir != "" {
-		prefix = path.Join(prefix, subdir)
-	}
-	if prefix != "" {
-		target = prefix + "/" + target
-	}
-	p, err := paths.Clean(target)
-	if err != nil {
-		h.renderTreePanel(w, r, c, dir, "invalid upload path: "+err.Error())
-		return
-	}
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" || contentType == "application/octet-stream" {
-		if guess := mime.TypeByExtension(path.Ext(p)); guess != "" {
-			contentType = guess
-		}
-	}
-
-	ctx := r.Context()
-	ref, size, sum, err := h.blob.Put(ctx, file)
-	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			h.renderTreePanel(w, r, c, dir, "upload exceeds the size limit")
-			return
-		}
-		h.renderTreePanel(w, r, c, dir, "storing file: "+err.Error())
-		return
-	}
-	parentID, err := h.store.EnsureParentFolders(ctx, c.ID, p)
-	if err != nil {
-		if errors.Is(err, store.ErrKindConflict) {
-			h.renderTreePanel(w, r, c, dir, "a path segment already exists as a file, not a folder")
-			return
-		}
-		h.renderTreePanel(w, r, c, dir, "materializing folders: "+err.Error())
-		return
-	}
-	refStr := string(ref)
-	node := &store.Node{
-		CollectionID: c.ID, ParentID: parentID, Path: p, Name: lastSegment(p), Kind: store.KindFile,
-		BlobID: &refStr, Size: &size, ContentType: strPtrOrNil(contentType), Checksum: &sum,
-		Metadata: json.RawMessage(`{}`),
-	}
-	if err := h.store.UpsertNode(ctx, node); err != nil {
-		if errors.Is(err, store.ErrKindConflict) {
-			h.renderTreePanel(w, r, c, dir, "a folder already exists at that path")
-			return
-		}
-		h.renderTreePanel(w, r, c, dir, "saving file: "+err.Error())
-		return
-	}
-	if err := h.store.RecomputeNodeDenormalized(ctx, node.ID); err != nil {
-		h.renderTreePanel(w, r, c, dir, "saving file: "+err.Error())
-		return
-	}
-	if h.audit != nil {
-		id := session.FromContext(ctx)
-		_ = h.audit.Record(ctx, &audit.Entry{Action: audit.ActionFilePut, Actor: actorOf(id), Target: c.Name + "/" + p})
-	}
-	h.renderTreePanel(w, r, c, dir, "")
-}
 
 // beginUploadRequest is the JSON body of POST .../upload/begin.
 type beginUploadRequest struct {
@@ -119,7 +30,7 @@ type beginUploadResponse struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
-// beginUpload starts a large-upload session for the browser to stream bytes
+// beginUpload starts an upload session for the browser to stream bytes
 // to directly (design/09 §4): the returned upload_url is the capability
 // endpoint at /api/v1/uploads/{id}, which needs no further admin auth.
 func (h *Handler) beginUpload(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +49,13 @@ func (h *Handler) beginUpload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid path: "+err.Error())
 		return
+	}
+	// Browsers send an empty or generic type for extensions they don't know;
+	// fall back to the extension so such files are not stored untyped.
+	if req.ContentType == "" || req.ContentType == "application/octet-stream" {
+		if guess := mime.TypeByExtension(path.Ext(p)); guess != "" {
+			req.ContentType = guess
+		}
 	}
 
 	uploadID, err := auth.GenerateUploadID()
@@ -176,8 +94,6 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
-
-func lastSegment(p string) string { return path.Base(p) }
 
 func strPtrOrNil(s string) *string {
 	if s == "" {

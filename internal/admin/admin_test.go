@@ -31,6 +31,7 @@ func (f *fakeCleaner) RunOnce(context.Context) (any, error) {
 type harness struct {
 	h       http.Handler
 	st      *store.Store
+	api     http.Handler // management API, for completing upload sessions
 	sess    *session.Manager
 	cleaner *fakeCleaner
 }
