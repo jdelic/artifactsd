@@ -120,8 +120,7 @@ func (a *app) newTokenRevokeCmd() *cobra.Command {
 			if err := cli.RevokeToken(cmd.Context(), id); err != nil {
 				return err
 			}
-			a.printf("revoked token %d\n", id)
-			return nil
+			return a.printResult(map[string]any{"revoked": id}, "revoked token %d\n", id)
 		},
 	}
 }

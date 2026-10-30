@@ -101,8 +101,7 @@ func (a *app) newShareRevokeCmd() *cobra.Command {
 			if err := cli.RevokeShare(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			a.printf("revoked share %s\n", args[0])
-			return nil
+			return a.printResult(map[string]any{"revoked": args[0]}, "revoked share %s\n", args[0])
 		},
 	}
 }
@@ -113,20 +112,12 @@ func (a *app) newShareRevokeCmd() *cobra.Command {
 // ever stores its hash, so this is the only chance to show it to the user.
 func (a *app) renderShare(sh *apiclient.Share, genToken, textMsg string) error {
 	if a.jsonOutput() {
-		if genToken == "" {
-			return a.printJSON(sh)
-		}
-		return a.printJSON(struct {
-			apiclient.Share
-			GeneratedBearerToken string `json:"generated_bearer_token"`
-		}{Share: *sh, GeneratedBearerToken: genToken})
+		return a.printJSONWithToken(sh, genToken)
 	}
 	if textMsg != "" {
 		a.printf(textMsg, sh.ShareID)
 	}
-	if genToken != "" {
-		a.printf("bearer token (shown once, save it): %s\n", genToken)
-	}
+	a.printGeneratedToken(genToken)
 	a.printf("url:    %s\n", sh.URL)
 	a.printf("target: %s/%s\n", sh.Collection, sh.TargetPath)
 	return nil

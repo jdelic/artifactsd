@@ -59,7 +59,7 @@ interact with them. In short:
 | `--base-url` | artifactsd server base URL (or `ARTIFACTSD_BASE_URL`). |
 | `--token` | management API token (or `ARTIFACTSD_TOKEN`). |
 | `--profile <name>` | config profile to use. |
-| `--output text\|json` | output format (`text` default; `json` for scripts/agents). |
+| `--output text\|json` | output format (`text` default; `json` for scripts/agents: stdout is exactly one JSON document, also for deletes and revokes). |
 | `-q`, `--quiet` | suppress non-essential output. |
 | `-v`, `--verbose` | verbose output. |
 | `--insecure` | skip TLS verification (dev only). |
@@ -100,7 +100,8 @@ artifactctl rm [-r] <collection>/<path>
 - `put` infers content type from the file extension unless `--content-type` is
   given.
 - `--generate-bearer-token` creates a random token and prints it **once**;
-  `--bearer-token <t>` takes an explicit value.
+  `--bearer-token <t>` takes an explicit value. With `--output json` the token
+  is the `generated_bearer_token` field of the command's JSON object.
 - `put-tree` walks the directory, applies `--include`/`--exclude` globs, and
   uploads each file under `<collection>/<relative-path>`. Both `put` and
   `put-tree` switch to large-upload sessions for files at or over

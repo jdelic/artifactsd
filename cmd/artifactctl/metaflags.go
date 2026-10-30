@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -196,9 +198,39 @@ func (u *uploadMetaFlags) document() (json.RawMessage, error) {
 }
 
 // printGeneratedToken shows an auto-generated bearer token once (the server
-// only ever stores its hash).
+// only ever stores its hash). It is text-mode only: in --output json mode the
+// token travels in the command's JSON object (printJSONWithToken).
 func (a *app) printGeneratedToken(genToken string) {
-	if genToken != "" {
+	if genToken != "" && !a.jsonOutput() {
 		a.printf("bearer token (shown once, save it): %s\n", genToken)
 	}
+}
+
+// printJSONWithToken writes v as JSON, adding a "generated_bearer_token" field
+// to the object when genToken is set, so --output json stays a single JSON
+// document while still carrying the only copy of the token.
+func (a *app) printJSONWithToken(v any, genToken string) error {
+	if genToken == "" {
+		return a.printJSON(v)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if len(b) < 2 || b[0] != '{' || b[len(b)-1] != '}' {
+		return errors.New("internal error: generated token needs a JSON object to attach to")
+	}
+	tok, err := json.Marshal(genToken)
+	if err != nil {
+		return err
+	}
+	var out bytes.Buffer
+	out.Write(b[:len(b)-1])
+	if len(b) > 2 {
+		out.WriteByte(',')
+	}
+	out.WriteString(`"generated_bearer_token":`)
+	out.Write(tok)
+	out.WriteByte('}')
+	return a.printJSON(json.RawMessage(out.Bytes()))
 }

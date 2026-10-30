@@ -261,7 +261,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 					return err
 				}
 				if a.jsonOutput() {
-					return a.printJSON(col)
+					return a.printJSONWithToken(col, auth.genToken)
 				}
 				a.printf("updated metadata for %s\n", col.Name)
 				return nil
@@ -271,7 +271,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 					return err
 				}
 				if a.jsonOutput() {
-					return a.printJSON(meta)
+					return a.printJSONWithToken(meta, auth.genToken)
 				}
 				a.printf("updated metadata for %s/\n", meta.Path)
 				return nil
@@ -281,7 +281,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 					return err
 				}
 				if a.jsonOutput() {
-					return a.printJSON(meta)
+					return a.printJSONWithToken(meta, auth.genToken)
 				}
 				a.printf("updated metadata for %s\n", meta.Path)
 				return nil

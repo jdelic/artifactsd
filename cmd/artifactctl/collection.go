@@ -68,7 +68,7 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.renderCollection(col, "created collection %s\n")
+			return a.renderCollection(col, auth.genToken, "created collection %s\n")
 		},
 	}
 	f := cmd.Flags()
@@ -124,7 +124,7 @@ func (a *app) newCollectionShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.renderCollection(col, "")
+			return a.renderCollection(col, "", "")
 		},
 	}
 }
@@ -144,8 +144,7 @@ func (a *app) newCollectionDeleteCmd() *cobra.Command {
 			if err := cli.DeleteCollection(cmd.Context(), args[0], force); err != nil {
 				return err
 			}
-			a.printf("deleted collection %s\n", args[0])
-			return nil
+			return a.printResult(map[string]any{"deleted": args[0]}, "deleted collection %s\n", args[0])
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "delete even if non-empty (cascade)")
@@ -154,9 +153,11 @@ func (a *app) newCollectionDeleteCmd() *cobra.Command {
 
 // renderCollection prints a collection as JSON or a short text summary. textMsg
 // (if non-empty) is a printf-style line shown before the text summary.
-func (a *app) renderCollection(col *apiclient.Collection, textMsg string) error {
+// genToken, if set, is added to the JSON object (text mode printed it before
+// the request).
+func (a *app) renderCollection(col *apiclient.Collection, genToken, textMsg string) error {
 	if a.jsonOutput() {
-		return a.printJSON(col)
+		return a.printJSONWithToken(col, genToken)
 	}
 	if textMsg != "" {
 		a.printf(textMsg, col.Name)

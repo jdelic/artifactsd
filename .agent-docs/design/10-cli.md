@@ -91,6 +91,10 @@ artifactctl version
   files over a threshold. Reports a summary.
 - `--output json` makes every command emit machine-readable JSON for scripting
   and agents (the CLI is explicitly meant to be agent-friendly, SPEC §15).
+  Stdout is then exactly one JSON document: a generated bearer token is the
+  `generated_bearer_token` field of the result object, and commands whose API
+  call returns no body (deletes, revokes, `get -o`) emit a small object naming
+  what they did. Progress and `--verbose` per-file lines go to stderr.
 - Exit codes: `0` ok, `1` generic error, `2` usage, `4` auth, `5` not-found.
 
 ## 4. Mapping to API
