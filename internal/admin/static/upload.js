@@ -41,8 +41,8 @@ document.addEventListener("submit", function (event) {
   })
     .then(function (res) {
       if (!res.ok) {
-        return res.json().then(function (body) {
-          throw new Error(body.error || "begin-upload failed");
+        return res.text().then(function (text) {
+          throw new Error(errorMessage(res.status, text, "starting the upload failed"));
         });
       }
       return res.json();
@@ -62,7 +62,8 @@ document.addEventListener("submit", function (event) {
       });
     })
     .catch(function (err) {
-      status.textContent = "error: " + err.message;
+      // fetch rejects with a TypeError when the request never got a response.
+      status.textContent = err instanceof TypeError ? "error: network error or connection reset" : err.message;
       progress.hidden = true;
     });
 });
@@ -85,12 +86,35 @@ function putWithProgress(url, file, progress) {
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve();
       } else {
-        reject(new Error("upload failed (" + xhr.status + ")"));
+        reject(new Error(errorMessage(xhr.status, xhr.responseText, "upload failed")));
       }
     };
     xhr.onerror = function () {
-      reject(new Error("upload failed"));
+      reject(new Error("error: upload failed (network error or connection reset)"));
     };
     xhr.send(file);
   });
+}
+
+// errorMessage turns a failed response into a status line. It understands the
+// admin's {"error": "..."} and the management API's {"error": {"message": ...}}
+// bodies, and falls back to the first line of a plain-text body (the CSRF gate,
+// http.Error). HTML bodies, typically a reverse proxy's error page, are not
+// echoed; only the status is shown for those.
+function errorMessage(status, text, fallback) {
+  var message = "";
+  try {
+    var body = JSON.parse(text);
+    var err = body && body.error;
+    message = typeof err === "string" ? err : (err && err.message) || "";
+  } catch (e) {
+    message = (text || "").trim().split("\n")[0];
+    if (message.charAt(0) === "<") {
+      message = "";
+    }
+  }
+  if (status === 413 && !message) {
+    message = "file too large for the server or a proxy in front of it";
+  }
+  return "error (" + status + "): " + (message || fallback);
 }

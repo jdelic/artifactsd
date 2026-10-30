@@ -72,6 +72,10 @@ auth is env-configured, not edited in the UI.)
   a progress bar), per [07](07-storage-uploads.md). The admin UI has no direct
   small-file upload of its own; the API's direct `PUT .../files/{path}` for
   small files is unaffected.
+  A failed begin or PUT shows `error (<status>): <message>`, taking the message
+  from the admin's or the API's JSON error body, or the first line of a
+  plain-text one (the CSRF gate); a proxy's HTML error page shows only the
+  status.
 - Folder/tree upload mirrors `artifactctl put-tree` (multiple files under a
   prefix) — optional for first cut.
 
