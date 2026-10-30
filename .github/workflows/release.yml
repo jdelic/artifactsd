@@ -96,6 +96,9 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           {
             echo "version=$version"
+            # Same commit/date format goreleaser stamps into the binaries.
+            echo "commit=${GITHUB_SHA::7}"
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "tags=registry.maurus.net/agent-tools/artifactsd:$version,registry.maurus.net/agent-tools/artifactsd:latest"
           } >> "$GITHUB_OUTPUT"
 
@@ -107,4 +110,6 @@ jobs:
           push: true
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            DATE=${{ steps.meta.outputs.date }}
           tags: ${{ steps.meta.outputs.tags }}

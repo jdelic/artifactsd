@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/buildinfo"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
@@ -213,5 +214,28 @@ func TestFooter_UsesBrowserSafeShortcuts(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("rendered page missing %q", want)
 		}
+	}
+}
+
+// TestLayout_VersionInFooterAndNoHelpItem: the footer shows the build version
+// next to the status word, and the top nav has no dead "Help" item.
+func TestLayout_VersionInFooterAndNoHelpItem(t *testing.T) {
+	oldVersion, oldCommit := buildinfo.Version, buildinfo.Commit
+	buildinfo.Version, buildinfo.Commit = "v1.2.3", "abc1234"
+	t.Cleanup(func() { buildinfo.Version, buildinfo.Commit = oldVersion, oldCommit })
+
+	ha := newHarness(t)
+	id := &session.Identity{Subject: "u1", Email: "a@example.com", Expiry: time.Now().Add(time.Hour)}
+	r := withIdentity(httptest.NewRequest(http.MethodGet, "/", http.NoBody), id)
+	rec := httptest.NewRecorder()
+	ha.h.ServeHTTP(rec, r)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `<span class="nc-version" title="artifactsd v1.2.3 (commit abc1234, built `) ||
+		!strings.Contains(body, ">v1.2.3 (abc1234)</span>") {
+		t.Errorf("footer lacks the version: %s", body)
+	}
+	if strings.Contains(body, "<u>H</u>elp") {
+		t.Errorf("top nav still has the Help item")
 	}
 }
