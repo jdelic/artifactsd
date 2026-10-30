@@ -123,12 +123,15 @@ func TestCollectionTree_BrowseUploadDelete(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No files") {
 		t.Fatalf("empty tree = %d, body %s", rec.Code, rec.Body.String())
 	}
-	// The small-upload form carries the progress/status hooks upload.js drives
-	// via htmx events; without them a slow or rejected upload shows nothing.
-	_, small, found := strings.Cut(rec.Body.String(), "nc-small-upload")
-	small, _, _ = strings.Cut(small, "</form>")
-	if !found || !strings.Contains(small, "nc-upload-progress") || !strings.Contains(small, "nc-upload-status") {
-		t.Errorf("small upload form lacks progress/status elements: %s", small)
+	// The page offers one upload form: the session upload with progress, which
+	// also carries the Alt-U shortcut.
+	if n := strings.Count(rec.Body.String(), "<form class=\"nc-form nc-upload"); n != 1 {
+		t.Errorf("tree page has %d upload forms, want 1", n)
+	}
+	_, uploadForm, _ := strings.Cut(rec.Body.String(), "nc-large-upload")
+	uploadForm, _, _ = strings.Cut(uploadForm, "</form>")
+	if !strings.Contains(uploadForm, `data-shortcut="u"`) || !strings.Contains(uploadForm, "nc-upload-progress") {
+		t.Errorf("upload form lacks shortcut or progress elements: %s", uploadForm)
 	}
 
 	// Upload a small file at the root.

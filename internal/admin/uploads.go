@@ -16,8 +16,9 @@ import (
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
-// uploadFile handles the small-file upload form: a direct multipart POST,
-// stored synchronously (design/09 §4). The body is already capped at
+// uploadFile handles a direct multipart POST, stored synchronously. The tree
+// page no longer offers a form for it (its upload streams through an upload
+// session, design/09 §4); the route remains for direct form posts. The body is already capped at
 // ARTIFACTSD_MAX_UPLOAD_SIZE by the server's global body-limit middleware.
 func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")

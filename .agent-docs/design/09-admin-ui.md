@@ -67,11 +67,10 @@ auth is env-configured, not edited in the UI.)
 
 ## 4. Upload UX
 
-- Small files: direct multipart form `POST` to the admin upload handler (htmx),
-  with a progress bar and status line fed by htmx's `htmx:xhr:progress` /
-  `htmx:responseError` events, so slow or rejected uploads are visible.
-- Large files: the UI calls the begin-upload endpoint and streams via the
-  returned `upload_url` (fetch + progress), per [07](07-storage-uploads.md).
+- The tree page has a single upload form for files of any size: it calls the
+  begin-upload endpoint and streams via the returned `upload_url` (XHR PUT with
+  a progress bar), per [07](07-storage-uploads.md). The direct multipart
+  `POST .../upload` handler still exists but has no form in the UI.
 - Folder/tree upload mirrors `artifactctl put-tree` (multiple files under a
   prefix) — optional for first cut.
 
