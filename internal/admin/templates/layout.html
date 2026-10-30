@@ -20,7 +20,6 @@
     <a class="nc-nav{{if eq .Active "shares"}} nc-nav-active{{end}}" href="{{.AdminPath}}/shares"><u>S</u>hares</a>
     <a class="nc-nav{{if eq .Active "uploadrequests"}} nc-nav-active{{end}}" href="{{.AdminPath}}/upload-requests" data-shortcut="u"><u>U</u>pload&nbsp;Requests</a>
     <a class="nc-nav{{if eq .Active "tools"}} nc-nav-active{{end}}" href="{{.AdminPath}}/tokens"><u>T</u>ools</a>
-    <span class="nc-nav"><u>H</u>elp</span>
     <div class="nc-spacer"></div>
     {{if .Identity}}<span class="nc-user">{{or .Identity.Email .Identity.Subject}}</span>
     <button type="button" class="nc-nav nc-logout" data-shortcut="l"
@@ -31,6 +30,7 @@
   </div>
   <div class="nc-footer">
     <span class="nc-fkeys">{{range .FKeys}}<span><b>{{.Key}}</b>{{.Label}} </span>{{end}}</span>
+    <span class="nc-version" title="artifactsd {{.Version.Full}}">{{.Version.Short}}</span>
     <span class="nc-status">{{.Status}}</span>
   </div>
 </div>

@@ -313,8 +313,14 @@ body {
   margin-right: 12px;
 }
 
-.nc-status {
+.nc-version {
   margin-left: auto;
+  padding: 0 10px;
+  color: var(--nc-white);
+  font-size: 14px;
+}
+
+.nc-status {
   padding: 0 10px;
   background: var(--nc-yellow);
   font-weight: bold;
