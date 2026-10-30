@@ -8,13 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jdelic/artifactsd/internal/api"
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/blob"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/session"
@@ -62,7 +63,14 @@ func newFullHarness(t *testing.T) *harness {
 		Session: sess,
 		Logger:  audit.NewAppLogger(io.Discard, "error"),
 	})
-	return &harness{h: h.Routes(), st: st, blob: bs, sess: sess}
+	apiH := api.New(api.Deps{
+		Store: st, Blob: bs, Config: cfg,
+		Audit:   audit.NewRecorder(st.AuditSink(), nil),
+		Authn:   auth.NewAuthenticator(st.AuthTokenSource()),
+		Logger:  audit.NewAppLogger(io.Discard, "error"),
+		BaseURL: cfg.Server.BaseURL,
+	})
+	return &harness{h: h.Routes(), st: st, api: apiH.Routes(), sess: sess}
 }
 
 func testIdentity() *session.Identity {
@@ -187,31 +195,28 @@ func TestBeginUpload_ThenCompleteViaCapabilityURL(t *testing.T) {
 	}
 }
 
+// seedFile uploads content to collection/p the way the tree page does: begin
+// an upload session on the admin route, then PUT the bytes to the returned
+// capability URL on the management API.
 func seedFile(t *testing.T, ha *harness, collection, p, content string) {
 	t.Helper()
-	ctx := context.Background()
-	c, err := ha.st.GetCollectionByName(ctx, collection)
+	body, _ := json.Marshal(map[string]string{"path": p})
+	rec := doReq(t, ha, http.MethodPost, "/collections/"+collection+"/upload/begin", bytes.NewReader(body), "application/json")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("seed %s/%s: begin = %d: %s", collection, p, rec.Code, rec.Body.String())
+	}
+	var sess beginUploadResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &sess); err != nil {
+		t.Fatalf("seed %s/%s: decode begin: %v", collection, p, err)
+	}
+	u, err := url.Parse(sess.UploadURL)
 	if err != nil {
-		t.Fatalf("seed %s/%s: collection: %v", collection, p, err)
+		t.Fatalf("seed %s/%s: upload url: %v", collection, p, err)
 	}
-	ref, size, sum, err := ha.blob.Put(ctx, strings.NewReader(content))
-	if err != nil {
-		t.Fatalf("seed %s/%s: blob: %v", collection, p, err)
-	}
-	parentID, err := ha.st.EnsureParentFolders(ctx, c.ID, p)
-	if err != nil {
-		t.Fatalf("seed %s/%s: folders: %v", collection, p, err)
-	}
-	refStr := string(ref)
-	node := &store.Node{
-		CollectionID: c.ID, ParentID: parentID, Path: p, Name: path.Base(p), Kind: store.KindFile,
-		BlobID: &refStr, Size: &size, Checksum: &sum, Metadata: json.RawMessage(`{}`),
-	}
-	if err := ha.st.UpsertNode(ctx, node); err != nil {
-		t.Fatalf("seed %s/%s: node: %v", collection, p, err)
-	}
-	if err := ha.st.RecomputeNodeDenormalized(ctx, node.ID); err != nil {
-		t.Fatalf("seed %s/%s: recompute: %v", collection, p, err)
+	put := httptest.NewRecorder()
+	ha.api.ServeHTTP(put, httptest.NewRequest(sess.Method, u.Path, strings.NewReader(content)))
+	if put.Code != http.StatusCreated && put.Code != http.StatusOK {
+		t.Fatalf("seed %s/%s: PUT = %d: %s", collection, p, put.Code, put.Body.String())
 	}
 }
 
