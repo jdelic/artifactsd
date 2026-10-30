@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 
+	"github.com/jdelic/artifactsd/internal/buildinfo"
 	"github.com/jdelic/artifactsd/internal/session"
 )
 
@@ -53,6 +54,22 @@ type pageData struct {
 	Title   string // breadcrumb/title shown in the top bar
 	Active  string // top-nav section to highlight, e.g. "dashboard", "collections"
 	Content template.HTML
+	Version versionInfo // build version shown next to the status word
+}
+
+// versionInfo is the footer's build version: Short is displayed (version plus
+// short commit when known), Full is the tooltip.
+type versionInfo struct {
+	Short string
+	Full  string
+}
+
+func currentVersion() versionInfo {
+	short := buildinfo.ResolvedVersion()
+	if buildinfo.Commit != "none" && buildinfo.Commit != "" {
+		short += " (" + buildinfo.Commit + ")"
+	}
+	return versionInfo{Short: short, Full: buildinfo.String()}
 }
 
 // fkey is one footer keyboard-shortcut hint: Key is the displayed combo (e.g.
@@ -86,6 +103,7 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, page string, fk
 		Title:     title,
 		Active:    navSection(page),
 		Content:   template.HTML(content.String()), //nolint:gosec // page templates are our own, html/template-escaped
+		Version:   currentVersion(),
 	}
 	if id != nil {
 		pd.CSRFToken = h.session.CSRFToken(id)
