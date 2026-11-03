@@ -58,6 +58,7 @@ document.addEventListener("submit", function (event) {
       var treePanel = document.getElementById("tree-panel");
       window.htmx.ajax("GET", window.location.pathname + window.location.search, {
         target: treePanel,
+        select: "#tree-panel",
         swap: "outerHTML",
       });
     })
