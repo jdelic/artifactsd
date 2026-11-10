@@ -41,8 +41,11 @@ func runServe(parent context.Context, cfg *config.Config, stderr io.Writer) erro
 
 	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation)
 	// Deferred post-migration work (e.g. recomputing expires_at after a change
-	// to how it is derived) must finish before the janitor's first pass.
-	if n, err := st.RunPendingMaintenance(ctx, string(cfg.Policy.Visibility)); err != nil {
+	// to how it is derived) must finish before the janitor's first pass. Like
+	// Migrate above it runs to completion even if a shutdown signal arrives
+	// meanwhile: it is the tail of a migration, and a signal during startup is
+	// a clean shutdown, not an error.
+	if n, err := st.RunPendingMaintenance(context.WithoutCancel(parent), string(cfg.Policy.Visibility)); err != nil {
 		_ = db.Close()
 		return err
 	} else if n > 0 {
