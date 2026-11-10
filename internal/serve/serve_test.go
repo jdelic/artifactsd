@@ -708,6 +708,47 @@ func TestServe_TouchesLastAccessThrottled(t *testing.T) {
 	}
 }
 
+// Serving a file counts as an access to everything that contains it: the
+// collection, ancestor folders, and the share it came through — so an idle
+// rule on a container doesn't expire it while its contents are in use, and a
+// directory listing counts too (artifactsd-6b4).
+func TestServe_AccessAdvancesContainerIdleExpiry(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	idle := `"expiry":{"delete_after_last_access":"3d"}`
+	clock := time.Now().UTC().Add(24 * time.Hour)
+	h.h.WithClock(func() time.Time { return clock })
+
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true},`+idle+`}`)
+	h.file(t, c, "docs/a.txt", "hello", `{}`, "text/plain")
+	h.folderMeta(t, c, "docs", `{`+idle+`}`)
+	sh := h.share(t, c, "shr_coll", "", "collection", `{`+idle+`}`)
+
+	check := func(step string) {
+		t.Helper()
+		want := clock.Add(3 * 24 * time.Hour)
+		gotC, _ := h.st.GetCollection(ctx, c.ID)
+		gotF, _ := h.st.GetNode(ctx, c.ID, "docs")
+		gotS, _ := h.st.GetShare(ctx, sh.ShareID)
+		for name, exp := range map[string]*time.Time{"collection": gotC.ExpiresAt, "folder": gotF.ExpiresAt, "share": gotS.ExpiresAt} {
+			if exp == nil || !exp.Equal(want) {
+				t.Errorf("%s: %s expires_at = %v, want %v", step, name, exp, want)
+			}
+		}
+	}
+
+	if rec := h.get("/s/shr_coll/docs/a.txt", nil); rec.Code != http.StatusOK {
+		t.Fatalf("share file serve = %d", rec.Code)
+	}
+	check("file via share")
+
+	clock = clock.Add(24 * time.Hour)
+	if rec := h.get("/s/shr_coll/docs/", nil); rec.Code != http.StatusOK {
+		t.Fatalf("share listing = %d", rec.Code)
+	}
+	check("listing via share")
+}
+
 // A stored name containing a literal "%20", "?" or "#" must get a listing link
 // that resolves back to the same file (artifactsd-vxu).
 func TestServe_ListingLinksEscapeNames(t *testing.T) {

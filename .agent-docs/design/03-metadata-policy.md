@@ -115,7 +115,12 @@ Three inputs may each appear at any level:
 - `expires_at` — absolute instant.
 - `delete_after_creation: <dur>` — relative to the object's `created_at`.
 - `delete_after_last_access: <dur>` — relative to `last_access_at` (or creation
-  if never accessed).
+  if never accessed). Collections, folders, files, and shares all track
+  `last_access_at`; serving a file counts as an access to the file, every
+  ancestor folder, the collection, and the share it was served through (a
+  served directory listing likewise). **Setting or changing the rule resets
+  `last_access_at` to now**, so a rule added to an old object counts from the
+  moment it was set, never from creation or a long-past access (artifactsd-6b4).
 
 Effective absolute expiry for an object =
 `min(` all applicable resolved instants from the object **and every ancestor

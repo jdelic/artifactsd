@@ -36,8 +36,19 @@ ORDER BY expires_at LIMIT :batch;
 This makes expiry a moving target. Approach:
 - `last_access_at` is updated on serve, **throttled** (e.g. at most once per
   60s per node, coalesced in memory) to avoid write amplification on hot files.
-- When `last_access_at` advances, the node's `expires_at` is recomputed and the
-  denormalized column updated in the same throttled write.
+- When `last_access_at` advances, the object's `expires_at` is recomputed and
+  the denormalized column updated in the same throttled write.
+- This applies to collections, nodes (files and their ancestor folders), and
+  shares: a serve touches every container of the served object, each throttled
+  independently.
+- Setting or changing an object's `delete_after_last_access` resets its
+  `last_access_at` to now (done in the metadata write's SQL), so the idle clock
+  starts when the rule is set — enabling `30d` on an old object never makes it
+  due immediately (artifactsd-6b4).
+- Migration 0004 added `collections.last_access_at`, started every existing idle
+  clock at migration time, and sets a `maintenance_flags` row; the server
+  recomputes all denormalized columns at startup, before the janitor's first
+  pass, and clears the flag.
 - The janitor only trusts the denormalized `expires_at`; the throttle window is
   bounded so an object lives at most `window` longer than its strict deadline —
   acceptable for a cleanup system.

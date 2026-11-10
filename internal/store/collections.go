@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // CreateCollection inserts a new collection. Metadata may be nil ("{}").
@@ -29,7 +30,7 @@ func (s *Store) CreateCollection(ctx context.Context, c *Collection) error {
 	return err
 }
 
-const collectionCols = `id, name, metadata, created_at, updated_at, visibility, expires_at`
+const collectionCols = `id, name, metadata, created_at, updated_at, visibility, expires_at, last_access_at`
 
 func scanCollection(row interface{ Scan(...any) error }) (*Collection, error) {
 	var (
@@ -39,8 +40,9 @@ func scanCollection(row interface{ Scan(...any) error }) (*Collection, error) {
 		updated    string
 		expires    sql.NullString
 		visibility string
+		lastAccess sql.NullString
 	)
-	if err := row.Scan(&c.ID, &c.Name, &meta, &created, &updated, &visibility, &expires); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &meta, &created, &updated, &visibility, &expires, &lastAccess); err != nil {
 		return nil, err
 	}
 	c.Metadata = []byte(meta)
@@ -53,6 +55,9 @@ func scanCollection(row interface{ Scan(...any) error }) (*Collection, error) {
 		return nil, err
 	}
 	if c.ExpiresAt, err = parseTimePtr(expires); err != nil {
+		return nil, err
+	}
+	if c.LastAccessAt, err = parseTimePtr(lastAccess); err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -101,19 +106,30 @@ func (s *Store) ListCollections(ctx context.Context) ([]*Collection, error) {
 }
 
 // UpdateCollectionMetadata replaces a collection's metadata and denormalized
-// visibility/expiry, bumping updated_at.
+// visibility/expiry, bumping updated_at. Changing the idle-expiry rule restarts
+// its clock (see idleRuleChanged*SQL).
 func (s *Store) UpdateCollectionMetadata(ctx context.Context, c *Collection) error {
 	c.UpdatedAt = s.now()
 	res, err := s.db.sql.ExecContext(
 		ctx,
-		`UPDATE collections SET metadata = ?, visibility = ?, expires_at = ?, updated_at = ?
-		 WHERE id = ?`,
-		defaultJSON(c.Metadata), c.Visibility, fmtTimePtr(c.ExpiresAt), fmtTime(c.UpdatedAt), c.ID,
+		`UPDATE collections SET
+			last_access_at = CASE WHEN `+idleRuleChangedCollectionSQL+`
+				THEN ?2 ELSE last_access_at END,
+			metadata = ?1, visibility = ?3, expires_at = ?4, updated_at = ?2
+		 WHERE id = ?5`,
+		defaultJSON(c.Metadata), fmtTime(c.UpdatedAt), c.Visibility, fmtTimePtr(c.ExpiresAt), c.ID,
 	)
 	if err != nil {
 		return err
 	}
 	return requireOne(res)
+}
+
+// TouchCollectionLastAccess sets last_access_at on a collection.
+func (s *Store) TouchCollectionLastAccess(ctx context.Context, id int64, at time.Time) error {
+	_, err := s.db.sql.ExecContext(ctx,
+		`UPDATE collections SET last_access_at = ? WHERE id = ?`, fmtTime(at), id)
+	return err
 }
 
 // DeleteCollection removes a collection and (via cascade) its nodes, shares,

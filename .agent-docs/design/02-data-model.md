@@ -54,7 +54,8 @@ CREATE TABLE collections (
     updated_at   TEXT NOT NULL,
     -- denormalized from metadata for janitor/listing:
     visibility   TEXT NOT NULL DEFAULT 'private',
-    expires_at   TEXT                          -- effective absolute expiry, nullable
+    expires_at   TEXT,                         -- effective absolute expiry, nullable
+    last_access_at TEXT                        -- any serve within the collection (migration 0004)
 );
 
 -- Nodes (files and folders) --------------------------------------------

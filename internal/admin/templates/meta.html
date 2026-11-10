@@ -72,7 +72,7 @@
         <label class="nc-expiry">
           <input type="checkbox" class="nc-toggle" name="delete_after_last_access_enabled" aria-controls="exp-access" {{if .DeleteAfterLastAccess}}checked{{end}}>
           <span>Delete after last access</span>
-          {{template "nc_info" "Delete this long after the object was last fetched (idle expiry). Duration, e.g. 30d."}}
+          {{template "nc_info" "Delete this long after the object (or anything inside it) was last fetched (idle expiry). Counts from now when set or changed. Duration, e.g. 30d."}}
           <input id="exp-access" class="nc-toggle-field" type="text" name="delete_after_last_access" value="{{.DeleteAfterLastAccess}}" placeholder="30d" {{if not .DeleteAfterLastAccess}}disabled{{end}}>
         </label>
       </div>

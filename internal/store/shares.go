@@ -171,20 +171,76 @@ func (s *Store) ListAllShares(ctx context.Context) ([]*ShareWithCollection, erro
 
 // UpdateShare replaces a share's metadata and re-derives its denormalized
 // expires_at from the new metadata (PATCH). The share's original created_at is
-// used as the basis for any creation-relative expiry.
+// used as the basis for any creation-relative expiry; changing the idle-expiry
+// rule restarts its clock (see idleRuleChanged*SQL).
 func (s *Store) UpdateShare(ctx context.Context, sh *Share) error {
-	_, exp, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt, time.Time{})
+	// Validate the new metadata before writing anything.
+	if _, _, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt, time.Time{}); err != nil {
+		return err
+	}
+	res, err := s.db.sql.ExecContext(ctx,
+		`UPDATE shares SET
+			last_access_at = CASE WHEN `+idleRuleChangedShareSQL+`
+				THEN ?2 ELSE last_access_at END,
+			metadata = ?1
+		 WHERE share_id = ?3`,
+		defaultJSON(sh.Metadata), fmtTime(s.now()), sh.ShareID)
 	if err != nil {
+		return err
+	}
+	if err := requireOne(res); err != nil {
+		return err
+	}
+	cur, err := s.GetShare(ctx, sh.ShareID)
+	if err != nil {
+		return err
+	}
+	if err := s.persistShareExpiry(ctx, cur); err != nil {
+		return err
+	}
+	sh.ExpiresAt, sh.LastAccessAt = cur.ExpiresAt, cur.LastAccessAt
+	return nil
+}
+
+// TouchShareLastAccess sets last_access_at on a share, identified by its
+// numeric row id.
+func (s *Store) TouchShareLastAccess(ctx context.Context, id int64, at time.Time) error {
+	_, err := s.db.sql.ExecContext(ctx,
+		`UPDATE shares SET last_access_at = ? WHERE id = ?`, fmtTime(at), id)
+	return err
+}
+
+// RecomputeShareDenormalized re-derives and persists a share's expires_at,
+// identified by its numeric row id.
+func (s *Store) RecomputeShareDenormalized(ctx context.Context, id int64) error {
+	row := s.db.sql.QueryRowContext(ctx, `SELECT `+shareCols+` FROM shares WHERE id = ?`, id)
+	sh, err := scanShare(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return s.persistShareExpiry(ctx, sh)
+}
+
+// persistShareExpiry re-derives sh's expires_at from its stored metadata,
+// created_at, and last_access_at, persists it, and updates sh in place.
+func (s *Store) persistShareExpiry(ctx context.Context, sh *Share) error {
+	var lastAccess time.Time
+	if sh.LastAccessAt != nil {
+		lastAccess = *sh.LastAccessAt
+	}
+	_, exp, err := DeriveDenormalized(sh.Metadata, sh.CreatedAt, lastAccess)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.sql.ExecContext(ctx,
+		`UPDATE shares SET expires_at = ? WHERE id = ?`, fmtTimePtr(exp), sh.ID); err != nil {
 		return err
 	}
 	sh.ExpiresAt = exp
-	res, err := s.db.sql.ExecContext(ctx,
-		`UPDATE shares SET metadata = ?, expires_at = ? WHERE share_id = ?`,
-		defaultJSON(sh.Metadata), fmtTimePtr(sh.ExpiresAt), sh.ShareID)
-	if err != nil {
-		return err
-	}
-	return requireOne(res)
+	return nil
 }
 
 // RevokeShare marks a share revoked at the given time.

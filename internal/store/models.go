@@ -28,6 +28,9 @@ type Collection struct {
 	UpdatedAt  time.Time
 	Visibility string     // denormalized effective visibility
 	ExpiresAt  *time.Time // denormalized effective expiry
+	// LastAccessAt is when anything in the collection was last served (or its
+	// idle-expiry rule last changed); nil = never. Feeds delete_after_last_access.
+	LastAccessAt *time.Time
 }
 
 // Node is a file or folder within a collection.

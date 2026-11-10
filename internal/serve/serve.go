@@ -55,7 +55,7 @@ type Handler struct {
 func New(d Deps) *Handler {
 	return &Handler{
 		store: d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
-		lastAccess:   newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, d.Logger),
+		lastAccess:   newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, string(d.Config.Policy.Visibility), d.Logger),
 		robotsCache:  newRobotsCache(),
 		sitemapCache: newSitemapCache(),
 		now:          time.Now,
@@ -225,7 +225,7 @@ func (h *Handler) resolveSharePath(w http.ResponseWriter, r *http.Request, sh *s
 // instead, unless the share's own metadata configures additional auth
 // requirements (still enforced normally via eff.RequiresAuth()).
 func (h *Handler) serveShareFile(w http.ResponseWriter, r *http.Request, sh *store.Share, coll *store.Collection, node *store.Node, p string) {
-	layers, chainExpiry, _ := h.resolveChain(r.Context(), coll, p)
+	layers, chainExpiry, _, chainIDs := h.resolveChain(r.Context(), coll, p)
 	layers = append(layers, docOf(sh.Metadata))
 	expiry := meta.Earliest(chainExpiry, sh.ExpiresAt)
 	expired := expiry != nil && !h.now().Before(*expiry)
@@ -239,11 +239,11 @@ func (h *Handler) serveShareFile(w http.ResponseWriter, r *http.Request, sh *sto
 		Effective: eff, Expired: expired, AncestorPrivate: false,
 		IsDirectory: false, Request: r, OIDC: h.oidc,
 	})
-	h.dispatch(w, r, coll, node, eff, decision)
+	h.dispatch(w, r, coll, node, eff, decision, accessTargets{collectionID: coll.ID, nodeIDs: chainIDs, shareRowID: sh.ID})
 }
 
 func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, p string) {
-	layers, expiry, ancestorPrivate := h.resolveChain(r.Context(), coll, p)
+	layers, expiry, ancestorPrivate, chainIDs := h.resolveChain(r.Context(), coll, p)
 	eff := meta.Resolve(h.defaults(), layers...)
 	expired := expiry != nil && !h.now().Before(*expiry)
 
@@ -251,12 +251,12 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, coll *store.
 		Effective: eff, Expired: expired, AncestorPrivate: ancestorPrivate,
 		IsDirectory: false, Request: r, OIDC: h.oidc,
 	})
-	h.dispatch(w, r, coll, node, eff, decision)
+	h.dispatch(w, r, coll, node, eff, decision, accessTargets{collectionID: coll.ID, nodeIDs: chainIDs})
 }
 
 // dispatch acts on a policy decision: 404/401/403/redirect, or stream the
 // file. Shared by the /c and /s pipelines (design/05 §1 steps 4-6).
-func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, eff *meta.Effective, decision policy.Decision) {
+func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, eff *meta.Effective, decision policy.Decision, acc accessTargets) {
 	switch decision.Outcome {
 	case policy.NotFound:
 		http.NotFound(w, r)
@@ -270,11 +270,11 @@ func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, coll *store.C
 	case policy.RedirectOIDC:
 		http.Redirect(w, r, "/auth/oidc/login?return_to="+url.QueryEscape(r.URL.Path), http.StatusFound)
 	case policy.Serve:
-		h.stream(w, r, coll, node, eff, &decision)
+		h.stream(w, r, coll, node, eff, &decision, acc)
 	}
 }
 
-func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, eff *meta.Effective, decision *policy.Decision) {
+func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, eff *meta.Effective, decision *policy.Decision, acc accessTargets) {
 	if node.BlobID == nil {
 		http.NotFound(w, r)
 		return
@@ -318,15 +318,38 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Col
 	// Throttled last_access_at update, feeding delete_after_last_access
 	// (design/05 §1 step 7, design/08 §3) — recorded before streaming starts so
 	// it isn't gated on the client reading the full response.
-	h.lastAccess.touch(r.Context(), node.ID)
+	h.recordAccess(r.Context(), acc)
 
 	http.ServeContent(w, r, node.Name, node.UpdatedAt, rc)
 }
 
+// accessTargets names every object a successful serve counts as an access to:
+// the collection, each existing node on the path (ancestor folders and the
+// target itself), and the share the request came through (0 = none). An idle
+// rule on a container must see accesses to anything inside it, or it would
+// expire while its contents are in active use (artifactsd-6b4).
+type accessTargets struct {
+	collectionID int64
+	nodeIDs      []int64
+	shareRowID   int64
+}
+
+// recordAccess touches last_access_at (throttled) on every object in acc.
+func (h *Handler) recordAccess(ctx context.Context, acc accessTargets) {
+	h.lastAccess.touchCollection(ctx, acc.collectionID)
+	for _, id := range acc.nodeIDs {
+		h.lastAccess.touch(ctx, id)
+	}
+	if acc.shareRowID != 0 {
+		h.lastAccess.touchShare(ctx, acc.shareRowID)
+	}
+}
+
 // resolveChain loads the metadata layers (collection → ancestor folders → file)
 // and computes the effective absolute expiry (earliest in the chain via the
-// denormalized columns) and whether any ancestor is private.
-func (h *Handler) resolveChain(ctx context.Context, coll *store.Collection, p string) (layers []*meta.Document, expiry *time.Time, ancestorPrivate bool) {
+// denormalized columns), whether any ancestor is private, and the ids of the
+// existing nodes along the path (for access tracking).
+func (h *Handler) resolveChain(ctx context.Context, coll *store.Collection, p string) (layers []*meta.Document, expiry *time.Time, ancestorPrivate bool, nodeIDs []int64) {
 	layers = append(layers, docOf(coll.Metadata))
 	expiry = coll.ExpiresAt
 	if coll.Visibility == meta.VisibilityPrivate {
@@ -346,13 +369,14 @@ func (h *Handler) resolveChain(ctx context.Context, coll *store.Collection, p st
 			continue
 		}
 		layers = append(layers, docOf(n.Metadata))
+		nodeIDs = append(nodeIDs, n.ID)
 		expiry = meta.Earliest(expiry, n.ExpiresAt)
 		// Ancestors only (not the file itself) drive the ancestor guard.
 		if i < len(segs)-1 && n.Visibility != nil && *n.Visibility == meta.VisibilityPrivate {
 			ancestorPrivate = true
 		}
 	}
-	return layers, expiry, ancestorPrivate
+	return layers, expiry, ancestorPrivate, nodeIDs
 }
 
 func (h *Handler) defaults() meta.Defaults {
