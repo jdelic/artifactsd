@@ -212,3 +212,29 @@ func TestValidate(t *testing.T) {
 		}
 	}
 }
+
+// An unknown field gets a hint naming the valid sections and their fields
+// (artifactsd-rb5); other parse errors don't.
+func TestFromJSON_UnknownFieldHint(t *testing.T) {
+	_, err := FromJSON([]byte(`{"expiry":{"absolute":"2026-08-01T00:00:00Z"}}`))
+	if err == nil {
+		t.Fatal("want error for unknown field")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		`unknown field "absolute"`,
+		"valid fields: content{content_type, headers, sandbox}",
+		"access{visibility, directory_listing, auth}",
+		"crawl{crawlable, indexable, robots}",
+		"expiry{expires_at, delete_after_last_access, delete_after_creation}",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+
+	_, err = FromJSON([]byte(`{"expiry":`))
+	if err == nil || strings.Contains(err.Error(), "valid fields") {
+		t.Errorf("syntax error should not carry the field hint: %v", err)
+	}
+}
