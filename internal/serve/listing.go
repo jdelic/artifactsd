@@ -32,14 +32,14 @@ type listingView struct {
 	Entries    []listingEntry `json:"entries"`
 }
 
-var listingTemplate = template.Must(template.New("listing").Parse(`<!doctype html>
+var listingTemplate = template.Must(template.New("listing").Funcs(template.FuncMap{"escapeURL": paths.EscapeURL}).Parse(`<!doctype html>
 <html>
 <head><meta charset="utf-8"><title>Index of /{{.Collection}}/{{.Path}}</title></head>
 <body>
 <h1>Index of /{{.Collection}}/{{.Path}}</h1>
 <ul>
 {{- range .Entries}}
-<li><a href="{{.Name}}{{if eq .Type "folder"}}/{{end}}">{{.Name}}{{if eq .Type "folder"}}/{{end}}</a></li>
+<li><a href="{{escapeURL .Name}}{{if eq .Type "folder"}}/{{end}}">{{.Name}}{{if eq .Type "folder"}}/{{end}}</a></li>
 {{- else}}
 <li><em>(empty)</em></li>
 {{- end}}

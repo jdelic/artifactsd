@@ -294,3 +294,16 @@ func TestShareUnshareToggle(t *testing.T) {
 		t.Errorf("unshare did not persist across reload: %s", rec.Body.String())
 	}
 }
+
+// The tree's "view" link for a file whose stored name contains a literal %20
+// must be percent-encoded so it resolves back to that file (artifactsd-vxu).
+func TestTree_ViewLinkEscapesName(t *testing.T) {
+	ha := newFullHarness(t)
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
+	seedFile(t, ha, "demo-run", "Hacking%20Tutorial.mov", "hi")
+
+	body := doReq(t, ha, http.MethodGet, "/collections/demo-run/tree", http.NoBody, "").Body.String()
+	if want := `href="https://x.example.com/c/demo-run/Hacking%2520Tutorial.mov"`; !strings.Contains(body, want) {
+		t.Errorf("tree missing %s:\n%s", want, body)
+	}
+}

@@ -132,7 +132,7 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 		if n.ContentType != nil {
 			row.ContentType = *n.ContentType
 		}
-		row.ViewURL = strings.TrimRight(h.cfg.Server.BaseURL, "/") + "/c/" + c.Name + "/" + n.Path
+		row.ViewURL = strings.TrimRight(h.cfg.Server.BaseURL, "/") + "/c/" + c.Name + "/" + paths.EscapeURL(n.Path)
 		data.Files = append(data.Files, row)
 	}
 	return data, nil

@@ -232,7 +232,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		var fileURL *string
 		if ur.AllowUploaderAccess {
 			if vis := effectiveVisibility(fileMeta); vis == meta.VisibilityPublic || vis == meta.VisibilityUnlisted {
-				u := strings.TrimRight(h.baseURL, "/") + "/c/" + c.Name + "/" + nodePath
+				u := strings.TrimRight(h.baseURL, "/") + "/c/" + c.Name + "/" + paths.EscapeURL(nodePath)
 				fileURL = &u
 			}
 		}

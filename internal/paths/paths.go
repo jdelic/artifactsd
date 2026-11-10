@@ -7,6 +7,7 @@ package paths
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -103,4 +104,18 @@ func EnsureWithin(base, rel string) (string, error) {
 		return "", ErrOutsideBase
 	}
 	return joined, nil
+}
+
+// EscapeURL percent-encodes a normalized collection-relative path for use in a
+// URL, segment by segment, keeping the "/" separators. Stored names are kept
+// verbatim (a file may legitimately be named "a%20b.txt" or "q?.txt"), so
+// every /c/ or /s/ URL built from a path must go through this: a raw "%20"
+// would be decoded to a space by the server and miss, and "#"/"?" would end
+// the path early (artifactsd-vxu).
+func EscapeURL(p string) string {
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
 }
