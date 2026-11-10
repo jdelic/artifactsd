@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -329,5 +330,37 @@ func TestNew_CarriesClientAndBaseURL(t *testing.T) {
 	}
 	if s.MCP == nil {
 		t.Error("New did not build an underlying MCP server")
+	}
+}
+
+// artifact_create_collection accepts expires_in and composes it into an
+// absolute expiry.expires_at, like artifact_create_share (artifactsd-it0).
+func TestCreateCollection_ExpiresIn(t *testing.T) {
+	h := newMCPHarness(t)
+	before := time.Now().UTC().Truncate(time.Second)
+	out := h.call("artifact_create_collection", map[string]any{"name": "short-lived", "expires_in": "7d"})
+
+	meta, _ := out["metadata"].(map[string]any)
+	expiry, _ := meta["expiry"].(map[string]any)
+	raw, _ := expiry["expires_at"].(string)
+	at, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("metadata.expiry.expires_at = %q: %v (out %+v)", raw, err, out)
+	}
+	if lo, hi := before.Add(7*24*time.Hour), time.Now().UTC().Add(7*24*time.Hour); at.Before(lo) || at.After(hi) {
+		t.Errorf("expires_at = %v, want within [%v, %v]", at, lo, hi)
+	}
+	if out["expires_at"] == nil {
+		t.Errorf("effective expires_at missing from output: %+v", out)
+	}
+
+	res, err := h.cs.CallTool(context.Background(), &gosdk.CallToolParams{
+		Name: "artifact_create_collection", Arguments: map[string]any{"name": "bad-expiry", "expires_in": "soon"},
+	})
+	if err != nil {
+		t.Fatalf("protocol error: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("invalid expires_in should be a tool error, got %+v", res.StructuredContent)
 	}
 }
