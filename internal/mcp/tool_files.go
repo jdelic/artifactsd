@@ -8,6 +8,7 @@ import (
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jdelic/artifactsd/internal/meta"
+	"github.com/jdelic/artifactsd/internal/paths"
 	"github.com/jdelic/artifactsd/pkg/apiclient"
 )
 
@@ -165,7 +166,7 @@ func (s *Server) getPublicURL(_ context.Context, _ *gosdk.CallToolRequest, in *G
 func (s *Server) publicURL(collection, path string) string {
 	u := strings.TrimRight(s.BaseURL, "/") + "/c/" + collection + "/"
 	if path != "" {
-		u += strings.TrimLeft(path, "/")
+		u += paths.EscapeURL(strings.TrimLeft(path, "/"))
 	}
 	return u
 }

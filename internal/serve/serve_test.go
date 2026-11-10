@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -745,4 +747,31 @@ func TestServe_AccessAdvancesContainerIdleExpiry(t *testing.T) {
 		t.Fatalf("share listing = %d", rec.Code)
 	}
 	check("listing via share")
+}
+
+// A stored name containing a literal "%20", "?" or "#" must get a listing link
+// that resolves back to the same file (artifactsd-vxu).
+func TestServe_ListingLinksEscapeNames(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
+	names := []string{"Hacking%20Tutorial.mov", "q?.txt", "n#1.txt", "Victory By Any.mp4"}
+	for _, n := range names {
+		h.file(t, c, n, "body of "+n, `{}`, "text/plain")
+	}
+
+	rec := h.get("/c/demo/", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("listing = %d", rec.Code)
+	}
+	hrefs := regexp.MustCompile(`<a href="([^"]+)"`).FindAllStringSubmatch(rec.Body.String(), -1)
+	if len(hrefs) != len(names) {
+		t.Fatalf("got %d links, want %d:\n%s", len(hrefs), len(names), rec.Body)
+	}
+	for _, m := range hrefs {
+		href := html.UnescapeString(m[1])
+		got := h.get("/c/demo/"+href, nil)
+		if got.Code != http.StatusOK || !strings.HasPrefix(got.Body.String(), "body of ") {
+			t.Errorf("following href %q = %d %q", href, got.Code, got.Body)
+		}
+	}
 }

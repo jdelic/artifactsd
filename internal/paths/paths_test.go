@@ -115,3 +115,19 @@ func TestEnsureWithin(t *testing.T) {
 		t.Errorf("EnsureWithin empty rel = %q, want %q", got, base)
 	}
 }
+
+func TestEscapeURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                        "",
+		"a.txt":                   "a.txt",
+		"docs/Victory By Any.mp4": "docs/Victory%20By%20Any.mp4",
+		"Hacking%20Tutorial.mov":  "Hacking%2520Tutorial.mov",
+		"q?.txt":                  "q%3F.txt",
+		"dir#1/a&b+c.txt":         "dir%231/a&b+c.txt",
+		"ünï/çødé.txt":            "%C3%BCn%C3%AF/%C3%A7%C3%B8d%C3%A9.txt",
+	} {
+		if got := EscapeURL(in); got != want {
+			t.Errorf("EscapeURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

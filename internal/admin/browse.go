@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/paths"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 )
@@ -149,7 +150,7 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 			SizeLabel:   formatBytes(f.Size),
 			ContentType: f.ContentType,
 			Created:     f.CreatedAt.UTC().Format("2006-01-02 15:04"),
-			ViewURL:     base + "/c/" + f.CollectionName + "/" + f.Path,
+			ViewURL:     base + "/c/" + f.CollectionName + "/" + paths.EscapeURL(f.Path),
 			MetaURL:     h.cfg.Admin.Path + "/collections/" + f.CollectionName + "/meta?path=" + f.Path,
 		}
 		if f.ExpiresAt != nil {

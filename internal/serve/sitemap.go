@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/meta"
+	"github.com/jdelic/artifactsd/internal/paths"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -304,7 +305,7 @@ func (h *Handler) walkSitemap(ctx context.Context, c *store.Collection, parentID
 // fileLoc builds the absolute public URL for a file, mirroring the management
 // API's fileURL so sitemap <loc> values match the crawl API's URLs.
 func (h *Handler) fileLoc(collection, p string) string {
-	return strings.TrimRight(h.cfg.Server.BaseURL, "/") + "/c/" + collection + "/" + p
+	return strings.TrimRight(h.cfg.Server.BaseURL, "/") + "/c/" + collection + "/" + paths.EscapeURL(p)
 }
 
 // sitemapLoc builds the absolute URL of a sitemap endpoint itself, used for the
