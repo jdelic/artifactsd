@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/buildinfo"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/store"
 )
@@ -119,5 +121,31 @@ func TestRun_GracefulShutdown(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not return after context cancelation")
+	}
+}
+
+// /version reports the running build (artifactsd-u2p).
+func TestVersion(t *testing.T) {
+	oldV, oldC, oldD := buildinfo.Version, buildinfo.Commit, buildinfo.Date
+	buildinfo.Version, buildinfo.Commit, buildinfo.Date = "v9.9.9", "abc1234", "2026-11-11T00:00:00Z"
+	t.Cleanup(func() { buildinfo.Version, buildinfo.Commit, buildinfo.Date = oldV, oldC, oldD })
+
+	s := newTestServer(t)
+	rec := do(t, s.routes(), http.MethodGet, "/version")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("version status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	want := map[string]string{"version": "v9.9.9", "commit": "abc1234", "date": "2026-11-11T00:00:00Z"}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
 	}
 }

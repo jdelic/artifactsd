@@ -283,6 +283,7 @@ GET|POST /r/{request_id}              upload request link (form / accept uploads
 GET|HEAD /robots.txt                  generated crawl policy
 GET|HEAD /sitemap.xml                 generated sitemap (public, indexable URLs only)
 GET      /healthz, /readyz            liveness / readiness probes
+GET      /version                     running build: {"version", "commit", "date"}
 ```
 
 Protected and private objects, and expired ones, return `404` on these routes so
