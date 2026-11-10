@@ -32,7 +32,7 @@ installs) a systemd unit for it — see
 
 | Tool | Maps to | Notes |
 |------|---------|-------|
-| `artifact_create_collection` | `POST /collections` | name + policy flags |
+| `artifact_create_collection` | `POST /collections` | name + policy flags; optional `expires_in` (e.g. `7d`) sets `expiry.expires_at` |
 | `artifact_put_text` | `PUT .../files/{path}` | small text artifacts inline |
 | `artifact_begin_upload` | `POST .../uploads` | returns a direct upload URL for large/binary |
 | `artifact_get_metadata` | `GET .../meta` | own + effective + provenance; empty path = collection, trailing `/` = folder |

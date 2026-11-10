@@ -3,7 +3,9 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/jdelic/artifactsd/internal/durations"
 	"github.com/jdelic/artifactsd/pkg/apiclient"
 )
 
@@ -37,7 +39,11 @@ func validVisibility(v string) bool {
 
 // buildCollectionMetadata assembles a collection metadata document from
 // artifact_create_collection's optional policy fields.
-func buildCollectionMetadata(visibility string, directoryListing, crawlable, indexable *bool) (json.RawMessage, error) {
+//
+// expiresIn, when set, is resolved against now into an absolute
+// expiry.expires_at, matching artifact_create_share and the CLI's
+// "collection create --expires-in" (artifactsd-it0).
+func buildCollectionMetadata(visibility string, directoryListing, crawlable, indexable *bool, expiresIn string, now time.Time) (json.RawMessage, error) {
 	if !validVisibility(visibility) {
 		return nil, fmt.Errorf("invalid visibility %q: want public, unlisted, protected, or private", visibility)
 	}
@@ -61,6 +67,13 @@ func buildCollectionMetadata(visibility string, directoryListing, crawlable, ind
 	}
 	if len(crawl) > 0 {
 		doc["crawl"] = crawl
+	}
+	if expiresIn != "" {
+		d, err := durations.Parse(expiresIn)
+		if err != nil {
+			return nil, fmt.Errorf("invalid expires_in %q: %w", expiresIn, err)
+		}
+		doc["expiry"] = map[string]any{"expires_at": now.UTC().Add(d).Format(time.RFC3339)}
 	}
 	if len(doc) == 0 {
 		return nil, nil

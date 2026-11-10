@@ -10,7 +10,7 @@ import (
 func registerTools(s *Server) {
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_create_collection",
-		Description: "Create a collection: the top-level namespace for a published artifact tree. To give it an expiry or auth requirements, call artifact_set_metadata on it afterwards.",
+		Description: "Create a collection: the top-level namespace for a published artifact tree. Pass expires_in (e.g. 7d) to have it deleted after that long. For other expiry rules or auth requirements, call artifact_set_metadata on it afterwards.",
 	}, s.createCollection)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_put_text",

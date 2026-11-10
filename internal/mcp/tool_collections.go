@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"time"
 
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -15,10 +16,11 @@ type CreateCollectionIn struct {
 	DirectoryListing *bool  `json:"directory_listing,omitempty" jsonschema:"Enable a browsable directory listing"`
 	Crawlable        *bool  `json:"crawlable,omitempty" jsonschema:"Allow authenticated agent crawl APIs to enumerate this collection"`
 	Indexable        *bool  `json:"indexable,omitempty" jsonschema:"Allow public search-engine indexing"`
+	ExpiresIn        string `json:"expires_in,omitempty" jsonschema:"Duration like 24h, 7d, or 2w after which the collection is deleted; it never expires if omitted"`
 }
 
 func (s *Server) createCollection(ctx context.Context, _ *gosdk.CallToolRequest, in *CreateCollectionIn) (*gosdk.CallToolResult, CollectionOut, error) {
-	meta, err := buildCollectionMetadata(in.Visibility, in.DirectoryListing, in.Crawlable, in.Indexable)
+	meta, err := buildCollectionMetadata(in.Visibility, in.DirectoryListing, in.Crawlable, in.Indexable, in.ExpiresIn, time.Now())
 	if err != nil {
 		return nil, CollectionOut{}, err
 	}
