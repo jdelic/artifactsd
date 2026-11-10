@@ -75,6 +75,7 @@ in-flight requests with a timeout, stop the janitor, close the DB.
 | `/admin/...` | Admin web UI | OIDC group-gated (+ basic fallback) | [09](09-admin-ui.md), [14](14-access-control.md) |
 | `/auth/oidc/...` | OIDC login/callback | public (initiates auth) | [14](14-access-control.md) |
 | `/healthz`, `/readyz` | Liveness/readiness | public | this doc |
+| `/version` | Running build (version, commit, date) | public | this doc |
 
 Routing uses Go 1.22 `http.ServeMux` method+path patterns
 (`mux.HandleFunc("GET /c/{collection}/", ...)`), with a custom matcher for the

@@ -15,6 +15,7 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	mux.HandleFunc("GET /version", s.handleVersion)
 
 	// OIDC admin login flow (design/14 §7). The callback path is the single
 	// source of truth behind the default redirect URL (config.OIDCCallbackPath).

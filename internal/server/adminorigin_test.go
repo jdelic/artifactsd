@@ -47,6 +47,7 @@ func TestHostIsolationGate(t *testing.T) {
 		{"management API on admin host", adminHost, "/api/v1/collections", http.StatusOK},
 		{"management API on public host", publicHost, "/api/v1/collections", http.StatusOK},
 		{"healthz on admin host", adminHost, "/healthz", http.StatusOK},
+		{"version on admin host", adminHost, "/version", http.StatusOK},
 		{"root on public host", publicHost, "/", http.StatusOK},
 	}
 	for _, tc := range cases {
