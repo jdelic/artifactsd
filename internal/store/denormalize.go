@@ -46,11 +46,12 @@ type metaForDenormalize struct {
 //     expiry.delete_after_last_access (relative to lastAccess, or createdAt if
 //     lastAccess is zero — never yet accessed), or nil when none apply.
 //
-// delete_after_last_access makes expiresAt a moving target: callers that track
-// access (currently nodes, via the throttled touch in internal/serve) must
-// re-derive and persist this column each time lastAccess advances (design/08
-// §3); callers with no access signal pass a zero lastAccess, which is
-// equivalent to never having been accessed.
+// delete_after_last_access makes expiresAt a moving target: collections,
+// nodes, and shares all track last_access_at (via the throttled touch in
+// internal/serve) and re-derive this column each time it advances (design/08
+// §3). Falling back to createdAt is only correct because changing the idle
+// rule also resets last_access_at to now (idleRuleChanged*SQL): a zero
+// lastAccess therefore means the rule has been in place since creation.
 func DeriveDenormalized(meta json.RawMessage, createdAt, lastAccess time.Time) (visibility string, expiresAt *time.Time, err error) {
 	if len(meta) == 0 {
 		return "", nil, nil
@@ -101,7 +102,11 @@ func (s *Store) RecomputeCollectionDenormalized(ctx context.Context, id int64, d
 	if err != nil {
 		return err
 	}
-	vis, exp, err := DeriveDenormalized(c.Metadata, c.CreatedAt, time.Time{})
+	var lastAccess time.Time
+	if c.LastAccessAt != nil {
+		lastAccess = *c.LastAccessAt
+	}
+	vis, exp, err := DeriveDenormalized(c.Metadata, c.CreatedAt, lastAccess)
 	if err != nil {
 		return err
 	}
@@ -141,8 +146,8 @@ func (s *Store) RecomputeNodeDenormalized(ctx context.Context, id int64) error {
 	return err
 }
 
-// RecomputeAllDenormalized recomputes denormalized columns for every collection
-// and node. Used after a migration that changes derivation rules (design/02 §3).
+// RecomputeAllDenormalized recomputes denormalized columns for every
+// collection, node, and share. Used after a migration that changes derivation rules (design/02 §3).
 // Returns the number of rows recomputed.
 func (s *Store) RecomputeAllDenormalized(ctx context.Context, defaultVisibility string) (int, error) {
 	cols, err := s.ListCollections(ctx)
@@ -166,6 +171,63 @@ func (s *Store) RecomputeAllDenormalized(ctx context.Context, defaultVisibility 
 			}
 			count++
 		}
+
+		shares, err := s.ListSharesByCollection(ctx, c.ID)
+		if err != nil {
+			return count, err
+		}
+		for _, sh := range shares {
+			if err := s.persistShareExpiry(ctx, sh); err != nil {
+				return count, err
+			}
+			count++
+		}
 	}
 	return count, nil
+}
+
+// The idleRuleChanged* expressions are SQL booleans that are true when a
+// metadata write changes expiry.delete_after_last_access (including adding or
+// removing it). Metadata writes use them to reset last_access_at to now, so a
+// newly set or changed idle rule counts from the moment it was set rather than
+// from creation or a long-past access — otherwise enabling "30d" on an old
+// object makes it due at once (artifactsd-6b4). Each compares the row's stored
+// metadata with the incoming value; ?1 is the new metadata parameter.
+const (
+	idleRulePath = `'$.expiry.delete_after_last_access'`
+
+	idleRuleChangedCollectionSQL = `json_extract(collections.metadata, ` + idleRulePath + `) IS NOT json_extract(?1, ` + idleRulePath + `)`
+	idleRuleChangedShareSQL      = `json_extract(shares.metadata, ` + idleRulePath + `) IS NOT json_extract(?1, ` + idleRulePath + `)`
+	idleRuleChangedNodeSQL       = `json_extract(nodes.metadata, ` + idleRulePath + `) IS NOT json_extract(excluded.metadata, ` + idleRulePath + `)`
+)
+
+// flagRecomputeDenormalized is the maintenance_flags row a migration inserts
+// when the derivation inputs changed and every denormalized column must be
+// recomputed in Go (migration 0004).
+const flagRecomputeDenormalized = "recompute_denormalized"
+
+// RunPendingMaintenance performs deferred post-migration work recorded in
+// maintenance_flags, clearing each flag once done. The server calls it at
+// startup, before the janitor starts, so the janitor never acts on stale
+// expires_at values. Returns the number of rows recomputed (0 when nothing was
+// pending).
+func (s *Store) RunPendingMaintenance(ctx context.Context, defaultVisibility string) (int, error) {
+	var pending int
+	if err := s.db.sql.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM maintenance_flags WHERE name = ?`, flagRecomputeDenormalized,
+	).Scan(&pending); err != nil {
+		return 0, fmt.Errorf("store: reading maintenance flags: %w", err)
+	}
+	if pending == 0 {
+		return 0, nil
+	}
+	n, err := s.RecomputeAllDenormalized(ctx, defaultVisibility)
+	if err != nil {
+		return n, fmt.Errorf("store: recomputing denormalized columns: %w", err)
+	}
+	if _, err := s.db.sql.ExecContext(ctx,
+		`DELETE FROM maintenance_flags WHERE name = ?`, flagRecomputeDenormalized); err != nil {
+		return n, err
+	}
+	return n, nil
 }

@@ -62,7 +62,9 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 }
 
 // UpsertNode inserts a node or updates the existing one with the same
-// (collection_id, path), preserving created_at and last_access_at on update.
+// (collection_id, path), preserving created_at and last_access_at on update —
+// except that changing the idle-expiry rule restarts its clock by setting
+// last_access_at to now (see idleRuleChanged*SQL).
 // The node's ID is populated on return.
 //
 // It enforces the tree's kind invariants (artifactsd-2bw): the parent (when
@@ -94,6 +96,8 @@ func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
 			size         = excluded.size,
 			content_type = excluded.content_type,
 			checksum     = excluded.checksum,
+			last_access_at = CASE WHEN `+idleRuleChangedNodeSQL+`
+				THEN excluded.updated_at ELSE nodes.last_access_at END,
 			metadata     = excluded.metadata,
 			updated_at   = excluded.updated_at,
 			visibility   = excluded.visibility,

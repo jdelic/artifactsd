@@ -55,8 +55,10 @@ var listingTemplate = template.Must(template.New("listing").Parse(`<!doctype htm
 // highest precedence, bypassing the private non-disclosure guard exactly like
 // serveShareFile (design/14 §1/§5) — see that function's comment for why.
 func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *store.Collection, dirPath string, dirNode *store.Node, sh *store.Share) {
-	layers, expiry, ancestorPrivate := h.resolveChain(r.Context(), coll, dirPath)
+	layers, expiry, ancestorPrivate, chainIDs := h.resolveChain(r.Context(), coll, dirPath)
+	acc := accessTargets{collectionID: coll.ID, nodeIDs: chainIDs}
 	if sh != nil {
+		acc.shareRowID = sh.ID
 		layers = append(layers, docOf(sh.Metadata))
 		expiry = meta.Earliest(expiry, sh.ExpiresAt)
 		ancestorPrivate = false
@@ -83,6 +85,7 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 	case policy.RedirectOIDC:
 		http.Redirect(w, r, "/auth/oidc/login?return_to="+url.QueryEscape(r.URL.Path), http.StatusFound)
 	case policy.Serve:
+		h.recordAccess(r.Context(), acc)
 		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, expiry, sh != nil)
 	case policy.NotFound:
 		// Decide returns NotFound here for one of: private/under-private-

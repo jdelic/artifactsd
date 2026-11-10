@@ -40,6 +40,14 @@ func runServe(parent context.Context, cfg *config.Config, stderr io.Writer) erro
 	defer stop()
 
 	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation)
+	// Deferred post-migration work (e.g. recomputing expires_at after a change
+	// to how it is derived) must finish before the janitor's first pass.
+	if n, err := st.RunPendingMaintenance(ctx, string(cfg.Policy.Visibility)); err != nil {
+		_ = db.Close()
+		return err
+	} else if n > 0 {
+		log.Info("recomputed denormalized columns", "rows", n)
+	}
 	if err := seedBootstrapToken(ctx, st, cfg.Bootstrap.Token, log); err != nil {
 		_ = db.Close()
 		return err

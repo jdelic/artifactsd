@@ -10,6 +10,31 @@ type fakeLastAccessStore struct {
 	touches    []time.Time
 	recomputes int
 	touchErr   error
+
+	collTouches     []int64
+	collRecomputeVi []string
+	shareTouches    []int64
+	shareRecomputes []int64
+}
+
+func (f *fakeLastAccessStore) TouchCollectionLastAccess(_ context.Context, id int64, _ time.Time) error {
+	f.collTouches = append(f.collTouches, id)
+	return nil
+}
+
+func (f *fakeLastAccessStore) RecomputeCollectionDenormalized(_ context.Context, _ int64, defaultVisibility string) error {
+	f.collRecomputeVi = append(f.collRecomputeVi, defaultVisibility)
+	return nil
+}
+
+func (f *fakeLastAccessStore) TouchShareLastAccess(_ context.Context, id int64, _ time.Time) error {
+	f.shareTouches = append(f.shareTouches, id)
+	return nil
+}
+
+func (f *fakeLastAccessStore) RecomputeShareDenormalized(_ context.Context, id int64) error {
+	f.shareRecomputes = append(f.shareRecomputes, id)
+	return nil
 }
 
 func (f *fakeLastAccessStore) TouchLastAccess(_ context.Context, _ int64, at time.Time) error {
@@ -28,7 +53,7 @@ func (f *fakeLastAccessStore) RecomputeNodeDenormalized(_ context.Context, _ int
 func TestLastAccessUpdater_CoalescesWithinWindow(t *testing.T) {
 	store := &fakeLastAccessStore{}
 	clock := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
-	u := newLastAccessUpdater(store, time.Minute, nil).withClock(func() time.Time { return clock })
+	u := newLastAccessUpdater(store, time.Minute, "private", nil).withClock(func() time.Time { return clock })
 
 	u.touch(context.Background(), 1)
 	clock = clock.Add(30 * time.Second) // within window
@@ -45,7 +70,7 @@ func TestLastAccessUpdater_CoalescesWithinWindow(t *testing.T) {
 func TestLastAccessUpdater_PersistsPastWindow(t *testing.T) {
 	store := &fakeLastAccessStore{}
 	clock := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
-	u := newLastAccessUpdater(store, time.Minute, nil).withClock(func() time.Time { return clock })
+	u := newLastAccessUpdater(store, time.Minute, "private", nil).withClock(func() time.Time { return clock })
 
 	u.touch(context.Background(), 1)
 	clock = clock.Add(2 * time.Minute) // past window
@@ -59,7 +84,7 @@ func TestLastAccessUpdater_PersistsPastWindow(t *testing.T) {
 func TestLastAccessUpdater_PerNodeIndependent(t *testing.T) {
 	store := &fakeLastAccessStore{}
 	clock := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
-	u := newLastAccessUpdater(store, time.Minute, nil).withClock(func() time.Time { return clock })
+	u := newLastAccessUpdater(store, time.Minute, "private", nil).withClock(func() time.Time { return clock })
 
 	u.touch(context.Background(), 1)
 	u.touch(context.Background(), 2) // different node, not coalesced with node 1
@@ -72,7 +97,7 @@ func TestLastAccessUpdater_PerNodeIndependent(t *testing.T) {
 func TestLastAccessUpdater_ZeroWindowAlwaysPersists(t *testing.T) {
 	store := &fakeLastAccessStore{}
 	clock := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
-	u := newLastAccessUpdater(store, 0, nil).withClock(func() time.Time { return clock })
+	u := newLastAccessUpdater(store, 0, "private", nil).withClock(func() time.Time { return clock })
 
 	u.touch(context.Background(), 1)
 	u.touch(context.Background(), 1) // same instant, but window disabled
@@ -84,11 +109,37 @@ func TestLastAccessUpdater_ZeroWindowAlwaysPersists(t *testing.T) {
 
 func TestLastAccessUpdater_TouchErrorSkipsRecompute(t *testing.T) {
 	store := &fakeLastAccessStore{touchErr: context.DeadlineExceeded}
-	u := newLastAccessUpdater(store, time.Minute, nil)
+	u := newLastAccessUpdater(store, time.Minute, "private", nil)
 
 	u.touch(context.Background(), 1)
 
 	if store.recomputes != 0 {
 		t.Fatalf("recomputes = %d, want 0 after a failed touch", store.recomputes)
+	}
+}
+
+// Collections and shares are throttled independently of nodes: the same
+// numeric id across kinds must not coalesce (artifactsd-6b4).
+func TestLastAccessUpdater_KindsIndependent(t *testing.T) {
+	store := &fakeLastAccessStore{}
+	clock := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
+	u := newLastAccessUpdater(store, time.Minute, "unlisted", nil).withClock(func() time.Time { return clock })
+
+	u.touch(context.Background(), 7)
+	u.touchCollection(context.Background(), 7)
+	u.touchShare(context.Background(), 7)
+	// Repeats within the window coalesce per kind.
+	u.touchCollection(context.Background(), 7)
+	u.touchShare(context.Background(), 7)
+
+	if len(store.touches) != 1 || len(store.collTouches) != 1 || len(store.shareTouches) != 1 {
+		t.Fatalf("touches node=%d coll=%d share=%d, want 1 each",
+			len(store.touches), len(store.collTouches), len(store.shareTouches))
+	}
+	if len(store.collRecomputeVi) != 1 || store.collRecomputeVi[0] != "unlisted" {
+		t.Fatalf("collection recompute visibility = %v, want [unlisted]", store.collRecomputeVi)
+	}
+	if len(store.shareRecomputes) != 1 || store.shareRecomputes[0] != 7 {
+		t.Fatalf("share recomputes = %v, want [7]", store.shareRecomputes)
 	}
 }
