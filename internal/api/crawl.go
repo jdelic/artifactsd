@@ -11,6 +11,7 @@ import (
 
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/meta"
+	"github.com/jdelic/artifactsd/internal/paths"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -274,7 +275,7 @@ func crawlContentType(eff *meta.Effective, n *store.Node) string {
 func (h *Handler) dirURL(collection, p string) string {
 	u := strings.TrimRight(h.baseURL, "/") + "/c/" + collection + "/"
 	if p != "" {
-		u += p + "/"
+		u += paths.EscapeURL(p) + "/"
 	}
 	return u
 }

@@ -282,7 +282,7 @@ func (h *Handler) toFileView(collection string, n *store.Node) fileView {
 }
 
 func (h *Handler) fileURL(collection, p string) string {
-	return strings.TrimRight(h.baseURL, "/") + "/c/" + collection + "/" + p
+	return strings.TrimRight(h.baseURL, "/") + "/c/" + collection + "/" + paths.EscapeURL(p)
 }
 
 // docContentType extracts a metadata document's explicit content type, if any.
