@@ -11,6 +11,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -132,6 +134,11 @@ func FromJSON(data []byte) (*Document, error) {
 	dec.DisallowUnknownFields()
 	var d Document
 	if err := dec.Decode(&d); err != nil {
+		if strings.HasPrefix(err.Error(), "json: unknown field ") {
+			// Name the valid shape so direct API callers can self-correct
+			// (artifactsd-rb5); encoding/json only names the offending field.
+			return nil, fmt.Errorf("meta: parsing JSON: %w (valid fields: %s)", err, fieldHint)
+		}
 		return nil, fmt.Errorf("meta: parsing JSON: %w", err)
 	}
 	d.normalize()
@@ -182,4 +189,36 @@ func (d *Document) Clone() *Document {
 		}
 	}
 	return &c
+}
+
+// fieldHint lists the document's sections and each section's own fields, e.g.
+// "content{content_type, headers, sandbox}, access{...}, ...". It is derived
+// from the struct tags so it cannot drift from what FromJSON accepts.
+var fieldHint = func() string {
+	var sections []string
+	dt := reflect.TypeOf(Document{})
+	for i := range dt.NumField() {
+		f := dt.Field(i)
+		st := f.Type
+		if st.Kind() == reflect.Pointer {
+			st = st.Elem()
+		}
+		var fields []string
+		for j := range st.NumField() {
+			if name := jsonName(st.Field(j).Tag); name != "" {
+				fields = append(fields, name)
+			}
+		}
+		sections = append(sections, jsonName(f.Tag)+"{"+strings.Join(fields, ", ")+"}")
+	}
+	return strings.Join(sections, ", ")
+}()
+
+// jsonName returns the JSON key named by a struct tag, or "" if it isn't serialized.
+func jsonName(tag reflect.StructTag) string {
+	name, _, _ := strings.Cut(tag.Get("json"), ",")
+	if name == "-" {
+		return ""
+	}
+	return name
 }
