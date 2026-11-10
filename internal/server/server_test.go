@@ -30,7 +30,13 @@ func testConfig(t *testing.T, listen string) *config.Config {
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	cfg := testConfig(t, "127.0.0.1:0")
+	return newTestServerAt(t, "127.0.0.1:0")
+}
+
+// newTestServerAt is newTestServer listening on listen.
+func newTestServerAt(t *testing.T, listen string) *Server {
+	t.Helper()
+	cfg := testConfig(t, listen)
 	db, err := store.Open(context.Background(), filepath.Join(t.TempDir(), store.DBFilename))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -103,15 +109,42 @@ func TestRoot(t *testing.T) {
 	}
 }
 
+// waitHTTP polls url until it answers with an HTTP response (any status when
+// wantStatus is 0), instead of sleeping a fixed time and hoping the listener is
+// up. It fails the test if done delivers first (the server exited during
+// startup) or after 15s.
+func waitHTTP(t *testing.T, client *http.Client, url string, wantStatus int, done <-chan error) {
+	t.Helper()
+	deadline := time.After(15 * time.Second)
+	for {
+		select {
+		case err := <-done:
+			t.Fatalf("server exited before %s answered: %v", url, err)
+		case <-deadline:
+			t.Fatalf("%s did not answer within 15s", url)
+		case <-time.After(20 * time.Millisecond):
+			resp, err := client.Get(url)
+			if err != nil {
+				continue
+			}
+			_ = resp.Body.Close()
+			if wantStatus == 0 || resp.StatusCode == wantStatus {
+				return
+			}
+		}
+	}
+}
+
 func TestRun_GracefulShutdown(t *testing.T) {
-	s := newTestServer(t)
+	addr := freePort(t)
+	s := newTestServerAt(t, addr)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
 
-	// Give the listener a moment to come up, then signal shutdown.
-	time.Sleep(50 * time.Millisecond)
+	// Wait until the server actually answers, then signal shutdown.
+	waitHTTP(t, &http.Client{Timeout: time.Second}, "http://"+addr+"/healthz", http.StatusOK, done)
 	cancel()
 
 	select {
