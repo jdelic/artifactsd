@@ -253,3 +253,28 @@ func TestBeginUpload_InfersContentTypeFromExtension(t *testing.T) {
 		}
 	}
 }
+
+// The collections list shows each collection's expiry and the rule behind it,
+// and "—" for one that never expires (artifactsd-17c).
+func TestCollectionsList_ShowsExpiry(t *testing.T) {
+	ha := newFullHarness(t)
+	for _, n := range []string{"keep", "short"} {
+		doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {n}}.Encode()), "application/x-www-form-urlencoded")
+	}
+	doReq(t, ha, http.MethodPost, "/collections/short/meta/fields", strings.NewReader(url.Values{
+		"delete_after_last_access_enabled": {"on"}, "delete_after_last_access": {"30d"},
+	}.Encode()), "application/x-www-form-urlencoded")
+
+	body := doReq(t, ha, http.MethodGet, "/collections", http.NoBody, "").Body.String()
+	if !strings.Contains(body, "<th>Expires</th>") {
+		t.Fatalf("collections list has no Expires column:\n%s", body)
+	}
+	if !strings.Contains(body, `<span class="nc-expiry-source">30d after last access</span>`) {
+		t.Errorf("short should show its idle rule:\n%s", body)
+	}
+	_, keep, found := strings.Cut(body, ">keep<")
+	keep, _, _ = strings.Cut(keep, "</tr>")
+	if !found || !strings.Contains(keep, "<td>—</td>") {
+		t.Errorf("keep never expires and should show —:\n%s", keep)
+	}
+}

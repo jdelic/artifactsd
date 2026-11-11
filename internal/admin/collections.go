@@ -17,6 +17,11 @@ type collectionRow struct {
 	CreatedAt  string
 	Shared     bool
 	ShareURL   string
+	// Expires/ExpiresRule are when the collection is deleted and the rule that
+	// decides it; a collection has no containers, so its own expiry is the
+	// effective one (artifactsd-17c). Both empty when it never expires.
+	Expires     string
+	ExpiresRule string
 }
 
 // collectionsPanelData backs the "collections_panel" partial, shared by the
@@ -137,6 +142,10 @@ func (h *Handler) loadCollectionsPanel(r *http.Request, errMsg string) (collecti
 			CreatedAt:  c.CreatedAt.UTC().Format("2006-01-02 15:04"),
 		}
 		row.ShareURL, row.Shared = wholeShare[c.Name]
+		if e := h.store.CollectionExpiry(c); e.At != nil {
+			row.Expires, _ = expiryCell(e)
+			row.ExpiresRule = e.Source.Rule
+		}
 		rows = append(rows, row)
 	}
 	return collectionsPanelData{AdminPath: h.cfg.Admin.Path, Collections: rows, Error: errMsg}, nil
