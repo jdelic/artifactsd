@@ -11,12 +11,13 @@
   </div>
   <div class="nc-panel" data-label="Collections">
     <table class="nc-table">
-      <tr><th>Name</th><th>Visibility</th><th>Created</th><th></th></tr>
+      <tr><th>Name</th><th>Visibility</th><th>Created</th><th>Expires</th><th></th></tr>
       {{range .Collections}}
       <tr>
         <td><a href="{{$.AdminPath}}/collections/{{.Name}}/tree">{{.Name}}</a></td>
         <td>{{.Visibility}}</td>
         <td>{{.CreatedAt}}</td>
+        <td>{{if .Expires}}{{.Expires}}{{if .ExpiresRule}}<span class="nc-expiry-source">{{.ExpiresRule}}</span>{{end}}{{else}}—{{end}}</td>
         <td>
           <a href="{{$.AdminPath}}/collections/{{.Name}}/meta">Metadata</a>
           <a href="{{$.AdminPath}}/collections/{{.Name}}/shares">Shares</a>
@@ -29,7 +30,7 @@
         </td>
       </tr>
       {{else}}
-      <tr><td colspan="4">No collections yet.</td></tr>
+      <tr><td colspan="5">No collections yet.</td></tr>
       {{end}}
     </table>
   </div>
