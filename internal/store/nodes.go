@@ -172,7 +172,10 @@ type FileWithCollection struct {
 	Size           int64
 	ContentType    string
 	CreatedAt      time.Time
-	ExpiresAt      *time.Time // resolved (denormalized) expiry; nil = never
+	ExpiresAt      *time.Time // the file's own (denormalized) expiry; nil = never
+	// Effective is when the file is actually deleted: the earliest of its own,
+	// any ancestor folder's, and its collection's expiry (artifactsd-3wy).
+	Effective EffectiveExpiry
 }
 
 // FileSort selects the ordering of ListAllFiles.
@@ -185,7 +188,8 @@ const (
 	FileSortName FileSort = "name"
 	// FileSortCreated orders by newest first.
 	FileSortCreated FileSort = "created"
-	// FileSortExpiry orders by soonest expiry first; never-expiring files last.
+	// FileSortExpiry orders by soonest effective expiry first; never-expiring
+	// files last.
 	FileSortExpiry FileSort = "expiry"
 )
 
@@ -193,22 +197,48 @@ const (
 // ORDER BY is never built from a runtime value (no injection surface). SQLite
 // treats LIMIT -1 as "no limit", so the caller can pass a negative limit for an
 // uncapped listing.
-const allFilesQueryBase = `SELECT c.name, n.path, n.name, COALESCE(n.size, 0), COALESCE(n.content_type, ''), n.created_at, n.expires_at
+//
+// Besides the file's own expiry it returns the collection's and the
+// earliest-expiring ancestor folder's (a correlated subquery over folders
+// that have an expiry, which are few — idx_nodes_expiry), and eff, their
+// minimum, so "expiring next" sorts by when files are really deleted. eff is
+// a text minimum over RFC3339 strings; mixed fractional-second precision can
+// misorder two instants within the same second, which is harmless for a sort.
+// The precise minimum and its source are recomputed in Go.
+const allFilesQueryBase = `WITH f AS (
+	SELECT c.name AS cname, n.collection_id AS cid, n.path, n.name,
+		COALESCE(n.size, 0) AS size, COALESCE(n.content_type, '') AS ctype,
+		n.created_at, n.expires_at AS nexp, n.metadata AS nmeta, n.last_access_at AS nlast,
+		c.expires_at AS cexp, c.metadata AS cmeta, c.created_at AS ccreated, c.last_access_at AS clast,
+		(SELECT a.path FROM nodes a
+		  WHERE a.collection_id = n.collection_id AND a.kind = 'folder' AND a.expires_at IS NOT NULL
+		    AND substr(n.path, 1, length(a.path) + 1) = a.path || '/'
+		  ORDER BY a.expires_at, length(a.path) LIMIT 1) AS apath
 	FROM nodes n JOIN collections c ON c.id = n.collection_id
-	WHERE n.kind = ? ORDER BY `
+	WHERE n.kind = ?
+), g AS (
+	SELECT f.*, (SELECT a.expires_at FROM nodes a WHERE a.collection_id = f.cid AND a.path = f.apath) AS aexp
+	FROM f
+)
+SELECT cname, cid, path, name, size, ctype, created_at, nexp, nmeta, nlast,
+	cexp, cmeta, ccreated, clast, apath,
+	NULLIF(min(COALESCE(nexp, '~'), COALESCE(cexp, '~'), COALESCE(aexp, '~')), '~') AS eff
+FROM g ORDER BY `
 
 const (
-	allFilesBySize    = allFilesQueryBase + "n.size DESC, c.name, n.path LIMIT ?"
-	allFilesByName    = allFilesQueryBase + "c.name, n.path LIMIT ?"
-	allFilesByCreated = allFilesQueryBase + "n.created_at DESC LIMIT ?"
+	allFilesBySize    = allFilesQueryBase + "size DESC, cname, path LIMIT ?"
+	allFilesByName    = allFilesQueryBase + "cname, path LIMIT ?"
+	allFilesByCreated = allFilesQueryBase + "created_at DESC LIMIT ?"
 	// Soonest-expiring first; NULL (never expires) sorts last.
-	allFilesByExpiry = allFilesQueryBase + "n.expires_at IS NULL, n.expires_at ASC, c.name, n.path LIMIT ?"
+	allFilesByExpiry = allFilesQueryBase + "eff IS NULL, eff ASC, cname, path LIMIT ?"
 )
 
 // ListAllFiles returns every file node (folders excluded) across all
 // collections, ordered per sort (default: largest first), up to limit rows
-// (limit <= 0 means no cap). Each row carries its collection name and resolved
-// expiry.
+// (limit <= 0 means no cap). Each row carries its collection name, its own
+// expiry, and its effective expiry with the source. Beyond the main query it
+// costs one query per collection that has a folder-sourced expiry in the
+// result (to label that folder's rule), usually none.
 func (s *Store) ListAllFiles(ctx context.Context, sortBy FileSort, limit int) ([]*FileWithCollection, error) {
 	query := allFilesBySize
 	switch sortBy {
@@ -228,26 +258,85 @@ func (s *Store) ListAllFiles(ctx context.Context, sortBy FileSort, limit int) ([
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []*FileWithCollection
+	type pending struct {
+		f      *FileWithCollection
+		own    EffectiveExpiry
+		coll   EffectiveExpiry
+		cid    int64
+		folder string
+	}
+	var (
+		out     []*FileWithCollection
+		pend    []*pending
+		folders = map[int64][]string{} // collection id → folder paths to label
+	)
 	for rows.Next() {
 		var (
-			f       FileWithCollection
-			created string
-			expires sql.NullString
+			f                                     FileWithCollection
+			cid                                   int64
+			created, nmeta, cmeta, ccreated       string
+			nexp, nlast, cexp, clast, apath, effS sql.NullString
 		)
-		if err := rows.Scan(&f.CollectionName, &f.Path, &f.Name, &f.Size, &f.ContentType, &created, &expires); err != nil {
+		if err := rows.Scan(&f.CollectionName, &cid, &f.Path, &f.Name, &f.Size, &f.ContentType, &created,
+			&nexp, &nmeta, &nlast, &cexp, &cmeta, &ccreated, &clast, &apath, &effS); err != nil {
 			return nil, err
 		}
 		var perr error
-		if f.ExpiresAt, perr = parseTimePtr(expires); perr != nil {
-			return nil, perr
-		}
 		if f.CreatedAt, perr = parseTime(created); perr != nil {
 			return nil, perr
 		}
+		if f.ExpiresAt, perr = parseTimePtr(nexp); perr != nil {
+			return nil, perr
+		}
+		nLast, perr := parseTimePtr(nlast)
+		if perr != nil {
+			return nil, perr
+		}
+		cExp, perr := parseTimePtr(cexp)
+		if perr != nil {
+			return nil, perr
+		}
+		cCreated, perr := parseTime(ccreated)
+		if perr != nil {
+			return nil, perr
+		}
+		cLast, perr := parseTimePtr(clast)
+		if perr != nil {
+			return nil, perr
+		}
+		p := &pending{
+			f:    &f,
+			own:  s.ownExpiry(ExpiryOwn, f.Path, f.ExpiresAt, json.RawMessage(nmeta), f.CreatedAt, nLast),
+			coll: s.ownExpiry(ExpiryCollection, "", cExp, json.RawMessage(cmeta), cCreated, cLast),
+			cid:  cid,
+		}
+		if apath.Valid {
+			p.folder = apath.String
+			folders[cid] = append(folders[cid], apath.String)
+		}
+		pend = append(pend, p)
 		out = append(out, &f)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	folderNodes := map[int64]map[string]*Node{}
+	for cid, ps := range folders {
+		m, err := s.getNodesByPaths(ctx, cid, ps)
+		if err != nil {
+			return nil, err
+		}
+		folderNodes[cid] = m
+	}
+	for _, p := range pend {
+		eff := p.coll
+		if n := folderNodes[p.cid][p.folder]; n != nil {
+			eff = earlierOf(eff, s.ownExpiry(ExpiryFolder, n.Path, n.ExpiresAt, n.Metadata, n.CreatedAt, n.LastAccessAt))
+		}
+		p.f.Effective = earlierOf(eff, p.own)
+	}
+	return out, nil
 }
 
 // ListChildren returns the direct children of a parent node within a

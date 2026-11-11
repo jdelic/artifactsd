@@ -16,7 +16,7 @@
       <td>{{.SizeLabel}}</td>
       <td>{{.ContentType}}</td>
       <td>{{.Created}}</td>
-      <td>{{if .Expires}}{{.Expires}}{{else}}—{{end}}</td>
+      <td>{{if .Expires}}{{.Expires}}<span class="nc-expiry-source">{{.ExpiresSource}}</span>{{else}}—{{end}}</td>
       <td><a href="{{.MetaURL}}">Edit metadata</a></td>
     </tr>
     {{else}}

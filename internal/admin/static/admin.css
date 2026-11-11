@@ -557,3 +557,10 @@ body {
     max-width: min(320px, 85vw);
   }
 }
+
+/* Effective-expiry cell: the date, then where it comes from (artifactsd-3wy). */
+.nc-expiry-source {
+  display: block;
+  font-size: 0.85em;
+  color: var(--nc-grey);
+}

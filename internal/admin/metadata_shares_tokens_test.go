@@ -307,3 +307,27 @@ func TestTree_ViewLinkEscapesName(t *testing.T) {
 		t.Errorf("tree missing %s:\n%s", want, body)
 	}
 }
+
+// The explorer shows each folder's and file's effective expiry with its
+// source; a file with no expiry of its own inherits the collection's
+// (artifactsd-3wy).
+func TestTree_ShowsEffectiveExpiry(t *testing.T) {
+	ha := newFullHarness(t)
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(url.Values{"name": {"demo-run"}}.Encode()), "application/x-www-form-urlencoded")
+	seedFile(t, ha, "demo-run", "docs/a.txt", "hi")
+	doReq(t, ha, http.MethodPost, "/collections/demo-run/meta/fields", strings.NewReader(url.Values{
+		"delete_after_creation_enabled": {"on"}, "delete_after_creation": {"10d"},
+	}.Encode()), "application/x-www-form-urlencoded")
+
+	root := doReq(t, ha, http.MethodGet, "/collections/demo-run/tree", http.NoBody, "").Body.String()
+	if !strings.Contains(root, "<th>Expires</th>") {
+		t.Fatalf("explorer has no Expires column:\n%s", root)
+	}
+	if !strings.Contains(root, `<span class="nc-expiry-source">collection · 10d after creation</span>`) {
+		t.Errorf("docs/ folder row should inherit the collection's expiry:\n%s", root)
+	}
+	docs := doReq(t, ha, http.MethodGet, "/collections/demo-run/tree?path=docs", http.NoBody, "").Body.String()
+	if !strings.Contains(docs, `collection · 10d after creation`) {
+		t.Errorf("docs/a.txt row should inherit the collection's expiry:\n%s", docs)
+	}
+}

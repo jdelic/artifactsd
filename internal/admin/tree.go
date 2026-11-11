@@ -27,6 +27,10 @@ type nodeRow struct {
 	ViewURL     string
 	Shared      bool
 	ShareURL    string
+	// Expires/ExpiresSource are the effective expiry and where it comes from
+	// (artifactsd-3wy); both empty when the node never expires.
+	Expires       string
+	ExpiresSource string
 }
 
 // treePanelData backs the "tree_panel" partial: breadcrumb, folder/file
@@ -110,6 +114,12 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 	if err != nil {
 		return treePanelData{}, err
 	}
+	// Everything listed here inherits the same chain (collection and the
+	// folders down to dir), so it is resolved once for the whole page.
+	inherited, err := h.store.DirExpiry(ctx, c, dir)
+	if err != nil {
+		return treePanelData{}, err
+	}
 
 	data := treePanelData{
 		AdminPath:  h.cfg.Admin.Path,
@@ -122,6 +132,7 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 	for _, n := range children {
 		row := nodeRow{Name: n.Name, Path: n.Path}
 		row.ShareURL, row.Shared = shareByTarget[n.Path]
+		row.Expires, row.ExpiresSource = expiryCell(h.store.ChildExpiry(inherited, n))
 		if n.Kind == store.KindFolder {
 			data.Folders = append(data.Folders, row)
 			continue
@@ -276,4 +287,26 @@ func (h *Handler) cleanDir(w http.ResponseWriter, raw string) (string, bool) {
 		return "", false
 	}
 	return p, true
+}
+
+// expiryCell renders an effective expiry as a date plus a short note on where
+// it comes from, e.g. ("2026-12-10 23:34", "collection · 30d after last
+// access"). Both are empty when the object never expires.
+func expiryCell(e store.EffectiveExpiry) (date, source string) {
+	if e.At == nil {
+		return "", ""
+	}
+	date = e.At.UTC().Format("2006-01-02 15:04")
+	switch e.Source.Kind {
+	case store.ExpiryCollection:
+		source = "collection"
+	case store.ExpiryFolder:
+		source = "folder " + e.Source.Path + "/"
+	default:
+		source = "own"
+	}
+	if e.Source.Rule != "" {
+		source += " · " + e.Source.Rule
+	}
+	return date, source
 }

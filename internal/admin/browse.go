@@ -107,8 +107,10 @@ type allFilesRow struct {
 	ContentType string
 	Created     string
 	Expires     string
-	ViewURL     string
-	MetaURL     string
+	// ExpiresSource says where the effective expiry comes from (artifactsd-3wy).
+	ExpiresSource string
+	ViewURL       string
+	MetaURL       string
 }
 
 type allFilesData struct {
@@ -153,9 +155,7 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 			ViewURL:     base + "/c/" + f.CollectionName + "/" + paths.EscapeURL(f.Path),
 			MetaURL:     h.cfg.Admin.Path + "/collections/" + f.CollectionName + "/meta?path=" + f.Path,
 		}
-		if f.ExpiresAt != nil {
-			row.Expires = f.ExpiresAt.UTC().Format("2006-01-02 15:04")
-		}
+		row.Expires, row.ExpiresSource = expiryCell(f.Effective)
 		rows = append(rows, row)
 	}
 	h.render(w, r, "allfiles", allFilesFKeys, "READY", "Files", allFilesData{
