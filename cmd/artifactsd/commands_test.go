@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -71,29 +73,91 @@ func TestServe_MissingBaseURLFails(t *testing.T) {
 	}
 }
 
-func TestRunServe_StartsAndShutsDown(t *testing.T) {
+// serveConfig builds a valid serve config listening on a free loopback port,
+// returning the config and its base URL.
+func serveConfig(t *testing.T) (*config.Config, string) {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("pick port: %v", err)
+	}
+	addr := l.Addr().String()
+	_ = l.Close()
 	cfg, err := config.LoadAndValidate(
-		[]string{"--base-url", "https://x.example.com", "--data", t.TempDir(), "--listen", "127.0.0.1:0"},
+		[]string{"--base-url", "https://x.example.com", "--data", t.TempDir(), "--listen", addr},
 		func(string) string { return "" }, io.Discard,
 	)
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
+	return cfg, "http://" + addr
+}
 
+// waitHTTP polls url until it answers with an HTTP response (any status when
+// wantStatus is 0), instead of sleeping a fixed time and hoping the listener is
+// up. It fails the test if done delivers first (the server exited during
+// startup) or after 15s.
+func waitHTTP(t *testing.T, client *http.Client, url string, wantStatus int, done <-chan error) {
+	t.Helper()
+	deadline := time.After(15 * time.Second)
+	for {
+		select {
+		case err := <-done:
+			t.Fatalf("server exited before %s answered: %v", url, err)
+		case <-deadline:
+			t.Fatalf("%s did not answer within 15s", url)
+		case <-time.After(20 * time.Millisecond):
+			resp, err := client.Get(url)
+			if err != nil {
+				continue
+			}
+			_ = resp.Body.Close()
+			if wantStatus == 0 || resp.StatusCode == wantStatus {
+				return
+			}
+		}
+	}
+}
+
+// TestRunServe_StartsAndShutsDown starts the real server, waits until
+// /healthz answers (not a fixed sleep, artifactsd-6zw), then cancels and
+// requires a clean, prompt exit.
+func TestRunServe_StartsAndShutsDown(t *testing.T) {
+	cfg, base := serveConfig(t)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runServe(ctx, cfg, io.Discard) }()
 
-	time.Sleep(50 * time.Millisecond) // let it bind + auto-migrate
-	cancel()
+	waitHTTP(t, &http.Client{Timeout: time.Second}, base+"/healthz", http.StatusOK, done)
 
+	cancel()
 	select {
 	case err := <-done:
 		if err != nil {
 			t.Errorf("runServe returned error: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("runServe did not return after cancellation")
+		t.Fatal("runServe did not return within 5s of cancellation")
+	}
+}
+
+// A shutdown requested before startup finishes is a clean shutdown, not an
+// error (artifactsd-6zw). The context is canceled before runServe is even
+// called, so the outcome doesn't depend on timing.
+func TestRunServe_CancelledDuringStartup(t *testing.T) {
+	cfg, _ := serveConfig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan error, 1)
+	go func() { done <- runServe(ctx, cfg, io.Discard) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("runServe with a canceled context = %v, want nil (clean shutdown)", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runServe did not return within 5s")
 	}
 }
 
@@ -129,8 +193,10 @@ func TestMCP_MissingBaseURLFails(t *testing.T) {
 }
 
 func TestRunMCP_StartsAndShutsDown(t *testing.T) {
+	_, base := serveConfig(t) // just for a free loopback port
+	addr := strings.TrimPrefix(base, "http://")
 	m, err := config.LoadAndValidateMCP(
-		[]string{"--listen", "127.0.0.1:0", "--base-url", "https://x.example.com", "--token", "tok_abc"},
+		[]string{"--listen", addr, "--base-url", "https://x.example.com", "--token", "tok_abc"},
 		func(string) string { return "" }, io.Discard,
 	)
 	if err != nil {
@@ -141,7 +207,7 @@ func TestRunMCP_StartsAndShutsDown(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runMCP(ctx, m, io.Discard) }()
 
-	time.Sleep(50 * time.Millisecond) // let it bind
+	waitHTTP(t, &http.Client{Timeout: time.Second}, base+"/", 0, done)
 	cancel()
 
 	select {

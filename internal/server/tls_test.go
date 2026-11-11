@@ -95,11 +95,11 @@ func TestTLSFiles_EndToEnd(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{Transport: &http.Transport{
+	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-signed test cert
 	}}
+	waitHTTP(t, client, "https://"+addr+"/healthz", 0, done)
 	resp, err := client.Get("https://" + addr + "/healthz")
 	if err != nil {
 		t.Fatalf("https GET: %v", err)
