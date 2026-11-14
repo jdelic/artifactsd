@@ -144,20 +144,20 @@ func (a *Adapter) serveMCP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec := &sessionRecorder{ResponseWriter: w}
-	a.sdk.ServeHTTP(rec, r.WithContext(contextWithToken(r, token)))
-	if sid := rec.newSessionID(r); sid != "" {
-		a.bind(sid, th)
+	if r.Header.Get("Mcp-Session-Id") == "" {
+		rec.onSession = func(sid string) { a.bind(sid, th) }
 	}
+	a.sdk.ServeHTTP(rec, r.WithContext(contextWithToken(r, token)))
 }
 
 // sessionAllows reports whether the session may be used with token hash th.
-// Unknown sessions pass through (the SDK answers them itself).
+// A session must retain its binding for as long as it accepts requests.
 func (a *Adapter) sessionAllows(sid, th string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	b, ok := a.sessions[sid]
 	if !ok {
-		return true
+		return false
 	}
 	if subtle.ConstantTimeCompare([]byte(b.tokenHash), []byte(th)) != 1 {
 		return false
@@ -218,26 +218,27 @@ func contextWithToken(r *http.Request, token string) context.Context {
 	return context.WithValue(r.Context(), tokenKey{}, token)
 }
 
-// sessionRecorder captures the Mcp-Session-Id the SDK assigns on initialize.
+// sessionRecorder records the Mcp-Session-Id before initialization becomes
+// visible to the client, including when the SDK flushes a streaming response.
 type sessionRecorder struct {
 	http.ResponseWriter
-	sid string
+	sid       string
+	onSession func(string)
 }
 
 func (s *sessionRecorder) WriteHeader(code int) {
-	s.sid = s.Header().Get("Mcp-Session-Id")
+	s.recordSession()
 	s.ResponseWriter.WriteHeader(code)
 }
 
 func (s *sessionRecorder) Write(b []byte) (int, error) {
-	if s.sid == "" {
-		s.sid = s.Header().Get("Mcp-Session-Id")
-	}
+	s.recordSession()
 	return s.ResponseWriter.Write(b)
 }
 
 // Flush keeps streaming (SSE) responses working through the wrapper.
 func (s *sessionRecorder) Flush() {
+	s.recordSession()
 	if f, ok := s.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -246,11 +247,12 @@ func (s *sessionRecorder) Flush() {
 // Unwrap lets http.ResponseController reach the underlying writer.
 func (s *sessionRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
-// newSessionID returns the session id the SDK assigned in this response when
-// the request did not already carry one (i.e. this request created it).
-func (s *sessionRecorder) newSessionID(r *http.Request) string {
-	if r.Header.Get("Mcp-Session-Id") != "" {
-		return ""
+func (s *sessionRecorder) recordSession() {
+	if s.sid != "" || s.onSession == nil {
+		return
 	}
-	return s.sid
+	if sid := s.Header().Get("Mcp-Session-Id"); sid != "" {
+		s.sid = sid
+		s.onSession(sid)
+	}
 }
