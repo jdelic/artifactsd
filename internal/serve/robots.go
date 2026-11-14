@@ -76,8 +76,9 @@ func (h *Handler) buildRootRobots(ctx context.Context) []byte {
 
 	anyAllowed := false
 	for _, c := range cols {
-		eff := meta.Resolve(h.defaults(), docOf(c.Metadata))
-		hidden := c.Visibility == meta.VisibilityPrivate || c.Visibility == meta.VisibilityUnlisted
+		doc, err := parseDoc(c.Metadata)
+		eff := meta.Resolve(h.defaults(), doc)
+		hidden := err != nil || c.Visibility == meta.VisibilityPrivate || c.Visibility == meta.VisibilityUnlisted
 		if !hidden && eff.Indexable {
 			b.WriteString("Allow: /c/" + c.Name + "/\n")
 			anyAllowed = true

@@ -177,7 +177,11 @@ func (h *Handler) serveFileMeta(w http.ResponseWriter, r *http.Request, filePath
 		return
 	}
 	own := redactMetadata(node.Metadata)
-	effective, chain, sources := h.metaView(r.Context(), c, node.Path)
+	effective, chain, sources, err := h.metaView(r.Context(), c, node.Path)
+	if err != nil {
+		h.internalServerError(w, "resolve metadata view", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": node.Path, "own": own, "effective": effective, "chain": chain, "sources": sources,
 	})
@@ -382,7 +386,7 @@ type chainEntry struct {
 // metaView resolves inheritance for a node path ("" = the collection itself)
 // into a serializable effective view plus its provenance: the layer chain and
 // a property → layer-label source map (`artifactctl meta explain`).
-func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath string) (effective map[string]any, chain []chainEntry, sources map[string]string) {
+func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath string) (effective map[string]any, chain []chainEntry, sources map[string]string, err error) {
 	defaults := meta.Defaults{
 		Visibility:       string(h.cfg.Policy.Visibility),
 		DirectoryListing: h.cfg.Policy.DirectoryListing,
@@ -422,8 +426,13 @@ func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath st
 				prefix += "/" + seg
 			}
 			n, err := h.store.GetNode(ctx, c.ID, prefix)
+			if errors.Is(err, store.ErrNotFound) {
+				continue // un-materialized ancestor
+			}
 			if err != nil {
-				continue
+				// Don't present an effective view that silently lacks a layer
+				// (artifactsd-m9e.14).
+				return nil, nil, nil, fmt.Errorf("lookup %q: %w", prefix, err)
 			}
 			label := "folder " + prefix
 			scope := "folder"
@@ -469,7 +478,7 @@ func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath st
 		effective["expires_at"] = earliest.UTC().Format(time.RFC3339)
 		sources["expires_at"] = expirySource
 	}
-	return effective, chain, sources
+	return effective, chain, sources, nil
 }
 
 func docOrNil(raw json.RawMessage) *meta.Document {

@@ -6,6 +6,7 @@ package serve
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -47,6 +48,8 @@ type Handler struct {
 	sitemapCache *sitemapCache
 	// metaPolicy filters content.headers at serve time; nil = defaults.
 	metaPolicy *meta.Policy
+	// getNode is h.store.GetNode; a seam so tests can inject lookup failures.
+	getNode func(ctx context.Context, collectionID int64, path string) (*store.Node, error)
 	// now is the clock used for effective-expiry decisions; injectable so tests
 	// are deterministic rather than depending on the wall clock relative to the
 	// expiry timestamps they set up.
@@ -58,6 +61,7 @@ func New(d Deps) *Handler {
 	mp := d.Config.MetaPolicy()
 	return &Handler{
 		metaPolicy: mp,
+		getNode:    d.Store.GetNode,
 		store:      d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
 		lastAccess:   newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, string(d.Config.Policy.Visibility), d.Logger),
 		robotsCache:  newRobotsCache(),
@@ -109,7 +113,7 @@ func (h *Handler) ServeCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	node, err := h.store.GetNode(r.Context(), coll.ID, p)
+	node, err := h.getNode(r.Context(), coll.ID, p)
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -147,7 +151,7 @@ func (h *Handler) ServeShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	node, err := h.store.GetNode(r.Context(), coll.ID, p)
+	node, err := h.getNode(r.Context(), coll.ID, p)
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r) // existence non-disclosure
 		return
@@ -229,8 +233,17 @@ func (h *Handler) resolveSharePath(w http.ResponseWriter, r *http.Request, sh *s
 // instead, unless the share's own metadata configures additional auth
 // requirements (still enforced normally via eff.RequiresAuth()).
 func (h *Handler) serveShareFile(w http.ResponseWriter, r *http.Request, sh *store.Share, coll *store.Collection, node *store.Node, p string) {
-	layers, chainExpiry, _, chainIDs := h.resolveChain(r.Context(), coll, p)
-	layers = append(layers, docOf(sh.Metadata))
+	layers, chainExpiry, _, chainIDs, err := h.resolveChain(r.Context(), coll, p)
+	if err != nil {
+		h.serverError(w, "resolve metadata chain", err)
+		return
+	}
+	shareDoc, err := parseDoc(sh.Metadata)
+	if err != nil {
+		h.serverError(w, "share metadata", err)
+		return
+	}
+	layers = append(layers, shareDoc)
 	expiry := meta.Earliest(chainExpiry, sh.ExpiresAt)
 	expired := expiry != nil && !h.now().Before(*expiry)
 
@@ -247,7 +260,11 @@ func (h *Handler) serveShareFile(w http.ResponseWriter, r *http.Request, sh *sto
 }
 
 func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, p string) {
-	layers, expiry, ancestorPrivate, chainIDs := h.resolveChain(r.Context(), coll, p)
+	layers, expiry, ancestorPrivate, chainIDs, err := h.resolveChain(r.Context(), coll, p)
+	if err != nil {
+		h.serverError(w, "resolve metadata chain", err)
+		return
+	}
 	eff := meta.Resolve(h.defaults(), layers...)
 	expired := expiry != nil && !h.now().Before(*expiry)
 
@@ -349,12 +366,18 @@ func (h *Handler) recordAccess(ctx context.Context, acc accessTargets) {
 	}
 }
 
-// resolveChain loads the metadata layers (collection → ancestor folders → file)
-// and computes the effective absolute expiry (earliest in the chain via the
-// denormalized columns), whether any ancestor is private, and the ids of the
-// existing nodes along the path (for access tracking).
-func (h *Handler) resolveChain(ctx context.Context, coll *store.Collection, p string) (layers []*meta.Document, expiry *time.Time, ancestorPrivate bool, nodeIDs []int64) {
-	layers = append(layers, docOf(coll.Metadata))
+// resolveChain loads the metadata layers (collection → ancestor folders →
+// file) for p, the earliest expiry along the chain, whether the collection or
+// an ancestor folder is private, and the chain's node ids. Un-materialized
+// ancestors (ErrNotFound) are skipped. Any other lookup error, or a stored
+// document that does not parse, is returned: dropping a layer could drop a
+// private/auth requirement, so callers must fail closed (artifactsd-m9e.14).
+func (h *Handler) resolveChain(ctx context.Context, coll *store.Collection, p string) (layers []*meta.Document, expiry *time.Time, ancestorPrivate bool, nodeIDs []int64, err error) {
+	collDoc, err := parseDoc(coll.Metadata)
+	if err != nil {
+		return nil, nil, false, nil, fmt.Errorf("collection %q metadata: %w", coll.Name, err)
+	}
+	layers = append(layers, collDoc)
 	expiry = coll.ExpiresAt
 	if coll.Visibility == meta.VisibilityPrivate {
 		ancestorPrivate = true
@@ -368,11 +391,18 @@ func (h *Handler) resolveChain(ctx context.Context, coll *store.Collection, p st
 		} else {
 			prefix += "/" + seg
 		}
-		n, err := h.store.GetNode(ctx, coll.ID, prefix)
-		if err != nil {
+		n, err := h.getNode(ctx, coll.ID, prefix)
+		if errors.Is(err, store.ErrNotFound) {
 			continue
 		}
-		layers = append(layers, docOf(n.Metadata))
+		if err != nil {
+			return nil, nil, false, nil, fmt.Errorf("lookup %q: %w", prefix, err)
+		}
+		doc, err := parseDoc(n.Metadata)
+		if err != nil {
+			return nil, nil, false, nil, fmt.Errorf("node %q metadata: %w", prefix, err)
+		}
+		layers = append(layers, doc)
 		nodeIDs = append(nodeIDs, n.ID)
 		expiry = meta.Earliest(expiry, n.ExpiresAt)
 		// Ancestors only (not the file itself) drive the ancestor guard.
@@ -380,7 +410,7 @@ func (h *Handler) resolveChain(ctx context.Context, coll *store.Collection, p st
 			ancestorPrivate = true
 		}
 	}
-	return layers, expiry, ancestorPrivate, nodeIDs
+	return layers, expiry, ancestorPrivate, nodeIDs, nil
 }
 
 func (h *Handler) defaults() meta.Defaults {
@@ -400,12 +430,10 @@ func (h *Handler) serverError(w http.ResponseWriter, what string, err error) {
 	http.Error(w, "internal server error", http.StatusInternalServerError)
 }
 
-func docOf(raw []byte) *meta.Document {
-	d, err := meta.FromJSON(raw)
-	if err != nil {
-		return nil
-	}
-	return d
+// parseDoc parses a stored metadata document. Access decisions must treat an
+// error as fatal (fail closed), never as an empty layer.
+func parseDoc(raw []byte) (*meta.Document, error) {
+	return meta.FromJSON(raw)
 }
 
 // detectContentType resolves the content type (design/05 §1): explicit override

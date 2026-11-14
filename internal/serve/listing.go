@@ -55,11 +55,20 @@ var listingTemplate = template.Must(template.New("listing").Funcs(template.FuncM
 // highest precedence, bypassing the private non-disclosure guard exactly like
 // serveShareFile (design/14 §1/§5) — see that function's comment for why.
 func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *store.Collection, dirPath string, dirNode *store.Node, sh *store.Share) {
-	layers, expiry, ancestorPrivate, chainIDs := h.resolveChain(r.Context(), coll, dirPath)
+	layers, expiry, ancestorPrivate, chainIDs, err := h.resolveChain(r.Context(), coll, dirPath)
+	if err != nil {
+		h.serverError(w, "resolve metadata chain", err)
+		return
+	}
 	acc := accessTargets{collectionID: coll.ID, nodeIDs: chainIDs}
 	if sh != nil {
 		acc.shareRowID = sh.ID
-		layers = append(layers, docOf(sh.Metadata))
+		shareDoc, err := parseDoc(sh.Metadata)
+		if err != nil {
+			h.serverError(w, "share metadata", err)
+			return
+		}
+		layers = append(layers, shareDoc)
 		expiry = meta.Earliest(expiry, sh.ExpiresAt)
 		ancestorPrivate = false
 	}
@@ -114,7 +123,7 @@ func (h *Handler) resolveDirNode(w http.ResponseWriter, r *http.Request, coll *s
 		http.NotFound(w, r)
 		return "", nil, false
 	}
-	node, err := h.store.GetNode(r.Context(), coll.ID, p)
+	node, err := h.getNode(r.Context(), coll.ID, p)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && node.Kind != store.KindFolder) {
 		http.NotFound(w, r)
 		return "", nil, false
@@ -133,7 +142,7 @@ func (h *Handler) serveIndexOrNotFound(w http.ResponseWriter, r *http.Request, c
 	if dirPath != "" {
 		indexPath = dirPath + "/index.html"
 	}
-	node, err := h.store.GetNode(r.Context(), coll.ID, indexPath)
+	node, err := h.getNode(r.Context(), coll.ID, indexPath)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && node.Kind != store.KindFile) {
 		http.NotFound(w, r)
 		return
@@ -185,7 +194,11 @@ func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *st
 		if childExpiry := meta.Earliest(dirExpiry, c.ExpiresAt); childExpiry != nil && !now.Before(*childExpiry) {
 			continue // expired: never disclosed, matching the direct-fetch 404
 		}
-		childLayers := append(append([]*meta.Document{}, layers...), docOf(c.Metadata))
+		childDoc, err := parseDoc(c.Metadata)
+		if err != nil {
+			continue // unreadable metadata: never disclose the entry
+		}
+		childLayers := append(append([]*meta.Document{}, layers...), childDoc)
 		childEff := meta.Resolve(h.defaults(), childLayers...)
 		hidePrivate := childEff.Visibility == meta.VisibilityPrivate && !sharePrivateBypass
 		if hidePrivate || childEff.Visibility == meta.VisibilityUnlisted {

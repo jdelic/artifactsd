@@ -34,7 +34,11 @@ func (h *Handler) getFolder(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "lookup folder", err)
 		return
 	}
-	effective, chain, sources := h.metaView(r.Context(), c, p)
+	effective, chain, sources, err := h.metaView(r.Context(), c, p)
+	if err != nil {
+		h.internalServerError(w, "resolve metadata view", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": p, "own": own, "effective": effective, "chain": chain, "sources": sources,
 	})

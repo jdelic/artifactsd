@@ -24,6 +24,7 @@ import (
 
 type harness struct {
 	mux *http.ServeMux
+	db  *store.DB
 	st  *store.Store
 	bs  blob.Store
 	cfg *config.Config
@@ -62,7 +63,7 @@ func newHarness(t *testing.T) *harness {
 	mux.HandleFunc("HEAD /robots.txt", h.RobotsRoot)
 	mux.HandleFunc("GET /sitemap.xml", h.SitemapRoot)
 	mux.HandleFunc("HEAD /sitemap.xml", h.SitemapRoot)
-	return &harness{mux: mux, st: st, bs: bs, cfg: cfg, h: h}
+	return &harness{mux: mux, db: db, st: st, bs: bs, cfg: cfg, h: h}
 }
 
 func (h *harness) collection(t *testing.T, name, metaJSON string) *store.Collection {
