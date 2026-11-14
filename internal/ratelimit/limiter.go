@@ -28,7 +28,14 @@ type Limiter struct {
 	buckets map[string]*bucket
 	lastGC  time.Time
 	gcEvery time.Duration
+	// maxKeys bounds the map. When a new key arrives at the cap, refilled
+	// buckets are collected first, then the least-penalized bucket (most
+	// tokens) is evicted, so blocked keys stay blocked.
+	maxKeys int
 }
+
+// DefaultMaxKeys is the default bound on tracked keys.
+const DefaultMaxKeys = 100_000
 
 // New returns a limiter allowing up to max failures per window before blocking.
 func New(maxFailures int, window time.Duration) *Limiter {
@@ -44,6 +51,7 @@ func New(maxFailures int, window time.Duration) *Limiter {
 		now:        time.Now,
 		buckets:    make(map[string]*bucket),
 		gcEvery:    10 * window,
+		maxKeys:    DefaultMaxKeys,
 	}
 }
 
@@ -53,21 +61,49 @@ func (l *Limiter) WithClock(now func() time.Time) *Limiter {
 	return l
 }
 
-// getBucket returns the (refilled) bucket for key, creating a full one if new.
-// Caller must hold l.mu.
-func (l *Limiter) getBucket(key string, now time.Time) *bucket {
-	b, ok := l.buckets[key]
-	if !ok {
-		b = &bucket{tokens: l.capacity, last: now}
-		l.buckets[key] = b
-		return b
-	}
+// refill brings b up to date at now. Caller must hold l.mu.
+func (l *Limiter) refill(b *bucket, now time.Time) {
 	elapsed := now.Sub(b.last).Seconds()
 	if elapsed > 0 {
 		b.tokens = math.Min(l.capacity, b.tokens+elapsed*l.refillRate)
 		b.last = now
 	}
+}
+
+// getBucket returns the (refilled) bucket for key, creating a full one if new.
+// Caller must hold l.mu.
+func (l *Limiter) getBucket(key string, now time.Time) *bucket {
+	b, ok := l.buckets[key]
+	if !ok {
+		if len(l.buckets) >= l.maxKeys {
+			l.makeRoom(now)
+		}
+		b = &bucket{tokens: l.capacity, last: now}
+		l.buckets[key] = b
+		return b
+	}
+	l.refill(b, now)
 	return b
+}
+
+// makeRoom frees at least one slot: it collects refilled buckets and, if the
+// map is still full, evicts the bucket with the most tokens (the least
+// penalized). This scan is O(n) and only runs when the map is at its cap.
+// Caller must hold l.mu.
+func (l *Limiter) makeRoom(now time.Time) {
+	l.gc(now)
+	if len(l.buckets) < l.maxKeys {
+		return
+	}
+	var victim string
+	best := math.Inf(-1)
+	for key, b := range l.buckets {
+		l.refill(b, now)
+		if b.tokens > best {
+			best, victim = b.tokens, key
+		}
+	}
+	delete(l.buckets, victim)
 }
 
 // RecordFailure consumes a token for key (driving it toward, and a bounded
@@ -77,22 +113,28 @@ func (l *Limiter) RecordFailure(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	l.maybeGC(now)
 	b := l.getBucket(key, now)
 	b.tokens--
 	if b.tokens < -l.capacity {
 		b.tokens = -l.capacity
 	}
-	l.maybeGC(now)
 }
 
 // RetryAfter reports whether key is currently blocked and, if so, how long
-// until a token is available (rounded up to whole seconds, minimum 1s).
+// until a token is available (rounded up to whole seconds, minimum 1s). An
+// unknown key is not blocked and is not tracked.
 func (l *Limiter) RetryAfter(key string) (blocked bool, retry time.Duration) {
 	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	b := l.getBucket(key, now)
+	l.maybeGC(now)
+	b, ok := l.buckets[key]
+	if !ok {
+		return false, 0
+	}
+	l.refill(b, now)
 	if b.tokens >= 1 {
 		return false, 0
 	}
@@ -104,7 +146,8 @@ func (l *Limiter) RetryAfter(key string) (blocked bool, retry time.Duration) {
 	return true, d
 }
 
-// maybeGC drops fully-refilled (idle) buckets periodically. Caller holds l.mu.
+// maybeGC drops fully-refilled (idle) buckets at most every gcEvery. Caller
+// holds l.mu.
 func (l *Limiter) maybeGC(now time.Time) {
 	if l.lastGC.IsZero() {
 		l.lastGC = now
@@ -113,6 +156,11 @@ func (l *Limiter) maybeGC(now time.Time) {
 	if now.Sub(l.lastGC) < l.gcEvery {
 		return
 	}
+	l.gc(now)
+}
+
+// gc drops every fully-refilled bucket. Caller holds l.mu.
+func (l *Limiter) gc(now time.Time) {
 	l.lastGC = now
 	for key, b := range l.buckets {
 		elapsed := now.Sub(b.last).Seconds()

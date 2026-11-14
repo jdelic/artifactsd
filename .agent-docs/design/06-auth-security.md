@@ -89,10 +89,19 @@ All collection-relative paths pass `cleanPath`:
 
 ## 5. Rate limiting (SPEC §17)
 
-- **Auth-failure limiter**: per-IP (and per-token-prefix) token-bucket on 401/403
-  outcomes. After N failures in a window → `429` with `Retry-After`. Defaults
-  configurable (`limits.auth_failures`, e.g. 10/min). In-memory with periodic
-  GC; sufficient for a single-process deployment.
+- **Auth-failure limiter**: per-client-IP token-bucket on 401/403 outcomes
+  (IPv6 keyed by `/64`). After N failures in a window → `429` with
+  `Retry-After`. Defaults configurable (`ARTIFACTSD_AUTH_FAIL_MAX` /
+  `_WINDOW`, 10/min). In-memory, GC'd from both the check and the record path,
+  capped at 100k keys (at the cap, refilled buckets are collected first, then
+  the least-penalized bucket is evicted so blocked keys stay blocked).
+  **Credentialed requests only** (artifactsd-m9e.19): a failure is recorded
+  only when the 401/403 answered a request that presented credentials (an
+  `Authorization` header, or a cookie on the admin UI / `/auth/`). A blocked
+  key gets 429 only for requests with an `Authorization` header or to the admin
+  UI / `/auth/`; anonymous public reads, shares, upload links and health checks
+  are never blocked, so a shared NAT or proxy address cannot be used to take
+  the public site down.
 - **Upload size**: `limits.max_upload_size` enforced by a `http.MaxBytesReader`
   wrapper; streaming uploads are checked incrementally → `413`.
 - **Per-collection file count**: `limits.max_file_count_per_collection`

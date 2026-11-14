@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"strconv"
 	"testing"
 	"time"
 )
@@ -101,5 +102,52 @@ func TestLimiter_Defaults(t *testing.T) {
 	l.RecordFailure("k")
 	if blocked, _ := l.RetryAfter("k"); !blocked {
 		t.Error("max<1 should clamp to 1 and block after one failure")
+	}
+}
+
+func TestLimiter_RetryAfterDoesNotTrackUnknownKeys(t *testing.T) {
+	l, _ := newTestLimiter(2, time.Minute)
+	for i := range 100 {
+		if blocked, _ := l.RetryAfter("k" + strconv.Itoa(i)); blocked {
+			t.Fatal("unknown key reported blocked")
+		}
+	}
+	if n := l.Len(); n != 0 {
+		t.Errorf("Len after RetryAfter on unseen keys = %d, want 0", n)
+	}
+}
+
+func TestLimiter_GCRunsFromRetryAfter(t *testing.T) {
+	l, clk := newTestLimiter(2, time.Minute)
+	l.RecordFailure("a")
+	l.RecordFailure("b")
+	clk.advance(11 * time.Minute)
+	// No new failure: a RetryAfter alone must collect the refilled buckets.
+	l.RetryAfter("c")
+	if n := l.Len(); n != 0 {
+		t.Errorf("Len after GC via RetryAfter = %d, want 0", n)
+	}
+}
+
+func TestLimiter_CapEvictsLeastPenalized(t *testing.T) {
+	l, _ := newTestLimiter(3, time.Minute)
+	l.maxKeys = 3
+	// "bad" is blocked (3 failures); the others have one failure each.
+	for range 3 {
+		l.RecordFailure("bad")
+	}
+	l.RecordFailure("x")
+	l.RecordFailure("y")
+	l.RecordFailure("y")
+	// Map is full; a new key evicts the least-penalized bucket ("x").
+	l.RecordFailure("new")
+	if n := l.Len(); n != 3 {
+		t.Fatalf("Len = %d, want cap 3", n)
+	}
+	if _, ok := l.buckets["x"]; ok {
+		t.Error("least-penalized key x was not evicted")
+	}
+	if blocked, _ := l.RetryAfter("bad"); !blocked {
+		t.Error("blocked key was evicted; it must stay blocked")
 	}
 }

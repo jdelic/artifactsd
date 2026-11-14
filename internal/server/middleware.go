@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -113,15 +114,23 @@ func (s *Server) bodyLimit(next http.Handler) http.Handler {
 	})
 }
 
-// rateLimit blocks clients with too many recent auth failures (design/06 §5):
-// a blocked key gets 429 + Retry-After; a 401/403 outcome records a failure.
+// rateLimit throttles clients with too many recent auth failures (design/06
+// §5). Only credentialed requests and login surfaces are affected: a key that
+// is out of tokens gets 429 + Retry-After when the request carries an
+// Authorization header or targets the admin UI or /auth/. Anonymous requests to
+// anything else (public artifacts, shares, upload links, health checks) are
+// never blocked, so a shared or spoofed client address cannot take the public
+// site down. A failure is recorded only for a 401/403 that answered a request
+// that presented credentials (see presentedCredentials).
 func (s *Server) rateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := s.clientIP(r)
-		if blocked, retry := s.limiter.RetryAfter(key); blocked {
-			w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())))
-			http.Error(w, "too many requests", http.StatusTooManyRequests)
-			return
+		key := rateLimitKey(s.clientIP(r))
+		if s.limitable(r) {
+			if blocked, retry := s.limiter.RetryAfter(key); blocked {
+				w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())))
+				http.Error(w, "too many requests", http.StatusTooManyRequests)
+				return
+			}
 		}
 		rr, ok := w.(*responseRecorder)
 		if !ok {
@@ -129,10 +138,47 @@ func (s *Server) rateLimit(next http.Handler) http.Handler {
 			w = rr
 		}
 		next.ServeHTTP(rr, r)
-		if rr.status == http.StatusUnauthorized || rr.status == http.StatusForbidden {
+		if (rr.status == http.StatusUnauthorized || rr.status == http.StatusForbidden) && s.presentedCredentials(r) {
 			s.limiter.RecordFailure(key)
 		}
 	})
+}
+
+// limitable reports whether the limiter may block r: it carries credentials or
+// targets a login surface (the admin UI or /auth/).
+func (s *Server) limitable(r *http.Request) bool {
+	return r.Header.Get("Authorization") != "" || s.loginSurface(r.URL.Path)
+}
+
+// loginSurface reports whether path is the admin UI or an /auth/ endpoint.
+func (s *Server) loginSurface(path string) bool {
+	return s.isAdminPlane(path) || strings.HasPrefix(path, "/auth/")
+}
+
+// presentedCredentials reports whether a 401/403 for r is a credential failure
+// worth counting: the request carried an Authorization header, or it hit a
+// login surface with a cookie (an admin session that failed validation, a
+// CSRF failure, or an OIDC flow cookie). A challenge to a request with no
+// credentials at all is not a failure.
+func (s *Server) presentedCredentials(r *http.Request) bool {
+	if r.Header.Get("Authorization") != "" {
+		return true
+	}
+	return s.loginSurface(r.URL.Path) && len(r.Cookies()) > 0
+}
+
+// rateLimitKey maps a client address to its limiter key. IPv6 addresses are
+// keyed by their /64, since one host usually controls a whole /64.
+func rateLimitKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is6() || a.Is4In6() {
+		return ip
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }
 
 // clientIP returns the client IP for logging/rate-limiting. X-Forwarded-For
