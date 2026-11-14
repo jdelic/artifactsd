@@ -95,6 +95,7 @@ func TestMiddleware_RateLimit(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/x", http.NoBody)
 		req.RemoteAddr = "203.0.113.5:4444"
+		req.Header.Set("Authorization", "Bearer bad")
 		h.ServeHTTP(rec, req)
 		return rec
 	}
@@ -125,6 +126,7 @@ func TestMiddleware_RateLimit_IsolatesIPs(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/x", http.NoBody)
 		req.RemoteAddr = ip + ":1000"
+		req.Header.Set("Authorization", "Bearer bad")
 		h.ServeHTTP(rec, req)
 		return rec.Code
 	}

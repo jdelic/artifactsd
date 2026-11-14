@@ -283,8 +283,16 @@ replacing an existing file is always allowed. On upload links the check is
 atomic with the write; for token-authenticated writers concurrent uploads may
 overshoot the cap by a few files.
 
-When more than `AUTH_FAIL_MAX` auth failures occur within `AUTH_FAIL_WINDOW`,
-further attempts are rate-limited (`429`). The janitor reaps expired objects and
+When more than `AUTH_FAIL_MAX` auth failures from one client address occur
+within `AUTH_FAIL_WINDOW`, further **credentialed** attempts from that address
+are rate-limited (`429` with `Retry-After`). Only requests that present
+credentials count as failures (a wrong token or password, an invalid admin
+session); a plain `401` challenge to an anonymous visitor does not. A blocked
+address still gets anonymous public content, shares, upload links and health
+checks; only requests with an `Authorization` header and requests to the admin
+UI or `/auth/` are refused. IPv6 clients are grouped by their `/64`. Behind a
+reverse proxy, set `--trusted-proxies` so each client is keyed by its own
+address rather than the proxy's. The janitor reaps expired objects and
 abandoned upload sessions every `JANITOR_INTERVAL`, `JANITOR_BATCH_SIZE` rows at
 a time; trigger a pass on demand with `artifactctl maintenance cleanup`.
 
