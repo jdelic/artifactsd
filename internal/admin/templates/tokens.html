@@ -32,12 +32,19 @@
           {{if .Restricted}}
           <span class="nc-restricted">restricted</span>
           <a href="{{$.AdminPath}}/tokens/{{.ID}}/grants">{{if .GrantCount}}{{.GrantCount}} grant{{if gt .GrantCount 1}}s{{end}}{{else}}no grants{{end}}</a>
-          {{else}}{{.Scopes}}{{end}}
+          {{else}}{{if .Admin}}<span class="nc-admin">admin</span> {{end}}{{.Scopes}}{{end}}
         </td>
         <td>{{.CreatedAt}}</td>
         <td>{{if .Revoked}}revoked{{else}}active{{end}}</td>
         <td>
           {{if not .Revoked}}
+          {{if not (or .Admin .Restricted)}}
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/tokens/{{.ID}}/restrict"
+                hx-target="#tokens-panel" hx-swap="outerHTML"
+                hx-confirm="Restrict token {{.Name}}? It loses its scopes and reaches no collection until you grant it some. This cannot be undone.">
+            <button class="nc-button" type="submit">Restrict</button>
+          </form>
+          {{end}}
           <form class="nc-inline-form" hx-post="{{$.AdminPath}}/tokens/{{.ID}}/revoke"
                 hx-target="#tokens-panel" hx-swap="outerHTML" hx-confirm="Revoke token {{.Name}}?">
             <button class="nc-button" type="submit">Revoke</button>

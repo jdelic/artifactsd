@@ -60,7 +60,7 @@ decision E1 ("simple beats complex here").
 | Access policy | set visibility, directory listing, auth credentials (bearer/basic/oidc) |
 | Crawl/index policy | toggle crawlable/indexable, robots block editor |
 | Expiry | view/edit expiry rules; show effective absolute expiry |
-| Tokens (top-level menu) | list/create/revoke API tokens (secret shown once); restricted tokens show a badge and a link to their grants page |
+| Tokens (top-level menu) | list/create/revoke API tokens (secret shown once); admin tokens show an admin badge and offer only Revoke; other unrestricted tokens offer Restrict (confirm; drops their scopes); restricted tokens show a badge and a link to their grants page |
 | Token grants | per restricted token: table of its collection grants (collection, scopes, granted) with Remove, plus a form to add or replace a grant ([16](16-token-scoping.md) §7) |
 | Audit log (top-level menu) | filter by action/date; deletions, admin actions, **and authenticated access to protected objects** (`object.access`, decision N6); DB-backed |
 | Maintenance | trigger cleanup, view janitor stats |

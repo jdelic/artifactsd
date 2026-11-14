@@ -95,6 +95,44 @@ func (s *Store) GetToken(ctx context.Context, id int64) (*APIToken, error) {
 	return t, err
 }
 
+// Errors from RestrictToken: the token exists but cannot be restricted.
+var (
+	ErrTokenAdmin      = errors.New("store: admin tokens cannot be restricted")
+	ErrTokenRestricted = errors.New("store: token is already restricted")
+	ErrTokenRevoked    = errors.New("store: token is revoked")
+)
+
+// RestrictToken turns an existing unrestricted, non-admin, active token into
+// a restricted one (design/16 §2): its token-level scopes are dropped, so it
+// reaches nothing until it is granted collections. One-way. The conditions
+// are checked in the UPDATE itself so a concurrent change cannot slip past;
+// ErrNotFound, ErrTokenAdmin, ErrTokenRestricted or ErrTokenRevoked explain a
+// refusal.
+func (s *Store) RestrictToken(ctx context.Context, id int64) error {
+	res, err := s.db.sql.ExecContext(ctx,
+		`UPDATE api_tokens SET restricted = 1, scopes = '[]'
+		 WHERE id = ?1 AND restricted = 0 AND revoked_at IS NULL
+		   AND NOT EXISTS (SELECT 1 FROM json_each(api_tokens.scopes) WHERE value = 'admin')`, id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 1 {
+		return err
+	}
+	t, err := s.GetToken(ctx, id)
+	if err != nil {
+		return err
+	}
+	switch {
+	case t.RevokedAt != nil:
+		return ErrTokenRevoked
+	case t.Restricted:
+		return ErrTokenRestricted
+	default:
+		return ErrTokenAdmin
+	}
+}
+
 // SetTokenGrant creates or replaces one grant (design/16 §5). The token must
 // be restricted.
 func (s *Store) SetTokenGrant(ctx context.Context, g *TokenGrant) error {

@@ -16,7 +16,7 @@ func (a *app) newTokenCmd() *cobra.Command {
 		Short: "Manage API tokens",
 	}
 	cmd.AddCommand(a.newTokenCreateCmd(), a.newTokenListCmd(), a.newTokenRevokeCmd(),
-		a.newTokenGrantCmd(), a.newTokenUngrantCmd())
+		a.newTokenRestrictCmd(), a.newTokenGrantCmd(), a.newTokenUngrantCmd())
 	return cmd
 }
 
@@ -49,7 +49,8 @@ func (a *app) newTokenCreateCmd() *cobra.Command {
 			"like it does not exist. They cannot create collections or be admin:\n\n" +
 			"  artifactctl token create agent --restricted \\\n" +
 			"      --grant reports=collections:read,collections:write\n\n" +
-			"Change grants later with `token grant` / `token ungrant`.",
+			"Change grants later with `token grant` / `token ungrant`; restrict an existing\n" +
+			"non-admin token with `token restrict`.",
 		Args: exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()
@@ -146,6 +147,36 @@ func (a *app) newTokenRevokeCmd() *cobra.Command {
 				return err
 			}
 			return a.printResult(map[string]any{"revoked": id}, "revoked token %d\n", id)
+		},
+	}
+}
+
+func (a *app) newTokenRestrictCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restrict <id>",
+		Short: "Restrict an existing token to granted collections",
+		Long: "Make an existing non-admin token restricted. Its token-level scopes are\n" +
+			"dropped, so it reaches nothing until you grant it collections with\n" +
+			"`token grant`. This cannot be undone; admin tokens cannot be restricted.",
+		Args: exactArgs(1, "<id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return usagef("invalid token id %q", args[0])
+			}
+			cli, err := a.client()
+			if err != nil {
+				return err
+			}
+			tok, err := cli.RestrictToken(cmd.Context(), id)
+			if err != nil {
+				return err
+			}
+			if a.jsonOutput() {
+				return a.printJSON(tok)
+			}
+			a.printf("token %d: %s\n", tok.ID, tokenAccess(tok))
+			return nil
 		},
 	}
 }

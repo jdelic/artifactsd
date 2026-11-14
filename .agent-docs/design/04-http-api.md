@@ -174,6 +174,7 @@ Returns the structured, policy-filtered listing in SPEC §10.5. Honors
 GET    /api/v1/tokens                  list API tokens (metadata only)
 POST   /api/v1/tokens                  create token → returns secret ONCE
 DELETE /api/v1/tokens/{id}             revoke token
+POST   /api/v1/tokens/{id}/restrict    restrict an existing non-admin token ([16](16-token-scoping.md) §2)
 PUT    /api/v1/tokens/{id}/grants/{c}  create/replace a grant (restricted tokens, [16](16-token-scoping.md) §5)
 DELETE /api/v1/tokens/{id}/grants/{c}  remove a grant
 GET    /api/v1/audit?since=&action=    audit log (deletions + admin actions)

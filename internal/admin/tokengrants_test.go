@@ -146,3 +146,51 @@ func tokenNamed(t *testing.T, st *store.Store, name string) *store.APIToken {
 	t.Fatalf("no token %q", name)
 	return nil
 }
+
+// TestTokens_RestrictAndAdminBadge: admin tokens are marked and offer only
+// Revoke; other active unrestricted tokens can be restricted after the fact
+// (artifactsd-m9e.31).
+func TestTokens_RestrictAndAdminBadge(t *testing.T) {
+	ha := newFullHarness(t)
+	post := func(path string, form url.Values) string {
+		t.Helper()
+		rec := doReq(t, ha, http.MethodPost, path, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST %s = %d: %s", path, rec.Code, rec.Body)
+		}
+		return rec.Body.String()
+	}
+	post("/tokens", url.Values{"name": {"root"}, "scopes": {"admin"}})
+	post("/tokens", url.Values{"name": {"ci"}, "scopes": {"collections:write"}})
+	root, ci := tokenNamed(t, ha.st, "root"), tokenNamed(t, ha.st, "ci")
+	rootID, ciID := strconv.FormatInt(root.ID, 10), strconv.FormatInt(ci.ID, 10)
+
+	rec := doReq(t, ha, http.MethodGet, "/tokens", http.NoBody, "")
+	page := rec.Body.String()
+	if !strings.Contains(page, `<span class="nc-admin">admin</span>`) {
+		t.Errorf("admin token not marked: %s", page)
+	}
+	if !strings.Contains(page, `/tokens/`+ciID+`/restrict"`) || strings.Contains(page, `/tokens/`+rootID+`/restrict"`) {
+		t.Errorf("Restrict should be offered for ci only: %s", page)
+	}
+
+	body := post("/tokens/"+ciID+"/restrict", nil)
+	if !strings.Contains(body, `/admin/tokens/`+ciID+`/grants">no grants</a>`) {
+		t.Errorf("after restrict: %s", body)
+	}
+	if got := tokenNamed(t, ha.st, "ci"); !got.Restricted || string(got.Scopes) != "[]" {
+		t.Errorf("ci after restrict = %+v", got)
+	}
+	// Admin tokens cannot be restricted, even by a hand-made POST.
+	body = post("/tokens/"+rootID+"/restrict", nil)
+	if !strings.Contains(body, "admin tokens cannot be restricted") {
+		t.Errorf("restrict admin: %s", body)
+	}
+	if tokenNamed(t, ha.st, "root").Restricted {
+		t.Error("admin token was restricted")
+	}
+	body = post("/tokens/"+ciID+"/restrict", nil)
+	if !strings.Contains(body, "already restricted") {
+		t.Errorf("restrict twice: %s", body)
+	}
+}
