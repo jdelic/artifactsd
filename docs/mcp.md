@@ -17,7 +17,9 @@ credentials.** Every MCP client must send its **own** artifactsd API token as
 can do exactly what its token's scopes allow, and nothing more. A request
 without a token gets `401` (`WWW-Authenticate: Bearer realm="artifactsd-mcp"`);
 an invalid token surfaces as the API's `401` in the tool result. An MCP session
-is bound to the token that opened it.
+is bound to the token that opened it before initialization completes. If the
+adapter no longer retains a session's binding, the client must initialize a
+new session with its own token.
 
 1. Mint one token per agent with only the scopes it needs, e.g.
    `artifactctl token create my-agent --scope collections:write`
