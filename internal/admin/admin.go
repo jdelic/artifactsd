@@ -51,7 +51,7 @@ type Handler struct {
 
 // New builds the admin UI handler, parsing the embedded templates once.
 func New(d Deps) *Handler { //nolint:gocritic // Deps is built once at construction
-	mp, _ := d.Config.MetaPolicy() // validated at startup; nil = defaults
+	mp := d.Config.MetaPolicy()
 	return &Handler{
 		metaPolicy: mp,
 		store:      d.Store,

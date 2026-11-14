@@ -31,7 +31,7 @@ func (d *Document) ValidateWith(p *Policy) error {
 		if d.Access.Auth != nil {
 			entries := *d.Access.Auth
 			for i := range entries {
-				validateAuthEntry(i, &entries[i], add)
+				validateAuthEntry(p, i, &entries[i], add)
 			}
 		}
 	}
@@ -52,7 +52,7 @@ func (d *Document) ValidateWith(p *Policy) error {
 	return fmt.Errorf("invalid metadata: %s", strings.Join(probs, "; "))
 }
 
-func validateAuthEntry(i int, e *AuthEntry, add func(string, ...any)) {
+func validateAuthEntry(p *Policy, i int, e *AuthEntry, add func(string, ...any)) {
 	switch e.Type {
 	case AuthBearer:
 		if e.Token == "" && e.TokenHash == "" {
@@ -68,6 +68,10 @@ func validateAuthEntry(i int, e *AuthEntry, add func(string, ...any)) {
 	case AuthOIDC:
 		if e.Issuer == "" {
 			add("auth[%d] (oidc) requires issuer", i)
+		} else if !p.OIDCIssuerAllowed(e.Issuer) {
+			// The server fetches discovery documents from the issuer URL, so
+			// only operator-approved issuers may be named (artifactsd-m9e.21).
+			add("auth[%d] (oidc) issuer %q is not allowed (ARTIFACTSD_OIDC_ALLOWED_ISSUERS)", i, e.Issuer)
 		}
 		// Audience (aud) must be verified so a token minted for another client at
 		// the same issuer cannot satisfy this entry. Require an explicit audience

@@ -79,14 +79,19 @@ const (
 type PolicyOptions struct {
 	// ExtraAllowedHeaders extends the content.headers allowlist.
 	ExtraAllowedHeaders []string
+	// AllowedOIDCIssuers are the issuers access.auth oidc entries may name
+	// (artifactsd-m9e.21). Empty disables object OIDC.
+	AllowedOIDCIssuers []string
 }
 
 // Policy carries operator-configured metadata rules into validation and
 // serving. The meta package never reads configuration itself; callers build a
-// Policy from config and pass it in. A nil *Policy applies the built-in
-// defaults.
+// Policy from config and pass it in. A nil *Policy applies the built-in header
+// rules and does not restrict OIDC issuers — server code always passes a
+// non-nil Policy (config.Config.MetaPolicy), which does.
 type Policy struct {
 	extraHeaders map[string]bool
+	oidcIssuers  map[string]bool // normalized
 }
 
 // NewPolicy builds a Policy, validating the options.
@@ -94,12 +99,25 @@ func NewPolicy(o PolicyOptions) (*Policy, error) {
 	if err := ValidateExtraHeaders(o.ExtraAllowedHeaders); err != nil {
 		return nil, err
 	}
-	p := &Policy{extraHeaders: map[string]bool{}}
+	p := &Policy{extraHeaders: map[string]bool{}, oidcIssuers: map[string]bool{}}
 	for _, h := range o.ExtraAllowedHeaders {
 		p.extraHeaders[http.CanonicalHeaderKey(strings.TrimSpace(h))] = true
 	}
+	for _, iss := range o.AllowedOIDCIssuers {
+		if n := normalizeIssuer(iss); n != "" {
+			p.oidcIssuers[n] = true
+		}
+	}
 	return p, nil
 }
+
+// OIDCIssuerAllowed reports whether an oidc auth entry may name issuer: exact
+// match after trimming one trailing slash. A nil Policy allows any issuer.
+func (p *Policy) OIDCIssuerAllowed(issuer string) bool {
+	return p == nil || p.oidcIssuers[normalizeIssuer(issuer)]
+}
+
+func normalizeIssuer(s string) string { return strings.TrimSuffix(strings.TrimSpace(s), "/") }
 
 // ValidateExtraHeaders checks operator-supplied extra header names: each must
 // be a legal header token and not one that may never be set from metadata.

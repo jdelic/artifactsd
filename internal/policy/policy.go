@@ -137,9 +137,9 @@ func challenge(entries []meta.AuthEntry, r *http.Request) Decision {
 }
 
 // compileVerifiers turns effective auth entries into request verifiers. OIDC
-// entries compile to a verifier only when an OIDCProviderCache is supplied
-// (issuer discovery requires network); without one they still drive the
-// challenge but cannot authenticate.
+// entries compile to a verifier only when an OIDCProviderCache is supplied and
+// allows their issuer (issuer discovery requires network); otherwise they still
+// drive the challenge but cannot authenticate.
 func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCache) []auth.Verifier {
 	verifiers := make([]auth.Verifier, 0, len(entries))
 	for i := range entries {
@@ -154,7 +154,11 @@ func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCach
 				verifiers = append(verifiers, auth.NewBasicVerifier(e.Username, e.PasswordHash, ""))
 			}
 		case meta.AuthOIDC:
-			if oidcCache != nil && e.Issuer != "" {
+			// Entries naming a non-allowlisted issuer (e.g. stored before the
+			// allowlist existed) compile to nothing: the object stays
+			// auth-required and fails closed with the normal challenge, and no
+			// discovery request is ever made (artifactsd-m9e.21).
+			if oidcCache != nil && e.Issuer != "" && oidcCache.IssuerAllowed(e.Issuer) {
 				verifiers = append(verifiers, auth.NewOIDCVerifier(&auth.OIDCConfig{
 					Issuer:                    e.Issuer,
 					Audience:                  e.Audience,

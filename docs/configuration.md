@@ -118,6 +118,26 @@ persisted.
 Use `artifactsd hash-password` to produce an argon2id hash for
 `ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH`.
 
+### OIDC-protected objects: allowed issuers
+
+| Setting | Flag | Env | Default |
+|---------|------|-----|---------|
+| Allowed object-OIDC issuers | `--oidc-allowed-issuers` | `ARTIFACTSD_OIDC_ALLOWED_ISSUERS` | (none) |
+
+An `oidc` entry in an object's `access.auth` makes the **server** fetch the
+issuer's discovery document and keys, so only issuers on this allowlist may be
+used. The effective list is `ARTIFACTSD_OIDC_ALLOWED_ISSUERS` plus your own
+`ARTIFACTSD_OIDC_ISSUER` (if set); when both are empty, object OIDC is
+disabled. Entries are comma-separated absolute `https` URLs (`http` is accepted
+only for loopback hosts, for development) and are matched exactly, ignoring one
+trailing slash.
+
+Writing metadata that names any other issuer is rejected with `400`. Objects
+stored earlier with a non-allowed issuer stay auth-required and simply cannot be
+unlocked through that entry; no request is ever sent to such an issuer. A failed
+discovery is remembered for 60 seconds, discovery and key fetches time out after
+10 seconds, and redirects to another host are refused.
+
 ### Registering artifactsd at your IdP
 
 artifactsd is an OIDC **confidential client** using the **Authorization Code

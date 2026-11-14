@@ -55,7 +55,7 @@ type Handler struct {
 
 // New builds a serving handler.
 func New(d Deps) *Handler {
-	mp, _ := d.Config.MetaPolicy() // validated at startup; nil = defaults
+	mp := d.Config.MetaPolicy()
 	return &Handler{
 		metaPolicy: mp,
 		store:      d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,

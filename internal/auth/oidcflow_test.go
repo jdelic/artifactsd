@@ -9,7 +9,7 @@ import (
 
 func TestOIDCLogin_AuthCodeURL(t *testing.T) {
 	mi := newMockIssuer(t)
-	cache := NewOIDCProviderCache(mi.server.Client())
+	cache := NewOIDCProviderCache(mi.server.Client()).WithAllowedIssuers([]string{mi.url})
 
 	login, err := NewOIDCLogin(context.Background(), cache,
 		mi.url, "artifactsd", "secret", "https://x.example.com/auth/oidc/callback", "groups", nil)
@@ -53,7 +53,7 @@ func TestOIDCLogin_AuthCodeURL(t *testing.T) {
 // no longer requested (artifactsd-7gx).
 func TestOIDCLogin_DefaultScopesDropGroups(t *testing.T) {
 	mi := newMockIssuer(t)
-	cache := NewOIDCProviderCache(mi.server.Client())
+	cache := NewOIDCProviderCache(mi.server.Client()).WithAllowedIssuers([]string{mi.url})
 
 	login, err := NewOIDCLogin(context.Background(), cache,
 		mi.url, "artifactsd", "secret", "https://x.example.com/auth/oidc/callback", "groups", nil)

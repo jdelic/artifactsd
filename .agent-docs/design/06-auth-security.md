@@ -31,6 +31,9 @@ plus management-API tokens and admin auth.
   `coreos/go-oidc`; check signature/`exp`/`aud`, then grant on `sub ∈
   allowed_subjects` **or** a group in `group_claim` ∈ `allowed_groups` **or**
   `any_authenticated`. Full model in [14 — Access control](14-access-control.md).
+  Issuers are restricted to an operator allowlist (`ARTIFACTSD_OIDC_ALLOWED_ISSUERS`
+  plus the server's own issuer) because discovery is server-side network I/O
+  (artifactsd-m9e.21, [14 §2.3](14-access-control.md)).
   OIDC is part of the MVP (moved up from the original M2 default).
 
 ### 1.4 Auth abstraction

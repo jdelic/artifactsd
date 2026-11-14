@@ -94,7 +94,9 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 		opts.Logger.Error("invalid trusted proxies; forwarded headers ignored", "error", err)
 	}
 	if s.oidcCache == nil {
-		s.oidcCache = auth.NewOIDCProviderCache(nil)
+		s.oidcCache = auth.NewOIDCProviderCache(nil).
+			WithAllowedIssuers(opts.Config.EffectiveOIDCIssuers()).
+			WithLogger(opts.Logger)
 	}
 	s.initAdminAuth()
 	if opts.Store != nil {

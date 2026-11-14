@@ -45,6 +45,19 @@ verify on username miss). **Unauthenticated/invalid → 401
 `WWW-Authenticate: Basic`** so browsers show the native login dialog.
 
 ### 2.3 OIDC
+
+**Issuer allowlist** (artifactsd-m9e.21): an oidc entry makes the server fetch
+`<issuer>/.well-known/openid-configuration` and the JWKS it points to, so an
+arbitrary issuer is blind SSRF. Only issuers in `ARTIFACTSD_OIDC_ALLOWED_ISSUERS`
+∪ {`ARTIFACTSD_OIDC_ISSUER`} may be named (exact match, one trailing slash
+ignored; empty ⇒ object OIDC disabled). Enforced at write time
+(`meta.Document.ValidateWith(policy)` → 400), at serve time (`compileVerifiers`
+skips the entry → normal challenge, fail closed; WARN once per issuer) and inside
+`OIDCProviderCache.provider` (never discovers a non-allowed issuer). The cache
+negatively caches failed discovery for 60 s, deduplicates concurrent
+discoveries, and its HTTP client has a 10 s timeout and refuses cross-host
+redirects.
+
 ```yaml
 - type: oidc
   issuer: https://accounts.example.com

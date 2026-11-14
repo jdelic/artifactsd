@@ -85,7 +85,7 @@ type AuthEntry struct {
 	HasPassword  bool   `json:"has_password,omitempty" yaml:"-" jsonschema:"Read-only: whether a password is configured"`
 
 	// oidc
-	Issuer          string   `json:"issuer,omitempty" yaml:"issuer,omitempty" jsonschema:"OIDC issuer URL"`
+	Issuer          string   `json:"issuer,omitempty" yaml:"issuer,omitempty" jsonschema:"OIDC issuer URL; must be on the server's allowlist (ARTIFACTSD_OIDC_ALLOWED_ISSUERS or its own ARTIFACTSD_OIDC_ISSUER)"`
 	Audience        string   `json:"audience,omitempty" yaml:"audience,omitempty" jsonschema:"Required ID-token audience"`
 	AllowedSubjects []string `json:"allowed_subjects,omitempty" yaml:"allowed_subjects,omitempty" jsonschema:"Subjects (sub or email) granted access"`
 	AllowedGroups   []string `json:"allowed_groups,omitempty" yaml:"allowed_groups,omitempty" jsonschema:"Groups granted access, read from group_claim"`

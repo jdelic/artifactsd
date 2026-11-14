@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -35,49 +37,180 @@ func (c *OIDCConfig) groupClaim() string {
 	return c.GroupClaim
 }
 
+// oidcNegativeTTL is how long a failed discovery is remembered: requests in
+// that window get the cached error without any network I/O.
+const oidcNegativeTTL = 60 * time.Second
+
+// oidcHTTPTimeout bounds discovery and JWKS requests.
+const oidcHTTPTimeout = 10 * time.Second
+
 // OIDCProviderCache memoizes go-oidc providers (issuer discovery + JWKS) so each
-// issuer is discovered once. It is safe for concurrent use. An optional
-// httpClient overrides the transport (used in tests against a mock issuer).
+// issuer is discovered once. It is safe for concurrent use.
+//
+// Discovery is server-side network I/O to a URL taken from object metadata, so
+// it only ever happens for issuers on the operator's allowlist
+// (WithAllowedIssuers; artifactsd-m9e.21). A cache with no allowlist allows
+// nothing. Failed discoveries are negatively cached for oidcNegativeTTL, and
+// concurrent first requests for one issuer share a single discovery.
 type OIDCProviderCache struct {
 	httpClient *http.Client
-	mu         sync.Mutex
-	providers  map[string]*oidc.Provider
+	log        *slog.Logger
+	now        func() time.Time
+
+	mu        sync.Mutex
+	allowed   map[string]bool // normalized issuer → allowed
+	providers map[string]*oidc.Provider
+	failures  map[string]failedDiscovery
+	inflight  map[string]*discovery
+	warned    map[string]bool
+}
+
+type failedDiscovery struct {
+	err   error
+	until time.Time
+}
+
+type discovery struct {
+	done chan struct{}
+	p    *oidc.Provider
+	err  error
 }
 
 // NewOIDCProviderCache returns an empty cache. Pass a non-nil client to override
-// the HTTP transport used for discovery/JWKS.
+// the HTTP transport used for discovery/JWKS (tests); either way the client
+// gets a timeout and refuses redirects to another host.
 func NewOIDCProviderCache(client *http.Client) *OIDCProviderCache {
-	return &OIDCProviderCache{httpClient: client, providers: map[string]*oidc.Provider{}}
+	var c http.Client
+	if client != nil {
+		c = *client
+	}
+	if c.Timeout == 0 {
+		c.Timeout = oidcHTTPTimeout
+	}
+	c.CheckRedirect = sameHostRedirectsOnly
+	return &OIDCProviderCache{
+		httpClient: &c,
+		now:        time.Now,
+		allowed:    map[string]bool{},
+		providers:  map[string]*oidc.Provider{},
+		failures:   map[string]failedDiscovery{},
+		inflight:   map[string]*discovery{},
+		warned:     map[string]bool{},
+	}
 }
 
-// clientContext injects the override HTTP client (if any) for go-oidc.
-func (c *OIDCProviderCache) clientContext(ctx context.Context) context.Context {
-	if c.httpClient != nil {
-		return oidc.ClientContext(ctx, c.httpClient)
+// sameHostRedirectsOnly refuses redirects to a different host[:port], so an
+// allowlisted issuer cannot bounce discovery or JWKS fetches elsewhere.
+func sameHostRedirectsOnly(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("auth: oidc: too many redirects")
 	}
-	return ctx
+	if !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+		return fmt.Errorf("auth: oidc: refusing redirect from %s to another host", via[0].URL.Host)
+	}
+	return nil
+}
+
+// WithAllowedIssuers sets the issuer allowlist (exact match, ignoring one
+// trailing slash).
+func (c *OIDCProviderCache) WithAllowedIssuers(issuers []string) *OIDCProviderCache {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.allowed = map[string]bool{}
+	for _, iss := range issuers {
+		if n := NormalizeIssuer(iss); n != "" {
+			c.allowed[n] = true
+		}
+	}
+	return c
+}
+
+// WithLogger sets the logger used to warn (once per issuer) about objects that
+// name a non-allowlisted issuer.
+func (c *OIDCProviderCache) WithLogger(l *slog.Logger) *OIDCProviderCache {
+	c.log = l
+	return c
+}
+
+// NormalizeIssuer trims surrounding space and one trailing slash, the form in
+// which issuers are compared against the allowlist.
+func NormalizeIssuer(issuer string) string {
+	return strings.TrimSuffix(strings.TrimSpace(issuer), "/")
+}
+
+// IssuerAllowed reports whether issuer is on the allowlist. A refused issuer
+// is logged at WARN once.
+func (c *OIDCProviderCache) IssuerAllowed(issuer string) bool {
+	n := NormalizeIssuer(issuer)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.allowed[n] {
+		return true
+	}
+	if c.log != nil && !c.warned[n] {
+		c.warned[n] = true
+		c.log.Warn("object metadata names an OIDC issuer that is not allowed; its oidc auth entries are ignored (set ARTIFACTSD_OIDC_ALLOWED_ISSUERS)",
+			"issuer", n)
+	}
+	return false
+}
+
+// clientContext injects the cache's HTTP client for go-oidc.
+func (c *OIDCProviderCache) clientContext(ctx context.Context) context.Context {
+	return oidc.ClientContext(ctx, c.httpClient)
 }
 
 // provider returns the cached provider for issuer, discovering it on first use.
+// Only allowlisted issuers are ever discovered.
 func (c *OIDCProviderCache) provider(ctx context.Context, issuer string) (*oidc.Provider, error) {
+	if !c.IssuerAllowed(issuer) {
+		return nil, fmt.Errorf("auth: oidc issuer %q is not allowed", issuer)
+	}
+	key := NormalizeIssuer(issuer)
+
 	c.mu.Lock()
-	p, ok := c.providers[issuer]
-	c.mu.Unlock()
-	if ok {
+	if p, ok := c.providers[key]; ok {
+		c.mu.Unlock()
 		return p, nil
 	}
+	if f, ok := c.failures[key]; ok && c.now().Before(f.until) {
+		c.mu.Unlock()
+		return nil, f.err
+	}
+	if d, ok := c.inflight[key]; ok {
+		c.mu.Unlock()
+		select {
+		case <-d.done:
+			return d.p, d.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	d := &discovery{done: make(chan struct{})}
+	c.inflight[key] = d
+	c.mu.Unlock()
 
-	dctx, cancel := context.WithTimeout(c.clientContext(ctx), 10*time.Second)
+	// Discovery outlives a single caller's cancellation so waiters still get a
+	// result; it is bounded by the HTTP client timeout.
+	dctx, cancel := context.WithTimeout(c.clientContext(context.WithoutCancel(ctx)), oidcHTTPTimeout)
 	defer cancel()
 	p, err := oidc.NewProvider(dctx, issuer)
 	if err != nil {
-		return nil, fmt.Errorf("auth: oidc discovery for %q: %w", issuer, err)
+		err = fmt.Errorf("auth: oidc discovery for %q: %w", issuer, err)
 	}
 
 	c.mu.Lock()
-	c.providers[issuer] = p
+	delete(c.inflight, key)
+	if err != nil {
+		c.failures[key] = failedDiscovery{err: err, until: c.now().Add(oidcNegativeTTL)}
+	} else {
+		delete(c.failures, key)
+		c.providers[key] = p
+	}
 	c.mu.Unlock()
-	return p, nil
+	d.p, d.err = p, err
+	close(d.done)
+	return p, err
 }
 
 // claims holds the standard claims plus a dynamic group claim. Groups can be a
