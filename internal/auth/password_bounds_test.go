@@ -108,7 +108,7 @@ func TestVerifyPasswordContext_CanceledWhileWaiting(t *testing.T) {
 	}
 }
 
-func TestMultiBasicVerifier_OneRunPerRequest(t *testing.T) {
+func TestBasicUsersVerifier_OneRunPerRequest(t *testing.T) {
 	var creds []BasicCredential
 	var target string
 	for i := range 10 {
@@ -122,7 +122,7 @@ func TestMultiBasicVerifier_OneRunPerRequest(t *testing.T) {
 			target = user
 		}
 	}
-	v := NewMultiBasicVerifier(creds, "")
+	v := NewBasicUsersVerifier(creds, "")
 	_ = dummyHash() // computed once per process; not part of a request's cost
 	run := func(user, pass string) (bool, int64) {
 		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
@@ -145,10 +145,10 @@ func TestMultiBasicVerifier_OneRunPerRequest(t *testing.T) {
 	}
 }
 
-// TestMultiBasicVerifier_DuplicateUsernames: repeated usernames (e.g. in old
+// TestBasicUsersVerifier_DuplicateUsernames: repeated usernames (e.g. in old
 // stored documents) still cost one argon2 run per request; the first entry for
 // a username is the one that counts (artifactsd-7tl.4).
-func TestMultiBasicVerifier_DuplicateUsernames(t *testing.T) {
+func TestBasicUsersVerifier_DuplicateUsernames(t *testing.T) {
 	_ = dummyHash()
 	h1, _ := HashPassword("first")
 	h2, _ := HashPassword("second")
@@ -157,7 +157,7 @@ func TestMultiBasicVerifier_DuplicateUsernames(t *testing.T) {
 	for range 19 {
 		creds = append(creds, BasicCredential{Username: "same", PasswordHash: h2})
 	}
-	v := NewMultiBasicVerifier(creds, "")
+	v := NewBasicUsersVerifier(creds, "")
 	try := func(pass string) (bool, int64) {
 		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 		r.SetBasicAuth("same", pass)
