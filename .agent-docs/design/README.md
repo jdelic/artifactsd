@@ -23,7 +23,7 @@ picture, or jump to the area you are working on.
 | 13 | [Testing & quality](13-testing-quality.md) | Test strategy, linters, CI gates |
 | 14 | [Access control](14-access-control.md) | **Consolidated** auth model: bearer/basic/OIDC, admin gating, capabilities |
 | 15 | [Upload request links](15-upload-requests.md) | Shareable capability URLs for third-party file uploads (M2) |
-| 16 | [Token scoping](16-token-scoping.md) | **Proposal:** per-collection restrictions for API tokens (awaiting sign-off) |
+| 16 | [Token grants](16-token-scoping.md) | Per-collection grants for API tokens (accepted design, implementation pending) |
 
 See also:
 - [`../ROADMAP.md`](../ROADMAP.md) — milestones and how the beads epics map to this design.

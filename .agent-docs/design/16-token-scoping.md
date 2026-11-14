@@ -1,8 +1,7 @@
-# 16 — Per-collection scoping for API tokens
+# 16 — Per-collection grants for API tokens
 
-> **Status: PROPOSAL — awaiting owner sign-off** (artifactsd-m9e.26, raised in
-> the 2026-11-13 security review). Nothing here is implemented. Once the
-> decisions in §8 are confirmed, the implementation tickets in §9 are filed.
+> **Status: ACCEPTED** (owner decisions 2026-11-14, artifactsd-m9e.26). The
+> implementation is tracked in the tickets listed in §10.
 
 ## 1. Problem
 
@@ -15,151 +14,152 @@ hand an agent a token limited to "its" collection, so one leaked or
 prompt-injected agent token exposes the whole server.
 
 Delete is already separated from write (`collections:delete` / `shares:delete`,
-artifactsd-m9e.25), and the MCP adapter now forwards each agent's own token
+artifactsd-m9e.25), and the MCP adapter forwards each agent's own token
 (artifactsd-m9e.18) — so per-agent tokens exist; what is missing is limiting
-*which collections* a token reaches.
+*which collections* a token reaches and *what* it may do in each.
 
-## 2. Restriction model
+## 2. Model: grants in their own table
 
-**Recommendation: (c) — one optional list holding both exact names and
-`prefix*` patterns.**
+A token is either **unrestricted** (today's behaviour: its token-level scopes
+apply to every collection) or **restricted**: it can only reach collections it
+holds a **grant** for, and each grant carries its own scopes.
 
 ```sql
--- migration NNNN (additive)
-ALTER TABLE api_tokens ADD COLUMN collections TEXT; -- JSON array, NULL = all
+-- migration NNNN
+ALTER TABLE api_tokens ADD COLUMN restricted BOOLEAN NOT NULL DEFAULT 0;
+
+CREATE TABLE token_grants (
+    token_id      INTEGER NOT NULL REFERENCES api_tokens(id)  ON DELETE CASCADE,
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    scopes        TEXT    NOT NULL,      -- JSON array, e.g. ["collections:read","shares:write"]
+    created_at    TEXT    NOT NULL,
+    PRIMARY KEY (token_id, collection_id)
+);
+CREATE INDEX idx_token_grants_collection ON token_grants(collection_id);
 ```
 
-- `NULL` (or column absent in old rows) ⇒ **unrestricted** — today's behaviour.
-- Otherwise a JSON array of entries, each either an exact collection name
-  (`"reports-2026"`) or a prefix pattern ending in a single `*`
-  (`"agent-foo-*"`). No other glob syntax (no `?`, `[]`, `**`), no regex.
-- Validation at token creation: every entry is a valid collection name
-  ([02](02-data-model.md) name rules), optionally with one trailing `*`; a bare
-  `*` is rejected (that is "unrestricted" — omit the field instead); at most 64
-  entries; the array must not be empty (an empty list would be a token that can
-  reach nothing — reject as a likely mistake).
-- Matching: exact entries compare equal; `p*` matches any name with prefix `p`.
-  Case-sensitive, like collection names.
-
-Why both: exact names cover "this agent owns `report-x`"; prefixes cover agents
-that create collections on the fly (`agent-foo-<run-id>`), which is the common
-CI/agent pattern. Prefix-only would force operators to invent prefixes for
-single collections; exact-only can't express "collections this agent creates".
+- Grants reference collections **by ID**, not by name: deleting a collection
+  removes its grants (cascade), and a new collection that reuses the name is
+  *not* covered by an old grant.
+- **Restriction is an explicit flag** (decision D3b). A restricted token with no
+  grants reaches nothing; deleting its last granted collection never widens it.
+  Existing tokens stay unrestricted (`restricted = 0`).
+- **Scopes live on the grant** (decision D2a). Allowed grant scopes:
+  `collections:read|write|delete` and `shares:read|write|delete`, with the usual
+  implications (`:write` ⇒ `:read`, `:delete` ⇒ `:read`, `:write` ⇏ `:delete`).
+  A restricted token's token-level `scopes` column is empty; only grants count.
+- **Admin tokens cannot be restricted** (D4): creating a token that is both
+  `admin` and restricted is a `400`. `admin` is never a grant scope. An admin
+  token can mint unrestricted tokens anyway, so a restriction would be cosmetic.
 
 ## 3. Creating collections
 
-**Recommendation:** a restricted token may `POST /collections` **only if the new
-name matches one of its entries** (exact or prefix); otherwise `403
-forbidden` "token is not allowed to create collection X". This is what makes
-prefix patterns useful for agents, and it cannot be used to reach existing
-collections (creation fails with 409 on an existing name *after* the scope
-check, so the response must not reveal existence for out-of-scope names — check
-scope first, then existence).
+**Restricted tokens cannot create collections** (decision D2b): `POST
+/api/v1/collections` with a restricted token is `403`. Collections are created by
+an admin (or an unrestricted token), and an admin grants them to agent tokens.
+Agents that need a collection per run are given one by the operator or by an
+orchestrator holding an unrestricted token.
 
-## 4. Enforcement point
+## 4. Enforcement
 
-One helper, used everywhere a collection is resolved for a request:
+`auth.Principal` gains `Restricted bool` and `Grants map[collectionID]ScopeSet`
+(loaded with the token; restricted tokens are a small set, one query per
+authenticated request is fine at artifactsd's scale).
 
-```go
-// collectionAllowed reports whether the request's principal may touch name.
-func collectionAllowed(p *auth.Principal, name string) bool
+Two steps, so no route can forget the check:
+
+1. **Route gate** (`requireScope`): an unrestricted principal must satisfy the
+   route's scope as today. A restricted principal passes the gate if *any* of its
+   grants satisfies it; the required scope is put in the request context.
+2. **Collection gate** (`lookupCollection` and every place that resolves a
+   collection indirectly): a restricted principal needs a grant for that
+   collection satisfying the route's scope.
+   - **No grant for the collection ⇒ `404 not_found`** ("collection does not
+     exist"), identical to a missing collection (decision D3): a restricted
+     agent learns nothing about collections outside its grants.
+   - Grant exists but lacks the scope ⇒ `403 forbidden` "insufficient scope:
+     requires collections:write on <collection>" (the token can already see
+     that collection, so nothing is disclosed).
+
+Routes that resolve a collection without `{c}`:
+
+| Route | Rule for restricted tokens |
+|-------|----------------------------|
+| `GET /collections` | only collections with a grant satisfying `collections:read` |
+| `POST /collections` | `403` (§3) |
+| `GET /crawl` | only granted collections (as above) |
+| `GET/PATCH/DELETE /shares/{share_id}` | load the share, then the collection gate on its collection (`404` if no grant) |
+| `PUT/GET/DELETE /uploads/{upload_id}` | capability routes, no token — unchanged; the session was created through `/collections/{c}/uploads`, which is gated |
+| `/upload-requests`, `/tokens`, `/audit`, `/stats`, `/maintenance` | admin-only; restricted tokens are never admin (§2) |
+
+## 5. Managing grants (admin-only API)
+
+```
+POST   /api/v1/tokens                         {"name":…, "restricted": true,
+                                               "grants": [{"collection":"reports","scopes":["collections:read","collections:write"]}]}
+GET    /api/v1/tokens                         each token shows restricted + grants (collection name + scopes)
+PUT    /api/v1/tokens/{id}/grants/{c}         {"scopes":[…]}   create or replace one grant
+DELETE /api/v1/tokens/{id}/grants/{c}         remove one grant
 ```
 
-- `Handler.lookupCollection` (all `/collections/{c}/…` routes) calls it after
-  the scope check and before the store lookup.
-- **Out of scope ⇒ `404 not_found` ("collection does not exist")**, identical to
-  a missing collection. Recommendation: 404, not 403 — the whole point is that a
-  restricted agent learns nothing about collections outside its scope, and 404
-  is how the public routes already treat non-disclosure (design/03 §5).
-- Routes that resolve a collection indirectly:
+Unknown collections, empty scope lists, `admin` in a grant, or grants on an
+unrestricted token are `400`.
 
-| Route | Rule |
-|-------|------|
-| `GET /collections` | filter the list to allowed names |
-| `POST /collections` | §3 |
-| `GET /crawl` | filter to allowed collections |
-| `GET/PATCH/DELETE /shares/{share_id}` | load the share, check its collection; out of scope ⇒ 404 |
-| `PUT/GET/DELETE /uploads/{upload_id}` | capability routes, no token involved — unchanged (the session was created through `/collections/{c}/uploads`, which is checked) |
-| `/upload-requests`, `/tokens`, `/audit`, `/stats`, `/maintenance` | admin-only, and admin tokens are never restricted (§5) — unchanged |
+## 6. Audit
 
-## 5. Interaction with scopes
+Grant changes (token created with grants, grant set/removed) are audited as
+`token.grant` / `token.ungrant` with the collection and scopes. Requests a
+restricted token makes outside its grants are answered `404` and logged at
+**debug** level only, not audited (decision D5) — otherwise a leaked token could
+flood the audit table.
 
-- Restrictions narrow **where** a token acts; scopes still decide **what** it may
-  do (`collections:read|write|delete`, `shares:read|write|delete`). Both must
-  allow a request.
-- **`admin` tokens cannot be restricted**: reject `admin` + `collections` at
-  creation (400). An admin token can mint an unrestricted token anyway, so a
-  restriction would be cosmetic.
-- The bootstrap token is admin ⇒ unrestricted.
-- Shares minted by a restricted `shares:write` token are bound to an allowed
-  collection by construction (§4). The share URL itself (`/s/…`) is a
-  capability and is not token-scoped.
+## 7. Surfaces
 
-## 6. Surfaces
+- **Admin UI:** the token form gets a "Restricted" switch and a grants editor
+  (collection picker + scope checkboxes per row; disabled for `admin`); the
+  token list shows restriction and grants; a collection's page lists the tokens
+  that hold grants on it.
+- **CLI:** `artifactctl token create <name> --restricted --grant reports=collections:read,collections:write`
+  (repeatable), `artifactctl token grant <id> <collection> --scope …`,
+  `artifactctl token ungrant <id> <collection>`, `token list` shows grants.
+- **MCP:** no adapter change — it forwards each client's own token
+  (artifactsd-m9e.18); a restricted agent simply sees fewer collections.
 
-- **API:** `POST /api/v1/tokens` accepts `"collections": ["reports-2026",
-  "agent-foo-*"]`; `GET /api/v1/tokens` returns it (null = all).
-- **Admin UI:** token form gains a "Limit to collections" text field
-  (comma/newline separated), disabled when `admin` is ticked; the token list
-  shows the restriction.
-- **CLI:** `artifactctl token create <name> --scope … --collection reports-2026
-  --collection 'agent-foo-*'` (repeatable); `token list` shows it.
-- **MCP:** no adapter change — it forwards client tokens (artifactsd-m9e.18).
-- **Audit:** token creation records the restriction in the audit details; a
-  request rejected for scope reasons is *not* audited (it is a 404 like any
-  missing collection — avoids an audit-flood vector).
+## 8. Migration and compatibility
 
-## 7. Migration
+Additive: `restricted` defaults to 0, so every existing token keeps global
+access; the grants table starts empty.
 
-Additive column, default `NULL` ⇒ all existing tokens stay unrestricted. No data
-migration, no breaking change on upgrade.
+artifactsd is in **alpha: downgrades are not supported** (decision D6). Note for
+operators, stated once in the release notes: an older binary ignores
+`restricted` and `token_grants`, so restricted tokens would become global after
+a downgrade — revoke them first if you ever roll back.
 
-**Downgrade is an authorization hazard, not just a schema question.** Older
-binaries select an explicit column list, so they would *read* the database fine —
-and that is exactly the problem: they ignore `collections`, so every restricted
-token would silently regain access to **all** collections. Data-schema
-compatibility and authorization compatibility must be treated separately:
+## 9. Decisions (2026-11-14)
 
-- The migration that adds the column also records an authorization-schema marker
-  (e.g. a `maintenance_flags`/`schema_features` row `token_collection_scopes`).
-- Releases from then on refuse to start if the database carries a feature marker
-  they do not know (generic guard, added in the same release so that it exists
-  before any later feature needs it).
-- Because binaries *before* this release have no such guard, the release notes
-  and `docs/installation.md` state the downgrade procedure: revoke (or delete)
-  every token with a non-NULL `collections` before running an older binary. An
-  `artifactctl token list --restricted` / admin-UI filter makes that one step.
-- The implementation must include an acceptance test: a database with a
-  restricted token and an unknown feature marker makes startup fail; after
-  revoking restricted tokens and clearing the marker via the documented
-  procedure, the older behaviour is safe.
+| # | Question | Decision |
+|---|----------|----------|
+| D1 | Model | Separate `token_grants` table (token → collection by ID), explicit `restricted` flag |
+| D2a | Where permissions live | Per grant (scopes on each grant row) |
+| D2b | Restricted tokens creating collections | Not allowed (`403`) |
+| D3 | Out-of-grant response | `404` (non-disclosure); granted-but-insufficient scope `403` |
+| D3b | Meaning of "no grants" | Explicit flag; restricted + no grants = reaches nothing |
+| D4 | Admin tokens | Cannot be restricted; `400` at creation |
+| D5 | Audit out-of-grant requests | No; debug log only. Grant changes are audited |
+| D6 | Downgrade | Not supported in alpha; release note only |
 
-## 8. Decisions for the owner
+## 10. Implementation tickets
 
-| # | Question | Recommendation |
-|---|----------|----------------|
-| D1 | Model | Exact names + trailing-`*` prefixes in one list (§2) |
-| D2 | Restricted token creating collections | Allowed only for matching names (§3) |
-| D3 | Out-of-scope response | 404 (non-disclosure), not 403 (§4) |
-| D4 | Admin tokens | Cannot be restricted; reject at creation (§5) |
-| D5 | Audit of out-of-scope requests | Not audited (§6) |
-| D6 | Downgrade safety | Feature marker + startup guard; documented revoke-before-downgrade (§7) |
-
-## 9. Implementation tickets (to file after sign-off)
-
-1. **Store + API:** migration, `APIToken.Collections`, `auth.Principal`
-   carries the list, `collectionAllowed`, enforcement per §4, token create/list
-   API. Tests:
-   - restricted `collections:read` token: allowed collection 200; other
-     collection 404 on every `{c}` route (files, meta, tree, folders, crawl,
-     shares, uploads begin); `GET /collections` and `GET /crawl` filtered;
-   - `POST /collections` matching prefix → 201, non-matching → 403, existing
-     out-of-scope name → 403 (not 409);
-   - share routes by `share_id` for an out-of-scope collection → 404;
-   - `admin` + `collections` → 400; unrestricted tokens behave as before;
-   - migration leaves existing tokens unrestricted;
-   - downgrade guard: a database with an unknown authorization feature marker
-     refuses to start; the documented revoke-restricted-tokens procedure is
-     tested end to end (§7).
-2. **Admin UI + CLI + docs:** form field, `--collection` flag, `token list`
-   output, docs/http-api.md, docs/cli.md, design/04 §1/§8, design/14 §6.
+1. **Store + auth + API** — migration, `Principal.Restricted/Grants`, the two
+   gates of §4 on every route, grant management API (§5), audit (§6). Tests:
+   - restricted token with `read` on A: A's files/meta/tree/folders/crawl/shares
+     200; every route on B → 404; `GET /collections` and `GET /crawl` list only
+     A; writes on A → 403 naming the scope;
+   - grant with `read+write` on A, `read` on B: write on B → 403;
+   - `POST /collections` with a restricted token → 403;
+   - share routes by `share_id` for a collection without a grant → 404;
+   - collection deleted → grants gone; re-created with the same name → 404;
+   - restricted + no grants → 404 everywhere; `admin` + restricted → 400;
+   - existing (unrestricted) tokens behave exactly as before.
+2. **Admin UI + CLI + docs** — §7 surfaces; docs/http-api.md, docs/cli.md,
+   design/04 §1/§8, design/14 §6.
