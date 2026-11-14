@@ -116,7 +116,9 @@ persisted.
 | Basic fallback password | `ARTIFACTSD_ADMIN_BASIC_PASSWORD` (or `..._HASH`) | |
 
 Use `artifactsd hash-password` to produce an argon2id hash for
-`ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH`.
+`ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH`. Hashes must stay within 8–128 MiB of
+memory, 1–6 passes and 1–8 threads (the same bounds apply to `password_hash` in
+object metadata); the server refuses to start otherwise.
 
 ### OIDC-protected objects: allowed issuers
 

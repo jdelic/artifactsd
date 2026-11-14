@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/durations"
 )
 
@@ -30,6 +31,9 @@ func (d *Document) ValidateWith(p *Policy) error {
 		}
 		if d.Access.Auth != nil {
 			entries := *d.Access.Auth
+			if len(entries) > maxAuthEntries {
+				add("access.auth has %d entries (max %d)", len(entries), maxAuthEntries)
+			}
 			for i := range entries {
 				validateAuthEntry(p, i, &entries[i], add)
 			}
@@ -58,12 +62,22 @@ func validateAuthEntry(p *Policy, i int, e *AuthEntry, add func(string, ...any))
 		if e.Token == "" && e.TokenHash == "" {
 			add("auth[%d] (bearer) requires token or token_hash", i)
 		}
+		if e.TokenHash != "" && !isSHA256Hex(e.TokenHash) {
+			add("auth[%d] (bearer) token_hash must be 64 lowercase hex characters", i)
+		}
 	case AuthBasic:
 		if e.Username == "" {
 			add("auth[%d] (basic) requires username", i)
 		}
 		if e.Password == "" && e.PasswordHash == "" {
 			add("auth[%d] (basic) requires password or password_hash", i)
+		}
+		// Verification runs with the hash's own cost parameters, so they are
+		// bounded on write (artifactsd-m9e.9).
+		if e.PasswordHash != "" {
+			if err := auth.ValidateHash(e.PasswordHash); err != nil {
+				add("auth[%d] (basic) password_hash: %v", i, err)
+			}
 		}
 	case AuthOIDC:
 		if e.Issuer == "" {
@@ -106,4 +120,21 @@ func validVisibility(v string) bool {
 	default:
 		return false
 	}
+}
+
+// maxAuthEntries caps access.auth (artifactsd-m9e.9).
+const maxAuthEntries = 16
+
+// isSHA256Hex reports whether s is 64 lowercase hex characters.
+func isSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

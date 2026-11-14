@@ -41,7 +41,7 @@ func (v *BasicVerifier) Verify(r *http.Request) (bool, string) {
 	if !userMatch {
 		hashToCheck = dummyHash()
 	}
-	pwOK, _ := VerifyPassword(pass, hashToCheck)
+	pwOK, _ := VerifyPasswordContext(r.Context(), pass, hashToCheck)
 
 	if userMatch && pwOK {
 		return true, v.username
@@ -72,3 +72,59 @@ var dummyHash = sync.OnceValue(func() string {
 	}
 	return h
 })
+
+// BasicCredential is one accepted username/argon2id-hash pair.
+type BasicCredential struct {
+	Username     string
+	PasswordHash string
+}
+
+// MultiBasicVerifier accepts HTTP Basic credentials against several entries
+// at the cost of ONE argon2 run per request regardless of how many entries an
+// object lists (artifactsd-m9e.9): only entries whose username matches
+// (constant-time) are verified, and a single dummy verification runs when none
+// match, so a username miss costs the same as a hit.
+type MultiBasicVerifier struct {
+	creds []BasicCredential
+	realm string
+}
+
+// NewMultiBasicVerifier builds a verifier over creds. An empty realm uses
+// DefaultRealm.
+func NewMultiBasicVerifier(creds []BasicCredential, realm string) *MultiBasicVerifier {
+	if realm == "" {
+		realm = DefaultRealm
+	}
+	return &MultiBasicVerifier{creds: creds, realm: realm}
+}
+
+// Verify matches HTTP Basic credentials against the entries.
+func (v *MultiBasicVerifier) Verify(r *http.Request) (bool, string) {
+	user, pass, ok := r.BasicAuth()
+	if !ok {
+		return false, ""
+	}
+	matched := false
+	for i := range v.creds {
+		c := &v.creds[i]
+		if subtle.ConstantTimeCompare([]byte(user), []byte(c.Username)) != 1 {
+			continue
+		}
+		matched = true
+		if ok, _ := VerifyPasswordContext(r.Context(), pass, c.PasswordHash); ok {
+			return true, c.Username
+		}
+	}
+	if !matched {
+		_, _ = VerifyPasswordContext(r.Context(), pass, dummyHash())
+	}
+	return false, ""
+}
+
+// Scheme returns "Basic".
+func (v *MultiBasicVerifier) Scheme() string { return "Basic" }
+
+// Challenge returns `Basic realm="..."`.
+func (v *MultiBasicVerifier) Challenge() string {
+	return fmt.Sprintf("Basic realm=%q", v.realm)
+}

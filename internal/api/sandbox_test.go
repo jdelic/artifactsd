@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -78,5 +79,31 @@ func TestSandboxOff_NonAdminCanTouchOtherFields(t *testing.T) {
 	if rec := h.do(t, writer, http.MethodPatch, "/api/v1/collections/demo/files/app.html/meta",
 		[]byte(`{"content":{"sandbox":true}}`), nil); rec.Code != http.StatusOK {
 		t.Errorf("sandbox true by writer = %d (%s)", rec.Code, rec.Body)
+	}
+}
+
+// TestAuthEntryValidation: argon2 costs, token_hash shape and the entry cap are
+// enforced on write (artifactsd-m9e.9).
+func TestAuthEntryValidation(t *testing.T) {
+	h := newHarness(t)
+	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
+	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/f.txt", []byte("x"), nil)
+	patch := func(auth string) *httptest.ResponseRecorder {
+		return h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/files/f.txt/meta",
+			[]byte(`{"access":{"visibility":"protected","auth":`+auth+`}}`), nil)
+	}
+	slow := `[{"type":"basic","username":"u","password_hash":"$argon2id$v=19$m=262144,t=40,p=1$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}]`
+	if rec := patch(slow); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "out of bounds") {
+		t.Errorf("expensive password_hash = %d (%s), want 400", rec.Code, rec.Body)
+	}
+	if rec := patch(`[{"type":"bearer","token_hash":"ABC"}]`); rec.Code != http.StatusBadRequest {
+		t.Errorf("malformed token_hash = %d, want 400", rec.Code)
+	}
+	many := "[" + strings.TrimSuffix(strings.Repeat(`{"type":"bearer","token":"t"},`, 17), ",") + "]"
+	if rec := patch(many); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "max 16") {
+		t.Errorf("17 auth entries = %d (%s), want 400", rec.Code, rec.Body)
+	}
+	if rec := patch(`[{"type":"basic","username":"u","password":"pw"}]`); rec.Code != http.StatusOK {
+		t.Errorf("cleartext password (server-hashed) = %d (%s), want 200", rec.Code, rec.Body)
 	}
 }

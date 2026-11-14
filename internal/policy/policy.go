@@ -142,6 +142,9 @@ func challenge(entries []meta.AuthEntry, r *http.Request) Decision {
 // drive the challenge but cannot authenticate.
 func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCache) []auth.Verifier {
 	verifiers := make([]auth.Verifier, 0, len(entries))
+	// All basic entries share one verifier so a request costs one argon2 run
+	// however many entries there are (artifactsd-m9e.9).
+	var basic []auth.BasicCredential
 	for i := range entries {
 		e := &entries[i]
 		switch e.Type {
@@ -151,7 +154,7 @@ func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCach
 			}
 		case meta.AuthBasic:
 			if e.Username != "" && e.PasswordHash != "" {
-				verifiers = append(verifiers, auth.NewBasicVerifier(e.Username, e.PasswordHash, ""))
+				basic = append(basic, auth.BasicCredential{Username: e.Username, PasswordHash: e.PasswordHash})
 			}
 		case meta.AuthOIDC:
 			// Entries naming a non-allowlisted issuer (e.g. stored before the
@@ -170,6 +173,9 @@ func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCach
 				}, oidcCache))
 			}
 		}
+	}
+	if len(basic) > 0 {
+		verifiers = append(verifiers, auth.NewMultiBasicVerifier(basic, ""))
 	}
 	return verifiers
 }

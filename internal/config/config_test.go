@@ -489,3 +489,15 @@ func TestOIDCAllowedIssuers(t *testing.T) {
 		t.Error("default config allows object OIDC issuers")
 	}
 }
+
+func TestAdminBasicPasswordHashBounds(t *testing.T) {
+	env := map[string]string{
+		"ARTIFACTSD_BASE_URL": "https://x.example.com", "ARTIFACTSD_DATA_DIR": t.TempDir(),
+		"ARTIFACTSD_ADMIN_BASIC_USER":          "admin",
+		"ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH": "$argon2id$v=19$m=262144,t=40,p=1$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	}
+	if _, err := LoadAndValidate(nil, func(k string) string { return env[k] }, nil); err == nil ||
+		!strings.Contains(err.Error(), "ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH") {
+		t.Errorf("out-of-bounds admin hash: err = %v, want a config error", err)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/clientip"
 	"github.com/jdelic/artifactsd/internal/meta"
 )
@@ -129,6 +130,11 @@ func (c *Config) validateAdmin(add func(string, ...any)) {
 		}
 		if c.Admin.BasicPassword == "" && c.Admin.BasicPasswordHash == "" {
 			add("admin basic fallback requires ARTIFACTSD_ADMIN_BASIC_PASSWORD or ..._HASH")
+		}
+		if c.Admin.BasicPasswordHash != "" {
+			if err := auth.ValidateHash(c.Admin.BasicPasswordHash); err != nil {
+				add("ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH: %v (generate one with `artifactsd hash-password`)", err)
+			}
 		}
 	}
 }

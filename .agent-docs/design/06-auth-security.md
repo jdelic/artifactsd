@@ -61,6 +61,20 @@ verifies. `WWW-Authenticate` on 401 reflects the configured schemes (e.g.
 
 - Argon2id parameters: tunable, default `time=2, memory=64MiB, threads=4`,
   16-byte salt, 32-byte key, encoded `$argon2id$v=19$m=...,t=...,p=...$salt$hash`.
+- **Bounded costs** (artifactsd-m9e.9): a stored hash is verified with its own
+  parameters, and `password_hash` can be written by any write-scoped token, so
+  `auth.ValidateHash` enforces 8–128 MiB memory, 1–6 passes, 1–8 threads, 8–64
+  byte salt and 16–64 byte key. Out-of-range hashes are rejected on write (400)
+  and at startup (`ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH`), and `VerifyPassword`
+  refuses them (`ErrInvalidHash`) without running argon2 — so old stored hashes
+  can't be abused either.
+- **Concurrency cap**: at most 4 argon2 computations run at once
+  (`auth.argon2Sem`); further requests queue and give up when their request
+  context ends. Bounds peak memory to ~4 × 128 MiB regardless of load.
+- **One run per request**: all `basic` entries of an object share one
+  `MultiBasicVerifier`; it verifies only username-matching entries and runs one
+  dummy verification on a miss. `access.auth` is capped at 16 entries and
+  `token_hash` must be 64 lowercase hex characters.
 - Cleartext secrets accepted only on write, hashed immediately, never persisted
   or logged, never returned on read (API returns presence booleans).
 - Constant-time comparisons (`crypto/subtle`) for all hash checks.
