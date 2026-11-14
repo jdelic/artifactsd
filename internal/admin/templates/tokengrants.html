@@ -15,9 +15,11 @@
     {{if .Collections}}
     <form class="nc-form" hx-post="{{.AdminPath}}/tokens/{{.TokenID}}/grants" hx-target="#tokengrants-panel" hx-swap="outerHTML">
       <label>Collection
-        <select name="collection" data-shortcut="g" data-shortcut-action="focus">
-          {{range .Collections}}<option value="{{.}}">{{.}}</option>{{end}}
-        </select>
+        <input type="text" name="collection" list="grant-collections" required autocomplete="off"
+               placeholder="type to search" data-shortcut="g" data-shortcut-action="focus">
+        <datalist id="grant-collections">
+          {{range .Collections}}<option value="{{.}}">{{end}}
+        </datalist>
       </label>
       <span class="nc-scopes">
         {{range .GrantScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}

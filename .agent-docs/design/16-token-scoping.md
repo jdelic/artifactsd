@@ -132,7 +132,7 @@ flood the audit table.
   the token list a restricted token shows a badge and a link to its own
   **grants page** (`{admin}/tokens/{id}/grants`, artifactsd-m9e.30): a table of
   its grants (collection, scopes, granted, Remove) and a grant form
-  (collection picker + grant-scope checkboxes; re-granting replaces the
+  (searchable collection picker + grant-scope checkboxes; re-granting replaces the
   scopes). Unrestricted tokens have no grants page (404). A collection's Shares
   screen lists the restricted tokens holding grants on it, linking to their
   grants pages.
