@@ -23,6 +23,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/internal/paths"
 	"github.com/jdelic/artifactsd/internal/policy"
+	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -34,6 +35,12 @@ type Deps struct {
 	Audit  *audit.Recorder
 	OIDC   *auth.OIDCProviderCache
 	Logger *slog.Logger
+	// Viewer reads viewer-session cookies (OIDC browser login for protected
+	// objects, artifactsd-m9e.22); nil disables viewer sessions.
+	Viewer *session.Manager
+	// ViewerLogin describes the server's OIDC client; nil when OIDC is not
+	// configured.
+	ViewerLogin *policy.ViewerLogin
 }
 
 // Handler serves public content.
@@ -48,7 +55,9 @@ type Handler struct {
 	robotsCache  *robotsCache
 	sitemapCache *sitemapCache
 	// metaPolicy filters content.headers at serve time; nil = defaults.
-	metaPolicy *meta.Policy
+	metaPolicy  *meta.Policy
+	viewer      *session.Manager
+	viewerLogin *policy.ViewerLogin
 	// getNode is h.store.GetNode; a seam so tests can inject lookup failures.
 	getNode func(ctx context.Context, collectionID int64, path string) (*store.Node, error)
 	// now is the clock used for effective-expiry decisions; injectable so tests
@@ -61,9 +70,11 @@ type Handler struct {
 func New(d Deps) *Handler {
 	mp := d.Config.MetaPolicy()
 	return &Handler{
-		metaPolicy: mp,
-		getNode:    d.Store.GetNode,
-		store:      d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
+		metaPolicy:  mp,
+		viewer:      d.Viewer,
+		viewerLogin: d.ViewerLogin,
+		getNode:     d.Store.GetNode,
+		store:       d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
 		lastAccess:   newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, string(d.Config.Policy.Visibility), d.Logger),
 		robotsCache:  newRobotsCache(),
 		sitemapCache: newSitemapCache(),
@@ -256,6 +267,7 @@ func (h *Handler) serveShareFile(w http.ResponseWriter, r *http.Request, sh *sto
 	decision := policy.Decide(policy.Input{
 		Effective: eff, Expired: expired, AncestorPrivate: false,
 		IsDirectory: false, Request: r, OIDC: h.oidc,
+		ViewerLogin: h.viewerLogin, Viewer: h.viewerIdentity(r),
 	})
 	h.dispatch(w, r, coll, node, eff, decision, accessTargets{collectionID: coll.ID, nodeIDs: chainIDs, shareRowID: sh.ID})
 }
@@ -272,6 +284,7 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, coll *store.
 	decision := policy.Decide(policy.Input{
 		Effective: eff, Expired: expired, AncestorPrivate: ancestorPrivate,
 		IsDirectory: false, Request: r, OIDC: h.oidc,
+		ViewerLogin: h.viewerLogin, Viewer: h.viewerIdentity(r),
 	})
 	h.dispatch(w, r, coll, node, eff, decision, accessTargets{collectionID: coll.ID, nodeIDs: chainIDs})
 }
@@ -288,12 +301,53 @@ func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, coll *store.C
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	case policy.Forbidden:
-		http.Error(w, "forbidden", http.StatusForbidden)
+		forbidden(w, decision)
 	case policy.RedirectOIDC:
-		http.Redirect(w, r, "/auth/oidc/login?return_to="+url.QueryEscape(r.URL.Path), http.StatusFound)
+		redirectToViewerLogin(w, r)
 	case policy.Serve:
 		h.stream(w, r, coll, node, eff, &decision, acc)
 	}
+}
+
+// forbidden answers 403 for a signed-in viewer the object doesn't admit
+// (text/plain, so the IdP-supplied name needs no escaping).
+func forbidden(w http.ResponseWriter, d policy.Decision) {
+	if d.Subject == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	http.Error(w, "Signed in as "+d.Subject+", but not permitted to view this.", http.StatusForbidden)
+}
+
+// redirectToViewerLogin sends a browser to the OIDC viewer login, returning to
+// the requested object afterwards (artifactsd-m9e.22).
+func redirectToViewerLogin(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/auth/oidc/login?purpose=view&return_to="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+}
+
+// viewerIdentity returns the identity of a valid viewer-session cookie, or nil.
+func (h *Handler) viewerIdentity(r *http.Request) *policy.ViewerIdentity {
+	if h.viewer == nil || h.viewerLogin == nil {
+		return nil
+	}
+	id, err := h.viewer.FromRequest(r)
+	if err != nil {
+		return nil
+	}
+	return &policy.ViewerIdentity{Subject: id.Subject, Email: id.Email, Groups: id.Groups}
+}
+
+// privateCaching marks a response that was served because of credentials
+// (a viewer session, Authorization header): shared caches must not store it,
+// and its variants depend on those headers. An author-set Cache-Control wins.
+func privateCaching(w http.ResponseWriter, d *policy.Decision) {
+	if d == nil || d.Subject == "" {
+		return
+	}
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", "private")
+	}
+	w.Header().Add("Vary", "Cookie, Authorization")
 }
 
 func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Collection, node *store.Node, eff *meta.Effective, decision *policy.Decision, acc accessTargets) {
@@ -325,7 +379,10 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Col
 	// (the directive only constrains browsing contexts), so applied broadly to
 	// also cover content the browser would otherwise sniff as HTML. Trusted
 	// content opts out via content.sandbox=false (then it keeps its real origin).
-	if eff.Sandbox {
+	// content.sandbox=false only applies to content an admin wrote: bytes from
+	// any other writer stay sandboxed whatever the (possibly inherited or
+	// share-level) metadata says (artifactsd-7tl.2).
+	if eff.Sandbox || !node.ContentTrusted {
 		w.Header().Add("Content-Security-Policy", "sandbox allow-scripts allow-downloads")
 	}
 	if ct := detectContentType(eff, node); ct != "" {
@@ -338,6 +395,8 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Col
 		w.Header().Set("ETag", `"`+*node.Checksum+`"`)
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
+
+	privateCaching(w, decision)
 
 	// Audit successful authenticated access to a protected object (decision N6).
 	if decision.Subject != "" && h.audit != nil {

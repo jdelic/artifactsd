@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/clientip"
+	"github.com/jdelic/artifactsd/internal/policy"
 
 	"github.com/jdelic/artifactsd/internal/admin"
 	"github.com/jdelic/artifactsd/internal/api"
@@ -55,6 +56,8 @@ type Server struct {
 	log       *slog.Logger
 	access    *audit.AccessLogger
 	db        *store.DB
+	store     *store.Store
+	audit     *audit.Recorder
 	limiter   *ratelimit.Limiter
 	proxies   *clientip.Resolver
 	http      *http.Server
@@ -66,6 +69,7 @@ type Server struct {
 
 	oidcCache *auth.OIDCProviderCache
 	session   *session.Manager
+	viewer    *session.Manager // viewer sessions for OIDC-protected objects
 	// adminBasicHash is the argon2id hash for the basic admin fallback (hashed
 	// from a cleartext password at startup if only the cleartext was provided).
 	adminBasicHash string
@@ -100,6 +104,8 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 	}
 	s.initAdminAuth()
 	if opts.Store != nil {
+		s.store = opts.Store
+		s.audit = audit.NewRecorder(opts.Store.AuditSink(), opts.Logger)
 		s.janitor = janitor.New(janitor.Deps{
 			Store: opts.Store, Blob: opts.Blob, Logger: opts.Logger,
 			Audit:     audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
@@ -117,12 +123,14 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 			BaseURL: opts.Config.Server.BaseURL,
 		})
 		s.serve = serve.New(serve.Deps{
-			Store:  opts.Store,
-			Blob:   opts.Blob,
-			Config: opts.Config,
-			Audit:  audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
-			OIDC:   s.oidcCache,
-			Logger: opts.Logger,
+			Store:       opts.Store,
+			Blob:        opts.Blob,
+			Config:      opts.Config,
+			Audit:       audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
+			OIDC:        s.oidcCache,
+			Logger:      opts.Logger,
+			Viewer:      s.viewer,
+			ViewerLogin: viewerLogin(opts.Config),
 		})
 		s.adminUI = admin.New(admin.Deps{
 			Store:   opts.Store,
@@ -220,3 +228,12 @@ func (s *Server) Addr() string { return s.http.Addr }
 // the route mux). Exposed for in-process integration tests (httptest) so they
 // exercise the full wiring without binding the configured listener.
 func (s *Server) Handler() http.Handler { return s.http.Handler }
+
+// viewerLogin describes the server's OIDC client for object access, or nil
+// when OIDC login is not configured (then objects never redirect to it).
+func viewerLogin(cfg *config.Config) *policy.ViewerLogin {
+	if cfg.OIDC.Issuer == "" || cfg.OIDC.ClientID == "" {
+		return nil
+	}
+	return &policy.ViewerLogin{Issuer: cfg.OIDC.Issuer, ClientID: cfg.OIDC.ClientID, GroupClaim: cfg.Admin.GroupClaim}
+}

@@ -108,7 +108,7 @@ func TestVerifyPasswordContext_CanceledWhileWaiting(t *testing.T) {
 	}
 }
 
-func TestMultiBasicVerifier_OneRunPerRequest(t *testing.T) {
+func TestBasicUsersVerifier_OneRunPerRequest(t *testing.T) {
 	var creds []BasicCredential
 	var target string
 	for i := range 10 {
@@ -122,7 +122,7 @@ func TestMultiBasicVerifier_OneRunPerRequest(t *testing.T) {
 			target = user
 		}
 	}
-	v := NewMultiBasicVerifier(creds, "")
+	v := NewBasicUsersVerifier(creds, "")
 	_ = dummyHash() // computed once per process; not part of a request's cost
 	run := func(user, pass string) (bool, int64) {
 		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
@@ -142,5 +142,36 @@ func TestMultiBasicVerifier_OneRunPerRequest(t *testing.T) {
 	}
 	if !strings.HasPrefix(v.Challenge(), "Basic realm=") {
 		t.Errorf("challenge = %q", v.Challenge())
+	}
+}
+
+// TestBasicUsersVerifier_DuplicateUsernames: repeated usernames (e.g. in old
+// stored documents) still cost one argon2 run per request; the first entry for
+// a username is the one that counts (artifactsd-7tl.4).
+func TestBasicUsersVerifier_DuplicateUsernames(t *testing.T) {
+	_ = dummyHash()
+	h1, _ := HashPassword("first")
+	h2, _ := HashPassword("second")
+	creds := make([]BasicCredential, 0, 20)
+	creds = append(creds, BasicCredential{Username: "same", PasswordHash: h1})
+	for range 19 {
+		creds = append(creds, BasicCredential{Username: "same", PasswordHash: h2})
+	}
+	v := NewBasicUsersVerifier(creds, "")
+	try := func(pass string) (bool, int64) {
+		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		r.SetBasicAuth("same", pass)
+		before := argon2Runs.Load()
+		ok, _ := v.Verify(r)
+		return ok, argon2Runs.Load() - before
+	}
+	if ok, n := try("wrong"); ok || n != 1 {
+		t.Errorf("wrong password: ok=%v runs=%d, want false and 1", ok, n)
+	}
+	if ok, n := try("first"); !ok || n != 1 {
+		t.Errorf("first entry's password: ok=%v runs=%d, want true and 1", ok, n)
+	}
+	if ok, _ := try("second"); ok {
+		t.Error("a later duplicate entry was honored")
 	}
 }

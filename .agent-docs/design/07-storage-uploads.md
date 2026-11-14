@@ -74,7 +74,9 @@ Two-step to avoid buffering huge bodies through the JSON API:
    - Streams to a temp blob with size limit + hashing.
    - On success: `store.CommitUpload` claims the session (pending →
      completed) and writes the node (parent folders, upsert, denormalized
-     columns) in ONE transaction (artifactsd-m9e.13). If the node write fails
+     columns) in ONE transaction (artifactsd-m9e.13). The session must be pending
+     **and unexpired at commit time** (a session that expires while the body
+     streams is answered like an expired one, 404; artifactsd-7tl.3). If the node write fails
      (kind conflict, collection file cap, DB error) the claim rolls back and
      the session stays `pending`, so the client can retry or abort. Of two
      concurrent PUTs exactly one commits (artifactsd-ku3).

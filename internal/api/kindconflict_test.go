@@ -65,12 +65,12 @@ func TestKindConflict_FolderMaterializationUnderFile(t *testing.T) {
 	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
 	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/a", []byte("file"), nil)
 
-	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/a/sub/meta",
+	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/a/sub?meta",
 		[]byte(`{"access":{"visibility":"public"}}`), nil); rec.Code != http.StatusConflict {
 		t.Fatalf("materialize folder under a file = %d, want 409 (%s)", rec.Code, rec.Body)
 	}
 	// Patching a folder directly at an existing file path also 409s.
-	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/a/meta",
+	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/a?meta",
 		[]byte(`{"access":{"visibility":"public"}}`), nil); rec.Code != http.StatusConflict {
 		t.Fatalf("folder meta at a file path = %d, want 409 (%s)", rec.Code, rec.Body)
 	}

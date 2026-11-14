@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jdelic/artifactsd/internal/testserver"
 	"github.com/jdelic/artifactsd/internal/uploadrequest"
@@ -164,4 +165,30 @@ func TestUpload_HappyPathMultiAndRaw(t *testing.T) {
 	if files != 3 || bytes != 9 {
 		t.Errorf("submission totals: %d files, %d bytes; want 3, 9", files, bytes)
 	}
+}
+
+// TestUpload_LinkExpiresDuringReceive: a link whose expiry passes (here: is
+// moved into the past) while the body is being received commits nothing
+// (artifactsd-7tl.3).
+func TestUpload_LinkExpiresDuringReceive(t *testing.T) {
+	ts := newDemo(t)
+	id := createLink(t, ts, `{"collection":"demo","target_folder":""}`)
+	restore := uploadrequest.SetBeforeCommitHook(func() {
+		ctx := context.Background()
+		ur, err := ts.Store.GetUploadRequest(ctx, id)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		past := time.Now().Add(-time.Minute)
+		ur.ExpiresAt = &past
+		if err := ts.Store.UpdateUploadRequest(ctx, ur); err != nil {
+			t.Error(err)
+		}
+	})
+	defer restore()
+	if code, b := upload(t, ts, id, part{"late.txt", "x"}); code != http.StatusGone {
+		t.Fatalf("upload across expiry: %d %s, want 410", code, b)
+	}
+	assertAbsent(t, ts, "demo", "late.txt")
 }

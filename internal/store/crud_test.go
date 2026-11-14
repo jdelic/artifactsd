@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -405,5 +406,80 @@ func TestUpsertNode_CollectionFileCap(t *testing.T) {
 	}
 	if err := s.CheckCollectionCapacity(ctx, c.ID, "new"); !errors.Is(err, ErrCollectionFull) {
 		t.Errorf("CheckCollectionCapacity(new) = %v, want ErrCollectionFull", err)
+	}
+}
+
+// TestCommitUpload_RejectsExpiredSession: an upload session that expired while
+// its body was streaming cannot be committed (artifactsd-7tl.3).
+func TestCommitUpload_RejectsExpiredSession(t *testing.T) {
+	s, ctx := newStore(t)
+	c := mustCollection(t, s, ctx, "demo")
+	u := &UploadSession{UploadID: "upl_expiredcommit", CollectionID: c.ID, TargetPath: "late.txt", ExpiresAt: fixedNow.Add(-time.Second)}
+	if err := s.CreateUploadSession(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	ref := "sha256:abc"
+	n := &Node{CollectionID: c.ID, Path: "late.txt", Name: "late.txt", Kind: KindFile, BlobID: &ref, Metadata: []byte(`{}`)}
+	if err := s.CommitUpload(ctx, u.UploadID, n, fixedNow); !errors.Is(err, ErrUploadSessionExpired) {
+		t.Fatalf("commit of an expired session = %v, want ErrUploadSessionExpired", err)
+	}
+	if _, err := s.GetNode(ctx, c.ID, "late.txt"); !errors.Is(err, ErrNotFound) {
+		t.Error("expired session committed a file")
+	}
+	got, _ := s.GetUploadSession(ctx, u.UploadID)
+	if got.Status != UploadPending {
+		t.Errorf("session status = %q, want still pending (the janitor expires it)", got.Status)
+	}
+}
+
+func TestTrustContent_Prefix(t *testing.T) {
+	s, ctx := newStore(t)
+	c := mustCollection(t, s, ctx, "demo")
+	for _, p := range []string{"spa", "spa-other"} {
+		if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, Path: p, Name: p, Kind: KindFolder}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := []string{"top.txt", "spa/a.txt", "spa/deep/b.txt", "spa-other/c.txt"}
+	for _, p := range files {
+		dir, _, _ := strings.Cut(p, "/")
+		var parent *int64
+		if dir != p {
+			n, _ := s.GetNode(ctx, c.ID, dir)
+			parent = &n.ID
+		}
+		if strings.Count(p, "/") == 2 {
+			pid, err := s.EnsureParentFolders(ctx, c.ID, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent = pid
+		}
+		if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, ParentID: parent, Path: p, Name: p, Kind: KindFile}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	trusted := func(p string) bool {
+		n, err := s.GetNode(ctx, c.ID, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n.ContentTrusted
+	}
+	if err := s.TrustContent(ctx, c.ID, "spa"); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]bool{"top.txt": false, "spa/a.txt": true, "spa/deep/b.txt": true, "spa-other/c.txt": false} {
+		if trusted(p) != want {
+			t.Errorf("after TrustContent(spa): %s trusted=%v, want %v", p, trusted(p), want)
+		}
+	}
+	if err := s.TrustContent(ctx, c.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range files {
+		if !trusted(p) {
+			t.Errorf("after TrustContent(\"\"): %s not trusted", p)
+		}
 	}
 }

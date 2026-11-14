@@ -11,7 +11,7 @@ const protectedMeta = `{"access":{"visibility":"protected","auth":[{"type":"bear
 
 func ownMeta(t *testing.T, h *harness, p string) string {
 	t.Helper()
-	rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/files/"+p+"/meta", nil, nil)
+	rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/files/"+p+"?meta", nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("meta %s = %d (%s)", p, rec.Code, rec.Body)
 	}

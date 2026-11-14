@@ -10,23 +10,27 @@ import (
 type Scope string
 
 // Known scopes. `admin` is a superscope granting everything; `<resource>:write`
-// implies `<resource>:read`. Token management, upload requests, audit, and
-// maintenance are admin-only (design/04 §8): there are deliberately no
-// tokens:* scopes, since a token that can mint tokens can mint an admin one.
+// and `<resource>:delete` each imply `<resource>:read`, but neither implies the
+// other: deleting is an explicit permission, so a leaked write token cannot
+// wipe collections (artifactsd-m9e.25). Token management, upload requests,
+// audit, and maintenance are admin-only (design/04 §8): there are deliberately
+// no tokens:* scopes, since a token that can mint tokens can mint an admin one.
 const (
-	ScopeAdmin            Scope = "admin"
-	ScopeCollectionsRead  Scope = "collections:read"
-	ScopeCollectionsWrite Scope = "collections:write"
-	ScopeSharesRead       Scope = "shares:read"
-	ScopeSharesWrite      Scope = "shares:write"
+	ScopeAdmin             Scope = "admin"
+	ScopeCollectionsRead   Scope = "collections:read"
+	ScopeCollectionsWrite  Scope = "collections:write"
+	ScopeCollectionsDelete Scope = "collections:delete"
+	ScopeSharesRead        Scope = "shares:read"
+	ScopeSharesWrite       Scope = "shares:write"
+	ScopeSharesDelete      Scope = "shares:delete"
 )
 
 // KnownScopes lists every scope a token may be granted (design/04 §1). Used to
 // reject unknown/typo'd scopes when minting tokens.
 var KnownScopes = []Scope{
 	ScopeAdmin,
-	ScopeCollectionsRead, ScopeCollectionsWrite,
-	ScopeSharesRead, ScopeSharesWrite,
+	ScopeCollectionsRead, ScopeCollectionsWrite, ScopeCollectionsDelete,
+	ScopeSharesRead, ScopeSharesWrite, ScopeSharesDelete,
 }
 
 // IsKnownScope reports whether sc is a recognized scope.
@@ -74,13 +78,14 @@ func (s ScopeSet) Has(sc Scope) bool {
 }
 
 // Satisfies reports whether the set grants the required scope. `admin` grants
-// everything; a `<resource>:write` scope grants the matching `<resource>:read`.
+// everything; `<resource>:write` and `<resource>:delete` each grant the
+// matching `<resource>:read`; nothing else is implied.
 func (s ScopeSet) Satisfies(required Scope) bool {
 	if s.Has(ScopeAdmin) || s.Has(required) {
 		return true
 	}
 	if res, ok := strings.CutSuffix(string(required), ":read"); ok {
-		return s.Has(Scope(res + ":write"))
+		return s.Has(Scope(res+":write")) || s.Has(Scope(res+":delete"))
 	}
 	return false
 }

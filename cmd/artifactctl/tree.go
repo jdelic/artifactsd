@@ -34,11 +34,11 @@ func (a *app) newTreeCmd() *cobra.Command {
 			}
 			for _, n := range page.Items {
 				indent := strings.Repeat("  ", strings.Count(n.Path, "/"))
+				name := n.Path
 				if n.Kind == "folder" {
-					a.printf("%s%s/\n", indent, n.Path)
-					continue
+					name += "/"
 				}
-				a.printf("%s%s\n", indent, n.Path)
+				a.printf("%s%s%s\n", indent, name, sandboxMarker(n.Sandbox))
 			}
 			return nil
 		},
@@ -47,4 +47,15 @@ func (a *app) newTreeCmd() *cobra.Command {
 	f.StringVar(&path, "path", "", "scope the listing to this subtree")
 	f.IntVar(&depth, "depth", 0, "limit how many levels below --path are returned (0 = full tree)")
 	return cmd
+}
+
+// sandboxMarker annotates tree lines whose sandbox is turned off.
+func sandboxMarker(state string) string {
+	switch state {
+	case "unsandboxed":
+		return "  [sandbox off]"
+	case "awaiting_approval":
+		return "  [sandbox off: awaiting admin approval]"
+	}
+	return ""
 }

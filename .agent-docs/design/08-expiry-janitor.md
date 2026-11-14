@@ -86,6 +86,12 @@ unlink failure is logged and retried next pass.
   mtime on a dedupe hit (falling back to writing its own copy if the blob
   vanished meanwhile). A node that nevertheless points at a missing blob is
   logged as "dangling blob reference" with node id and ref (still 500).
+- **No check-then-act race** (artifactsd-7tl.5): the age check, the refcount
+  check and the unlink run under a per-content-hash lock in the blob store
+  (`FSStore.RemoveIfUnused`), and `FSStore.Put` publishes or re-uses (mtime
+  refresh) a blob under the same lock. A deduplicating upload therefore either
+  refreshes the blob before the janitor looks (kept as too young) or finds it
+  gone and stores a fresh copy — never a node pointing at an unlinked file.
 - **Temp files:** remove `data/tmp/*` older than the upload TTL.
 - **Upload sessions:** `status=pending AND expires_at <= now` → `expired`,
   temp blob removed.

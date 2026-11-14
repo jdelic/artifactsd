@@ -8,16 +8,17 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/sandbox"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
-// getFolder handles GET on a folder's ".../meta" sub-resource.
+// getFolder serves a folder's metadata; it requires ?meta.
 func (h *Handler) getFolder(w http.ResponseWriter, r *http.Request) {
-	mp, isMeta := strings.CutSuffix(r.PathValue("path"), "/meta")
-	if !isMeta {
-		writeError(w, http.StatusBadRequest, CodeBadRequest, "GET applies to .../meta only")
+	if !wantsMeta(r) {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, errMetaQueryRequired)
 		return
 	}
+	mp := r.PathValue("path")
 	c, ok := h.lookupCollection(w, r)
 	if !ok {
 		return
@@ -39,18 +40,20 @@ func (h *Handler) getFolder(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "resolve metadata view", err)
 		return
 	}
+	addSandboxState(effective, false, true)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": p, "own": own, "effective": effective, "chain": chain, "sources": sources,
 	})
 }
 
-// patchFolder sets/merges folder metadata, materializing the folder node.
+// patchFolder sets/merges folder metadata, materializing the folder node; it
+// requires ?meta.
 func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
-	mp, isMeta := strings.CutSuffix(r.PathValue("path"), "/meta")
-	if !isMeta {
-		writeError(w, http.StatusBadRequest, CodeBadRequest, "PATCH applies to .../meta only")
+	if !wantsMeta(r) {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, errMetaQueryRequired)
 		return
 	}
+	mp := r.PathValue("path")
 	c, ok := h.lookupCollection(w, r)
 	if !ok {
 		return
@@ -74,7 +77,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	merged, ok := h.mergeMetadata(w, r, existingMeta)
+	merged, patch, ok := h.mergeMetadata(w, r, existingMeta)
 	if !ok {
 		return
 	}
@@ -93,6 +96,10 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), folder.ID); err != nil {
 		h.internalServerError(w, "recompute folder", err)
+		return
+	}
+	if err := h.vouchIfUnsandboxed(r, patch, c.ID, p); err != nil {
+		h.internalServerError(w, "trust content", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": p, "own": redactMetadata(merged)})
@@ -135,6 +142,9 @@ type treeNode struct {
 	Size        *int64  `json:"size,omitempty"`
 	ContentType *string `json:"content_type,omitempty"`
 	ExpiresAt   *string `json:"expires_at,omitempty"`
+	// Sandbox is set when the item is not plainly sandboxed: "unsandboxed" or
+	// "awaiting_approval" (artifactsd-7tl.9).
+	Sandbox string `json:"sandbox,omitempty"`
 }
 
 // tree returns a structured listing under ?path= up to ?depth= (management view,
@@ -156,6 +166,7 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "list nodes", err)
 		return
 	}
+	states := sandbox.ForNodes(h.cfg.Policy.Sandbox, c.Metadata, nodes)
 	items := make([]treeNode, 0, len(nodes))
 	for _, n := range nodes {
 		if !underBase(n.Path, base) {
@@ -164,7 +175,11 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 		if depth > 0 && relativeDepth(n.Path, base) > depth {
 			continue
 		}
-		items = append(items, toTreeNode(n))
+		tn := toTreeNode(n)
+		if st := states[n.Path]; st != sandbox.Sandboxed {
+			tn.Sandbox = string(st)
+		}
+		items = append(items, tn)
 	}
 	writeJSON(w, http.StatusOK, listResponse[treeNode]{Items: items})
 }

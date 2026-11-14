@@ -60,12 +60,13 @@ func TestAdminGate_DeniesNonAdminGroup(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, gatedReq(adminSession(t, s, []string{"users"}), "text/html"))
-	// Not an admin → browser redirected to OIDC login.
-	if rec.Code != http.StatusFound {
-		t.Errorf("non-admin browser = %d, want 302 redirect", rec.Code)
+	// Authenticated but not an admin → 403 with an explanation; redirecting to
+	// the IdP would loop forever under SSO (artifactsd-m9e.16).
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin browser = %d, want 403", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "/auth/oidc/login") {
-		t.Errorf("redirect Location = %q, want /auth/oidc/login", loc)
+	if !strings.Contains(rec.Body.String(), "not authorized for the admin UI") {
+		t.Errorf("body = %q", rec.Body.String())
 	}
 }
 

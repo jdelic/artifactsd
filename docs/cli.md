@@ -97,6 +97,11 @@ artifactctl get <collection>/<path> [-o <localfile>]
 artifactctl rm [-r] <collection>/<path>
 ```
 
+- `put` / `put-tree` print server warnings on stderr, e.g. when a file lands
+  where an admin turned the sandbox off but is served sandboxed until an admin
+  re-approves it. `tree` marks such items `[sandbox off]` or
+  `[sandbox off: awaiting admin approval]`; `meta explain` shows
+  `sandbox_state`.
 - `put` infers content type from the file extension unless `--content-type` is
   given. Re-uploading a file **without** metadata flags keeps its existing
   metadata; any metadata flag replaces the stored document with the one the
@@ -208,8 +213,10 @@ artifactctl token revoke <id>
 ```
 
 `token create` prints the secret **once** — store it then. Available scopes:
-`admin`, `collections:read`, `collections:write`, `shares:read`,
-`shares:write` (`artifactctl token create --help` explains each). Managing
+`admin`, `collections:read`, `collections:write`, `collections:delete`,
+`shares:read`, `shares:write`, `shares:delete` (`artifactctl token create
+--help` explains each). `rm` and `share revoke` need the `:delete` scopes;
+`:write` does not include them. Managing
 tokens and upload requests requires `admin`.
 
 ### Maintenance & version
@@ -300,7 +307,7 @@ $ artifactctl put-tree web-assets ./public --public \
 | `put-tree` | many `PUT` / begin-upload |
 | `get` | `GET /collections/{c}/files/{path}` |
 | `rm` / `rm -r` | `DELETE .../files/{path}` / `DELETE .../folders/{path}` |
-| `meta get/set/explain` | `GET`/`PATCH` `.../meta` (collection, folder, or file level) |
+| `meta get/set/explain` | `GET`/`PATCH` `.../files/{path}?meta`, `.../folders/{path}?meta`, or `/collections/{c}/meta` |
 | `share create/list/revoke` | `/collections/{c}/shares`, `/shares/{id}` |
 | `upload-request create/list/show` | `/upload-requests`, `/upload-requests/{id}` |
 | `upload-request close` / `revoke` | `PATCH` status=closed / `DELETE /upload-requests/{id}` |

@@ -77,7 +77,7 @@ func TestClient_GetFile_NotFound(t *testing.T) {
 
 func TestClient_GetFileMeta(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/collections/demo/files/a.txt/meta" {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/collections/demo/files/a.txt" || !r.URL.Query().Has("meta") {
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -97,7 +97,7 @@ func TestClient_GetFileMeta(t *testing.T) {
 
 func TestClient_PatchFileMeta(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/collections/demo/files/a.txt/meta" {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/collections/demo/files/a.txt" || !r.URL.Query().Has("meta") {
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		body, _ := io.ReadAll(r.Body)

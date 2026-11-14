@@ -329,3 +329,29 @@ func TestUploadRequests_JanitorExpiry(t *testing.T) {
 		t.Errorf("status = %q, want expired", reloaded.Status)
 	}
 }
+
+// TestCommitUploadRequestFiles_RejectsExpiredLink: the commit transaction is
+// authoritative for expiry too, not just status (artifactsd-7tl.3).
+func TestCommitUploadRequestFiles_RejectsExpiredLink(t *testing.T) {
+	s, ctx := newStore(t)
+	c := mustCollection(t, s, ctx, "inbox")
+	expiry := fixedNow.Add(-time.Second)
+	ur := &UploadRequest{RequestID: "urq_expiredcommit00001", CollectionID: c.ID, FileMetadata: []byte(`{}`), ExpiresAt: &expiry}
+	if err := s.CreateUploadRequest(ctx, ur); err != nil {
+		t.Fatal(err)
+	}
+	sub := &UploadRequestSubmission{UploadRequestID: ur.ID, SubmissionID: "sub_late"}
+	if err := s.CommitUploadRequestFiles(ctx, sub, linkFiles(c.ID, "late.txt"), false, fixedNow); !errors.Is(err, ErrUploadRequestNotActive) {
+		t.Fatalf("commit on an expired link = %v, want ErrUploadRequestNotActive", err)
+	}
+	if _, err := s.GetNode(ctx, c.ID, "late.txt"); !errors.Is(err, ErrNotFound) {
+		t.Error("expired link committed a file")
+	}
+	reloaded, _ := s.GetUploadRequestByID(ctx, ur.ID)
+	if reloaded.FilesUploaded != 0 {
+		t.Errorf("files_uploaded = %d, want 0", reloaded.FilesUploaded)
+	}
+	if subs, _ := s.ListUploadRequestSubmissions(ctx, ur.ID); len(subs) != 0 {
+		t.Errorf("%d submissions recorded for a rejected commit", len(subs))
+	}
+}

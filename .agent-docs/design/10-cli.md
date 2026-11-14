@@ -105,7 +105,7 @@ artifactctl version
 | `put` | `PUT /collections/{c}/files/{path}` (or begin-upload for large) |
 | `put-tree` | many `PUT` / begin-upload |
 | `get` | `GET /collections/{c}/files/{path}` |
-| `meta get/set` | `GET`/`PATCH .../meta` |
+| `meta get/set` | `GET`/`PATCH ...?meta` (collection: `/collections/{c}/meta`) |
 | `share create/list/revoke` | `/collections/{c}/shares`, `/shares/{id}` |
 | `tree` | `GET /collections/{c}/tree` |
 | `crawl` | `GET /collections/{c}/crawl` |

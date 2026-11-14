@@ -31,6 +31,13 @@ func (s *Server) hostIsolationGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		onAdminHost := strings.EqualFold(config.HostOnly(s.requestHost(r)), adminHost)
 		switch {
+		case s.isViewerLogin(r):
+			// The viewer login must set its cookie on the public host, where
+			// the protected objects are served (artifactsd-m9e.22).
+			if onAdminHost {
+				http.NotFound(w, r)
+				return
+			}
 		case s.isAdminPlane(r.URL.Path):
 			if !onAdminHost {
 				http.NotFound(w, r)
@@ -76,4 +83,18 @@ func isPublicPlane(path string) bool {
 		return true
 	}
 	return strings.HasPrefix(path, "/c/") || strings.HasPrefix(path, "/s/")
+}
+
+// isViewerLogin reports whether r belongs to an OIDC *viewer* login flow: the
+// login with purpose=view, or a callback whose flow cookie says so. Those run
+// on the public host; admin flows stay on the admin host.
+func (s *Server) isViewerLogin(r *http.Request) bool {
+	switch r.URL.Path {
+	case "/auth/oidc/login":
+		return r.URL.Query().Get("purpose") == flowPurposeView
+	case config.OIDCCallbackPath:
+		fs, ok := s.readFlowState(r)
+		return ok && fs.Purpose == flowPurposeView
+	}
+	return false
 }

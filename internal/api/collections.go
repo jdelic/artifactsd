@@ -140,6 +140,7 @@ func (h *Handler) getCollectionMeta(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "resolve metadata view", err)
 		return
 	}
+	addSandboxState(effective, false, true)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": "", "own": redactMetadata(c.Metadata), "effective": effective, "chain": chain, "sources": sources,
 	})
@@ -150,7 +151,7 @@ func (h *Handler) patchCollectionMeta(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	merged, ok := h.mergeMetadata(w, r, c.Metadata)
+	merged, patch, ok := h.mergeMetadata(w, r, c.Metadata)
 	if !ok {
 		return
 	}
@@ -161,6 +162,10 @@ func (h *Handler) patchCollectionMeta(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.RecomputeCollectionDenormalized(r.Context(), c.ID, string(h.cfg.Policy.Visibility)); err != nil {
 		h.internalServerError(w, "recompute collection", err)
+		return
+	}
+	if err := h.vouchIfUnsandboxed(r, patch, c.ID, ""); err != nil {
+		h.internalServerError(w, "trust content", err)
 		return
 	}
 	c, _ = h.store.GetCollection(r.Context(), c.ID)

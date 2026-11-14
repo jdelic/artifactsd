@@ -158,6 +158,10 @@ choice here usually fails opaquely at login time:
   `https://artifacts.example.com/auth/oidc/callback`). This is the default value
   of `ARTIFACTSD_OIDC_REDIRECT_URL`; register this exact URL as an allowed
   redirect URI. Most providers reject any `redirect_uri` not on the list.
+  **Viewer logins** (people opening OIDC-protected objects in a browser) always
+  use `<base_url>/auth/oidc/callback` on the **public** host. When that differs
+  from the admin redirect URL (with `ARTIFACTSD_ADMIN_HOST`, or a custom
+  `ARTIFACTSD_OIDC_REDIRECT_URL`), register **both** URLs.
 - **Client type: confidential** — a `client_id` **and** `client_secret`. PKCE is
   always sent in addition (`code_challenge_method=S256`); you do not need to
   enable a separate "public/PKCE" client type.
@@ -299,10 +303,16 @@ TLS, or admin settings; it calls the management API as a client.
 
 | Setting | Flag | Env | Default |
 |---------|------|-----|---------|
-| MCP listen address | `--listen` | `ARTIFACTSD_MCP_LISTEN` | `:8081` |
+| MCP listen address | `--listen` | `ARTIFACTSD_MCP_LISTEN` | `127.0.0.1:8081` |
 | artifactsd API base URL | `--base-url` | `ARTIFACTSD_BASE_URL` | **(required)** |
-| Management API token | `--token` | `ARTIFACTSD_MCP_TOKEN` | **(required)** |
 | Log level | `--log-level` | `ARTIFACTSD_LOG_LEVEL` | `info` |
+
+The adapter holds **no API token**: each MCP client sends its own as
+`Authorization: Bearer <token>` (see [MCP → Running it](mcp.md#running-it)).
+The former `--token` / `ARTIFACTSD_MCP_TOKEN` setting was removed; the adapter
+refuses to start while it is set. Keep the default loopback listen address
+unless a TLS-terminating proxy sits in front: tokens travel to the adapter in
+clear text.
 
 `--base-url` means the same thing as for `serve` ("where is the artifactsd
 server"), but here it's the target the adapter calls. The separate default port

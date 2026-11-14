@@ -184,3 +184,23 @@ func TestMerge_CrawlAndExpiry(t *testing.T) {
 		t.Errorf("delete_after_last_access should be nil, got %v", *base.Expiry.DeleteAfterLastAccess)
 	}
 }
+
+// TestMerge_Sandbox: content.sandbox is a scalar override like content_type.
+func TestMerge_Sandbox(t *testing.T) {
+	f, tr := false, true
+	d := &Document{}
+	d.Merge(&Document{Content: &Content{Sandbox: &f}})
+	if d.Content == nil || d.Content.Sandbox == nil || *d.Content.Sandbox {
+		t.Fatalf("sandbox=false not merged: %+v", d.Content)
+	}
+	d.Merge(&Document{Content: &Content{ContentType: strPtrTest("text/html")}})
+	if *d.Content.Sandbox {
+		t.Error("unrelated content patch changed sandbox")
+	}
+	d.Merge(&Document{Content: &Content{Sandbox: &tr}})
+	if !*d.Content.Sandbox {
+		t.Error("sandbox=true not merged")
+	}
+}
+
+func strPtrTest(s string) *string { return &s }

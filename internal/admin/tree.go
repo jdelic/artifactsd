@@ -8,6 +8,7 @@ import (
 
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/paths"
+	"github.com/jdelic/artifactsd/internal/sandbox"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 )
@@ -31,6 +32,9 @@ type nodeRow struct {
 	// (artifactsd-3wy); both empty when the node never expires.
 	Expires       string
 	ExpiresSource string
+	// Sandbox is the node's sandbox state ("sandboxed", "unsandboxed",
+	// "awaiting_approval"; artifactsd-7tl.9).
+	Sandbox string
 }
 
 // treePanelData backs the "tree_panel" partial: breadcrumb, folder/file
@@ -120,6 +124,11 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 	if err != nil {
 		return treePanelData{}, err
 	}
+	allNodes, err := h.store.ListCollectionNodes(ctx, c.ID)
+	if err != nil {
+		return treePanelData{}, err
+	}
+	states := sandbox.ForNodes(h.cfg.Policy.Sandbox, c.Metadata, allNodes)
 
 	data := treePanelData{
 		AdminPath:  h.cfg.Admin.Path,
@@ -130,7 +139,7 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 	}
 	data.DirShareURL, data.DirShared = shareByTarget[dir]
 	for _, n := range children {
-		row := nodeRow{Name: n.Name, Path: n.Path}
+		row := nodeRow{Name: n.Name, Path: n.Path, Sandbox: string(states[n.Path])}
 		row.ShareURL, row.Shared = shareByTarget[n.Path]
 		row.Expires, row.ExpiresSource = expiryCell(h.store.ChildExpiry(inherited, n))
 		if n.Kind == store.KindFolder {
@@ -309,4 +318,35 @@ func expiryCell(e store.EffectiveExpiry) (date, source string) {
 		source += " · " + e.Source.Rule
 	}
 	return date, source
+}
+
+// approveContent marks one file's current content as approved to run
+// unsandboxed where its sandbox is turned off (artifactsd-7tl.9): the admin
+// UI's one-click re-approval of content a non-admin changed.
+func (h *Handler) approveContent(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	c, ok := h.lookupCollectionByName(w, r, name)
+	if !ok {
+		return
+	}
+	dir := r.FormValue("dir")
+	p, ok := h.cleanDir(w, r.PathValue("path"))
+	if !ok {
+		return
+	}
+	node, err := h.store.GetNode(r.Context(), c.ID, p)
+	if err != nil || node.Kind != store.KindFile {
+		h.renderTreePanel(w, r, c, dir, "file does not exist")
+		return
+	}
+	if err := h.store.TrustContent(r.Context(), c.ID, p); err != nil {
+		h.renderTreePanel(w, r, c, dir, "approving content: "+err.Error())
+		return
+	}
+	if h.audit != nil {
+		_ = h.audit.Record(r.Context(), &audit.Entry{
+			Action: audit.ActionContentApprove, Actor: actorOf(session.FromContext(r.Context())), Target: c.Name + "/" + p,
+		})
+	}
+	h.renderTreePanel(w, r, c, dir, "")
 }

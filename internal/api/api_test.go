@@ -258,7 +258,7 @@ func TestFiles_PutGetDelete(t *testing.T) {
 	}
 
 	// Parent folder was materialized.
-	if rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/files/docs/readme.txt/meta", nil, nil); rec.Code != http.StatusOK {
+	if rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/files/docs/readme.txt?meta", nil, nil); rec.Code != http.StatusOK {
 		t.Errorf("meta = %d", rec.Code)
 	}
 
@@ -296,7 +296,7 @@ func TestFiles_MetadataHeaderAndSecretRedaction(t *testing.T) {
 	}
 
 	// The returned own metadata must not leak the cleartext token or its hash.
-	rec = h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/files/secret.txt/meta", nil, nil)
+	rec = h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/files/secret.txt?meta", nil, nil)
 	body := rec.Body.String()
 	if bytes.Contains([]byte(body), []byte("sekret")) {
 		t.Errorf("metadata leaked cleartext token: %s", body)

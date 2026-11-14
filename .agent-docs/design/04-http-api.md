@@ -8,7 +8,9 @@ envelope.
 ## 1. Conventions
 
 - **Auth**: `Authorization: Bearer <api-token>`. Tokens carry scopes
-  (`admin`, `collections:read`, `collections:write`, `shares:write`, ...).
+  (`admin`, `collections:read|write|delete`, `shares:read|write|delete`). `:write`
+  and `:delete` each imply `:read`; `:write` does not imply `:delete`
+  (artifactsd-m9e.25), so DELETE routes require the delete scope.
 - **Errors**:
   ```json
   { "error": { "code": "not_found", "message": "collection does not exist" } }
@@ -48,8 +50,11 @@ Create body:
 ```
 PUT    /api/v1/collections/{c}/files/{path...}        upload/replace (body = bytes)
 GET    /api/v1/collections/{c}/files/{path...}        download (management, bypasses public policy with proper scope)
-GET    /api/v1/collections/{c}/files/{path...}/meta   read metadata (effective + own)
-PATCH  /api/v1/collections/{c}/files/{path...}/meta   merge metadata
+GET    /api/v1/collections/{c}/files/{path...}?meta   read metadata (effective + own)
+# Metadata is addressed by the `meta` query parameter (artifactsd-m9e.23): a
+# `.../meta` path suffix would be ambiguous for a file whose path ends in /meta.
+# Without ?meta: GET downloads (any path); PATCH files/folders and GET folders → 400.
+PATCH  /api/v1/collections/{c}/files/{path...}?meta   merge metadata
 DELETE /api/v1/collections/{c}/files/{path...}        delete file
 ```
 
@@ -72,7 +77,7 @@ Upload:
     "updated_at":"2026-06-21T10:15:00Z" }
   ```
 
-`GET .../meta` (files, folders, and collections alike) returns the object's
+`GET ...?meta` (files and folders; `GET /collections/{c}/meta` for collections) returns the object's
 own metadata, the resolved **effective** metadata (with secrets redacted to
 hash-presence booleans), plus provenance: `chain` (the inheritance layers,
 lowest precedence first, each with its own metadata) and `sources` (a map
@@ -86,15 +91,15 @@ This backs `artifactctl meta explain`:
                  "crawl": {...}, "expiry": {"expires_at":"2026-07-01T00:00:00Z"} } }
 ```
 
-`PATCH .../meta` accepts a partial document; merge rules per
+`PATCH ...?meta` accepts a partial document; merge rules per
 [03 §2](03-metadata-policy.md). Setting `access.auth[].token`/`password`
 (cleartext) causes hashing server-side; the cleartext is never stored.
 
 ## 4. Folders
 
 ```
-GET    /api/v1/collections/{c}/folders/{path...}/meta   read folder metadata
-PATCH  /api/v1/collections/{c}/folders/{path...}/meta   set/merge folder metadata (materializes the folder)
+GET    /api/v1/collections/{c}/folders/{path...}?meta   read folder metadata
+PATCH  /api/v1/collections/{c}/folders/{path...}?meta   set/merge folder metadata (materializes the folder)
 DELETE /api/v1/collections/{c}/folders/{path...}        delete folder subtree
 GET    /api/v1/collections/{c}/tree?path=&depth=        structured listing (management)
 ```

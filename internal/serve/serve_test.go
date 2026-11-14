@@ -91,6 +91,8 @@ func (h *harness) file(t *testing.T, c *store.Collection, p, content, metaJSON, 
 	n := &store.Node{
 		CollectionID: c.ID, ParentID: h.ensureParents(t, c, p), Path: p, Name: path.Base(p), Kind: store.KindFile,
 		BlobID: &refStr, Size: &size, Checksum: &sum, Metadata: []byte(metaJSON),
+		// Fixtures stand in for admin-published content (artifactsd-7tl.2).
+		ContentTrusted: true,
 	}
 	if ct != "" {
 		n.ContentType = &ct
@@ -627,9 +629,15 @@ func TestServeDirectory_FolderTargetWithoutTrailingSlash(t *testing.T) {
 	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
 	h.file(t, c, "assets/logo.png", "img", `{}`, "image/png")
 
+	// A folder target without the slash redirects (query kept), and the
+	// slash URL lists it (artifactsd-7tl.6).
 	rec := h.get("/c/demo/assets?format=json", nil)
+	if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/c/demo/assets/?format=json" {
+		t.Fatalf("folder target (no slash) = %d → %q", rec.Code, rec.Header().Get("Location"))
+	}
+	rec = h.get("/c/demo/assets/?format=json", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "logo.png") {
-		t.Errorf("folder target (no slash) = %d %q", rec.Code, rec.Body)
+		t.Errorf("folder target (slash) = %d %q", rec.Code, rec.Body)
 	}
 }
 
@@ -825,5 +833,67 @@ func TestServe_ListingLinksWithColons(t *testing.T) {
 		if got := h.get(target, nil); got.Code != http.StatusOK {
 			t.Errorf("following %q (%s) = %d", href, target, got.Code)
 		}
+	}
+}
+
+// TestServe_BareFolderURLRedirectsToSlash: a folder requested without its
+// trailing slash is redirected (query kept), so relative listing links and an
+// index.html's relative links resolve inside the folder (artifactsd-7tl.6).
+func TestServe_BareFolderURLRedirectsToSlash(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
+	h.file(t, c, "folder/child.txt", "child", `{}`, "text/plain")
+	h.file(t, c, "ab:cd/c/inner.txt", "inner", `{}`, "text/plain")
+	h.file(t, c, "site/index.html", "<a href=\"./page.html\">p</a>", `{}`, "text/html")
+	h.folderMeta(t, c, "site", `{"access":{"directory_listing":false}}`)
+	h.file(t, c, "secret/x.txt", "x", `{}`, "text/plain")
+	h.folderMeta(t, c, "secret", `{"access":{"visibility":"private"}}`)
+
+	for target, want := range map[string]string{
+		"/c/demo/folder":     "/c/demo/folder/",
+		"/c/demo/folder?x=1": "/c/demo/folder/?x=1",
+		"/c/demo/ab:cd/c":    "/c/demo/ab:cd/c/",
+		"/c/demo/site":       "/c/demo/site/",
+	} {
+		rec := h.get(target, nil)
+		if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != want {
+			t.Errorf("GET %s = %d → %q, want 301 → %q", target, rec.Code, rec.Header().Get("Location"), want)
+		}
+	}
+	// Following the redirect, the listing link resolves inside the folder.
+	rec := h.get("/c/demo/folder/", nil)
+	if !strings.Contains(rec.Body.String(), `href="./child.txt"`) {
+		t.Fatalf("listing: %s", rec.Body)
+	}
+	if got := h.get(resolveHref(t, "/c/demo/folder/", "./child.txt"), nil); got.Code != http.StatusOK {
+		t.Errorf("child = %d", got.Code)
+	}
+	// Non-disclosure: a private folder is still a plain 404, no redirect.
+	if rec := h.get("/c/demo/secret", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("private bare folder = %d, want 404", rec.Code)
+	}
+}
+
+// TestServe_BareFolderURLRedirectsToSlash_Share covers share subfolders and a
+// folder-share root (artifactsd-7tl.6).
+func TestServe_BareFolderURLRedirectsToSlash_Share(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"private","directory_listing":true}}`)
+	h.file(t, c, "docs/sub/a.txt", "a", `{}`, "text/plain")
+	h.share(t, c, "shr_folder", "docs", "folder", `{}`)
+
+	rec := h.get("/s/shr_folder/sub?x=1", nil)
+	if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/s/shr_folder/sub/?x=1" {
+		t.Errorf("share subfolder = %d → %q, want 301 → /s/shr_folder/sub/?x=1", rec.Code, rec.Header().Get("Location"))
+	}
+	rec = h.get("/s/shr_folder/sub/", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `href="./a.txt"`) {
+		t.Fatalf("share subfolder listing = %d %s", rec.Code, rec.Body)
+	}
+	if got := h.get(resolveHref(t, "/s/shr_folder/sub/", "./a.txt"), nil); got.Code != http.StatusOK {
+		t.Errorf("share child = %d", got.Code)
+	}
+	if rec := h.get("/s/shr_folder/", nil); rec.Code != http.StatusOK {
+		t.Errorf("share root = %d", rec.Code)
 	}
 }

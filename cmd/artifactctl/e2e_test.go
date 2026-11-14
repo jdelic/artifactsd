@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -394,5 +395,75 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestE2E_RmNeedsDeleteScope: a write-only token cannot delete
+// (artifactsd-m9e.25), and the CLI shows which scope is missing.
+func TestE2E_RmNeedsDeleteScope(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: %s", errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/a.txt", local); code != exitOK {
+		t.Fatalf("put: %s", errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "token", "create", "writer", "--scope", "collections:write")
+	if code != exitOK {
+		t.Fatalf("token create: %s", errOut)
+	}
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(out), &tok); err != nil || tok.Token == "" {
+		t.Fatalf("token json: %v (%s)", err, out)
+	}
+	var stdout, stderr bytes.Buffer
+	code = run(context.Background(), []string{"--base-url", e.ts.BaseURL, "--token", tok.Token, "rm", "demo/a.txt"},
+		&stdout, &stderr, func(string) string { return "" })
+	if code == exitOK || !strings.Contains(stderr.String(), "collections:delete") {
+		t.Errorf("rm with write-only token: code=%d stderr=%q, want failure naming collections:delete", code, stderr.String())
+	}
+}
+
+// TestE2E_SandboxMarkers: tree marks unsandboxed items and put prints the
+// server's warning (artifactsd-7tl.9).
+func TestE2E_SandboxMarkers(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatal(errOut)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPatch,
+		e.ts.BaseURL+"/api/v1/collections/demo/folders/spa?meta", strings.NewReader(`{"content":{"sandbox":false}}`))
+	req.Header.Set("Authorization", "Bearer "+e.ts.AdminToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.ts.Client().Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin folder patch: %v %v", err, resp)
+	}
+	resp.Body.Close()
+	local := filepath.Join(t.TempDir(), "a.html")
+	_ = os.WriteFile(local, []byte("<p>a</p>"), 0o600)
+	code, out, errOut := e.run("--output", "json", "token", "create", "w", "--scope", "collections:write")
+	if code != exitOK {
+		t.Fatal(errOut)
+	}
+	var tok struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal([]byte(out), &tok)
+	var stdout, stderr bytes.Buffer
+	run(context.Background(), []string{"--base-url", e.ts.BaseURL, "--token", tok.Token, "put", "demo/spa/a.html", local},
+		&stdout, &stderr, func(string) string { return "" })
+	if !strings.Contains(stderr.String(), "warning: spa/a.html: served sandboxed until an admin re-approves it") {
+		t.Errorf("put stderr = %q, want the sandbox warning", stderr.String())
+	}
+	_, tree, _ := e.run("tree", "demo")
+	if !strings.Contains(tree, "spa/  [sandbox off]") || !strings.Contains(tree, "spa/a.html  [sandbox off: awaiting admin approval]") {
+		t.Errorf("tree output:\n%s", tree)
 	}
 }

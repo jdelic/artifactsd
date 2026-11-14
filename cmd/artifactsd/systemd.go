@@ -21,6 +21,11 @@ type systemdComponent struct {
 	description string
 	subcommand  string
 	port        string // host/container port for container runtimes
+	// hostBind, when set, restricts the published container port to that host
+	// address (the MCP adapter is loopback-only by default, artifactsd-m9e.18).
+	hostBind string
+	// containerArgs are extra subcommand flags for container runtimes.
+	containerArgs string
 	// stateful components get a StateDirectory and a data volume; the MCP
 	// adapter is a stateless proxy and gets neither.
 	stateful bool
@@ -39,7 +44,11 @@ var (
 		description: "artifactsd MCP adapter",
 		subcommand:  "mcp",
 		port:        "8081",
-		stateful:    false,
+		// Inside the container the adapter must listen on all interfaces for
+		// the port mapping to reach it; the host side stays on loopback.
+		hostBind:      "127.0.0.1",
+		containerArgs: "--listen :8081",
+		stateful:      false,
 	}
 )
 
@@ -241,8 +250,12 @@ func (o *systemdOpts) renderContainerService(b *strings.Builder) {
 	// Remove any leftover container from an unclean stop; `-` ignores the
 	// failure when none exists.
 	fmt.Fprintf(b, "ExecStartPre=-%s rm -f %s\n", o.execPath, c.unitName)
-	run := fmt.Sprintf("%s run --rm --name %s --env-file %s -p %s:%s",
-		o.execPath, c.unitName, o.envFileRef(), c.port, c.port)
+	publish := c.port + ":" + c.port
+	if c.hostBind != "" {
+		publish = c.hostBind + ":" + publish
+	}
+	run := fmt.Sprintf("%s run --rm --name %s --env-file %s -p %s",
+		o.execPath, c.unitName, o.envFileRef(), publish)
 	if c.stateful {
 		run += " -v artifactsd-data:/data"
 	}
@@ -251,6 +264,9 @@ func (o *systemdOpts) renderContainerService(b *strings.Builder) {
 		// The image's default command is `serve ...`; other components name
 		// their subcommand explicitly.
 		run += " " + c.subcommand
+		if c.containerArgs != "" {
+			run += " " + c.containerArgs
+		}
 	}
 	fmt.Fprintf(b, "ExecStart=%s\n", run)
 	fmt.Fprintf(b, "ExecStop=%s stop %s\n", o.execPath, c.unitName)
@@ -326,11 +342,14 @@ func envSkeleton(o *systemdOpts) string {
 	fmt.Fprintf(&b, "# Configuration for %s.service (see docs/configuration.md).\n", o.component.unitName)
 	if o.component.subcommand == "mcp" {
 		b.WriteString("ARTIFACTSD_BASE_URL=https://artifacts.example.com\n")
-		b.WriteString("ARTIFACTSD_MCP_TOKEN=change-me\n")
+		b.WriteString("# The adapter holds no API token: every MCP client sends its own as\n")
+		b.WriteString("# \"Authorization: Bearer <token>\" (see `artifactsd mcp --help`).\n")
 		if o.runtime == "local" {
-			b.WriteString("#ARTIFACTSD_MCP_LISTEN=:8081\n")
+			b.WriteString("# Listens on loopback by default; terminate TLS in front before exposing it.\n")
+			b.WriteString("#ARTIFACTSD_MCP_LISTEN=127.0.0.1:8081\n")
 		} else {
-			b.WriteString("# The unit maps host port 8081; keep the in-container listen default (:8081).\n")
+			b.WriteString("# The unit publishes the adapter on host 127.0.0.1:8081 only; terminate TLS\n")
+			b.WriteString("# in front of it before exposing it further.\n")
 		}
 		return b.String()
 	}

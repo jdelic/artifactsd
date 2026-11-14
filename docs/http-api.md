@@ -11,7 +11,12 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   <api-token>` (or an authenticated admin session). Tokens carry scopes; a
   request needs the scope listed for its endpoint or it gets `403`.
 - **Scopes** — `admin`, `collections:read`, `collections:write`,
-  `shares:read`, `shares:write`. `admin` implies the rest, and is the only
+  `collections:delete`, `shares:read`, `shares:write`, `shares:delete`.
+  `:write` and `:delete` each imply the matching `:read`, but **`:write` does
+  not imply `:delete`**: deleting collections, folders, files and shares needs
+  the explicit delete scope (replacing a file with `PUT` is a write). A `403`
+  names the missing scope ("insufficient scope: requires collections:delete").
+  `admin` implies the rest, and is the only
   scope for tokens, upload requests, audit, stats, and maintenance;
   `<resource>:write` implies `<resource>:read`.
 - **Errors** — a consistent JSON envelope:
@@ -21,7 +26,7 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   Codes: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`,
   `payload_too_large`, `unsupported_media_type`, `rate_limited`, `internal`.
 - **Timestamps** — RFC3339 UTC. **Durations** — `30d`, `48h`, `2w`.
-- **Idempotency** — `PUT` of a file is a full, idempotent replace; `PATCH .../meta`
+- **Idempotency** — `PUT` of a file is a full, idempotent replace; `PATCH ...?meta`
   merges.
 - **Pagination** — `GET /collections` takes `?limit=&cursor=` and returns
   `{ "items": [...], "next_cursor": "..." }`. The other list endpoints use the
@@ -31,11 +36,25 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   the full tree; a positive value limits the number of levels below the base
   path; anything else is a `400`.
 - **Metadata** in request/response bodies is the JSON metadata document (access,
-  content, crawl, expiry blocks). Setting `content.sandbox: false` anywhere
-  (collection, folder, file, share, large upload) requires an **admin-scoped**
-  token; other tokens get `403` "content.sandbox=false requires an admin-scoped
-  token". Setting it to `true` or leaving it out is always allowed, and a
-  non-admin `PATCH` that doesn't mention it keeps an admin-set `false`.
+  content, crawl, expiry blocks). **Only admin-scoped tokens may set
+  `content.sandbox`** (to `true` or `false`) anywhere — collection, folder,
+  file, share, large upload; other tokens get `403` "content.sandbox can only
+  be set with an admin-scoped token". Documents that leave it out are fine, and
+  a non-admin metadata replacement keeps the admin's setting.
+  An admin setting `sandbox: false` on a file, folder, collection or share
+  unsandboxes the content **currently** under it — no re-upload needed. Content
+  a non-admin writes or replaces afterwards is served sandboxed until an admin
+  sets `sandbox: false` again (a metadata change, not an upload).
+- **Sandbox state** is reported wherever it matters:
+  - file writes (`PUT`, large upload, upload links) return
+    `"warnings": [...]` (upload links: a per-file `warning`) when the content is
+    served sandboxed although the sandbox is turned off where it lives;
+  - metadata views (`GET …?meta`) add `effective.sandbox_state`
+    (`sandboxed` | `unsandboxed` | `awaiting_approval`) and, while awaiting
+    approval, `effective.sandbox_note`;
+  - `GET /collections/{c}/tree` items carry `"sandbox": "unsandboxed"` or
+    `"awaiting_approval"` (omitted when sandboxed).
+  Share-level overrides apply only through that share and are not reflected.
 
 ## Collections
 
@@ -45,7 +64,7 @@ GET    /api/v1/collections                 list (paginated)       collections:re
 GET    /api/v1/collections/{c}             get one (+ metadata)   collections:read
 GET    /api/v1/collections/{c}/meta        own + effective meta   collections:read
 PATCH  /api/v1/collections/{c}/meta        merge metadata         collections:write
-DELETE /api/v1/collections/{c}             delete (cascades)      collections:write
+DELETE /api/v1/collections/{c}             delete (cascades)      collections:delete
 ```
 
 Create body:
@@ -67,9 +86,9 @@ collection.
 ```
 PUT    /api/v1/collections/{c}/files/{path...}        upload/replace   collections:write
 GET    /api/v1/collections/{c}/files/{path...}        download         collections:read
-GET    /api/v1/collections/{c}/files/{path...}/meta   read metadata    collections:read
-PATCH  /api/v1/collections/{c}/files/{path...}/meta   merge metadata   collections:write
-DELETE /api/v1/collections/{c}/files/{path...}        delete           collections:write
+GET    /api/v1/collections/{c}/files/{path...}?meta   read metadata    collections:read
+PATCH  /api/v1/collections/{c}/files/{path...}?meta   merge metadata   collections:write
+DELETE /api/v1/collections/{c}/files/{path...}        delete           collections:delete
 ```
 
 **Upload (`PUT`)** — the body is the raw file bytes. The request `Content-Type`
@@ -91,7 +110,15 @@ bodies get `413`. Response:
   "updated_at": "2026-06-21T10:15:00Z" }
 ```
 
-**Metadata (`GET .../meta`)** — available at all three levels (collection,
+**Addressing metadata.** File and folder metadata is addressed with the `meta`
+query parameter (any or empty value): `GET|PATCH .../files/{path}?meta` and
+`GET|PATCH .../folders/{path}?meta`. Without it, `GET .../files/{path}`
+downloads the file for **any** path, including one that ends in `/meta`;
+`PATCH .../files/{path}` and `GET|PATCH .../folders/{path}` answer `400` "add
+?meta to address metadata". The collection's own metadata keeps its fixed route
+`/collections/{c}/meta`. (The former `.../meta` path suffix was removed.)
+
+**Metadata (`GET ...?meta`; `GET /collections/{c}/meta` for a collection)** — available at all three levels (collection,
 folder, file) in one shape: the object's own metadata, the resolved
 **effective** metadata (flat view, secrets redacted to presence booleans), and
 provenance — `chain` (the inheritance layers, lowest precedence first) and
@@ -117,16 +144,16 @@ This backs `artifactctl meta explain`:
                "crawlable": "defaults" } }
 ```
 
-`PATCH .../meta` takes a partial document and merges it. Setting
+`PATCH ...?meta` takes a partial document and merges it. Setting
 `access.auth[].token` or `password` in cleartext causes server-side hashing; the
 cleartext is never stored.
 
 ## Folders
 
 ```
-GET    /api/v1/collections/{c}/folders/{path...}/meta   read folder metadata     collections:read
-PATCH  /api/v1/collections/{c}/folders/{path...}/meta   set/merge (materializes) collections:write
-DELETE /api/v1/collections/{c}/folders/{path...}        delete subtree           collections:write
+GET    /api/v1/collections/{c}/folders/{path...}?meta   read folder metadata     collections:read
+PATCH  /api/v1/collections/{c}/folders/{path...}?meta   set/merge (materializes) collections:write
+DELETE /api/v1/collections/{c}/folders/{path...}        delete subtree           collections:delete
 GET    /api/v1/collections/{c}/tree?path=&depth=        structured listing       collections:read
 ```
 
@@ -178,7 +205,7 @@ POST   /api/v1/collections/{c}/shares      create share          shares:write
 GET    /api/v1/collections/{c}/shares      list shares           shares:read
 GET    /api/v1/shares/{share_id}           get share             shares:read
 PATCH  /api/v1/shares/{share_id}           update policy/expiry  shares:write
-DELETE /api/v1/shares/{share_id}           revoke                shares:write
+DELETE /api/v1/shares/{share_id}           revoke                shares:delete
 ```
 
 Create body — `target_path: ""` shares the whole collection:
@@ -313,5 +340,18 @@ GET      /version                     running build: {"version", "commit", "date
 ```
 
 Protected and private objects, and expired ones, return `404` on these routes so
-their existence isn't leaked. See [`.agent-docs/design/05-serving-crawl.md`](../.agent-docs/design/05-serving-crawl.md)
+their existence isn't leaked.
+
+**OIDC-protected objects in a browser.** When an object's `access.auth` has an
+`oidc` entry for the server's own issuer (`ARTIFACTSD_OIDC_ISSUER`) and client
+(`audience` = `ARTIFACTSD_OIDC_CLIENT_ID`, or `insecure_skip_audience_check`),
+a browser `GET` without a session is redirected to
+`/auth/oidc/login?purpose=view&return_to=<object>`. After signing in, a viewer
+session cookie (`artifactsd_viewer`, 8 h) brings the browser back to the object.
+A signed-in viewer whom the entry doesn't admit gets `403` ("Signed in as …"),
+not another redirect. Entries for other allowlisted issuers are Bearer-only
+(`401`, `WWW-Authenticate: Bearer`, no redirect). Responses served because of a
+session or credentials carry `Cache-Control: private` (unless the object sets
+its own) and `Vary: Cookie, Authorization`. The viewer cookie is never accepted
+by the admin UI or `/api/v1`. See [`.agent-docs/design/05-serving-crawl.md`](../.agent-docs/design/05-serving-crawl.md)
 for the serving and crawl details.

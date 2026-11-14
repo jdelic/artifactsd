@@ -284,6 +284,20 @@ func (cfg *OIDCConfig) authorized(cl *oidcClaims) (bool, string) {
 	return false, ""
 }
 
+// AuthorizesIdentity evaluates the entry's any-of rules against an identity
+// that was already authenticated by an OIDC login (a viewer session,
+// artifactsd-m9e.22), returning the audit subject. groupClaim names the claim
+// the login read groups from: group rules only apply when it is the claim this
+// entry expects, otherwise only subject/email and any_authenticated rules can
+// match.
+func (cfg *OIDCConfig) AuthorizesIdentity(subject, email string, groups []string, groupClaim string) (bool, string) {
+	cl := &oidcClaims{Subject: subject, Email: email}
+	if groupClaim == cfg.groupClaim() {
+		cl.Groups = groups
+	}
+	return cfg.authorized(cl)
+}
+
 // OIDCVerifier is an auth.Verifier that validates a presented Bearer JWT against
 // an OIDC issuer and authorizes by claims (design/14 §2.3). Browser redirect to
 // the issuer is handled by the policy layer; this verifier covers API clients
