@@ -112,8 +112,27 @@ func collectionAllowed(p *auth.Principal, name string) bool
 ## 7. Migration
 
 Additive column, default `NULL` ⇒ all existing tokens stay unrestricted. No data
-migration, no breaking change. Older binaries ignore the column (they select an
-explicit column list), so a rollback is safe.
+migration, no breaking change on upgrade.
+
+**Downgrade is an authorization hazard, not just a schema question.** Older
+binaries select an explicit column list, so they would *read* the database fine —
+and that is exactly the problem: they ignore `collections`, so every restricted
+token would silently regain access to **all** collections. Data-schema
+compatibility and authorization compatibility must be treated separately:
+
+- The migration that adds the column also records an authorization-schema marker
+  (e.g. a `maintenance_flags`/`schema_features` row `token_collection_scopes`).
+- Releases from then on refuse to start if the database carries a feature marker
+  they do not know (generic guard, added in the same release so that it exists
+  before any later feature needs it).
+- Because binaries *before* this release have no such guard, the release notes
+  and `docs/installation.md` state the downgrade procedure: revoke (or delete)
+  every token with a non-NULL `collections` before running an older binary. An
+  `artifactctl token list --restricted` / admin-UI filter makes that one step.
+- The implementation must include an acceptance test: a database with a
+  restricted token and an unknown feature marker makes startup fail; after
+  revoking restricted tokens and clearing the marker via the documented
+  procedure, the older behaviour is safe.
 
 ## 8. Decisions for the owner
 
@@ -124,6 +143,7 @@ explicit column list), so a rollback is safe.
 | D3 | Out-of-scope response | 404 (non-disclosure), not 403 (§4) |
 | D4 | Admin tokens | Cannot be restricted; reject at creation (§5) |
 | D5 | Audit of out-of-scope requests | Not audited (§6) |
+| D6 | Downgrade safety | Feature marker + startup guard; documented revoke-before-downgrade (§7) |
 
 ## 9. Implementation tickets (to file after sign-off)
 
@@ -137,6 +157,9 @@ explicit column list), so a rollback is safe.
      out-of-scope name → 403 (not 409);
    - share routes by `share_id` for an out-of-scope collection → 404;
    - `admin` + `collections` → 400; unrestricted tokens behave as before;
-   - migration leaves existing tokens unrestricted.
+   - migration leaves existing tokens unrestricted;
+   - downgrade guard: a database with an unknown authorization feature marker
+     refuses to start; the documented revoke-restricted-tokens procedure is
+     tested end to end (§7).
 2. **Admin UI + CLI + docs:** form field, `--collection` flag, `token list`
    output, docs/http-api.md, docs/cli.md, design/04 §1/§8, design/14 §6.
