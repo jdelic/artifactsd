@@ -34,6 +34,16 @@ func (d *Document) ValidateWith(p *Policy) error {
 			if len(entries) > maxAuthEntries {
 				add("access.auth has %d entries (max %d)", len(entries), maxAuthEntries)
 			}
+			basicUsers := map[string]bool{}
+			for i := range entries {
+				if entries[i].Type != AuthBasic || entries[i].Username == "" {
+					continue
+				}
+				if basicUsers[entries[i].Username] {
+					add("auth[%d] (basic) duplicate username %q", i, entries[i].Username)
+				}
+				basicUsers[entries[i].Username] = true
+			}
 			for i := range entries {
 				validateAuthEntry(p, i, &entries[i], add)
 			}

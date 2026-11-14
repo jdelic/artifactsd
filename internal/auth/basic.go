@@ -90,12 +90,23 @@ type MultiBasicVerifier struct {
 }
 
 // NewMultiBasicVerifier builds a verifier over creds. An empty realm uses
-// DefaultRealm.
+// DefaultRealm. Only the first entry per username is kept, so a request costs
+// one argon2 run even when a stored document repeats a username
+// (artifactsd-7tl.4); new documents with duplicates are rejected on write.
 func NewMultiBasicVerifier(creds []BasicCredential, realm string) *MultiBasicVerifier {
 	if realm == "" {
 		realm = DefaultRealm
 	}
-	return &MultiBasicVerifier{creds: creds, realm: realm}
+	seen := make(map[string]bool, len(creds))
+	unique := make([]BasicCredential, 0, len(creds))
+	for _, c := range creds {
+		if seen[c.Username] {
+			continue
+		}
+		seen[c.Username] = true
+		unique = append(unique, c)
+	}
+	return &MultiBasicVerifier{creds: unique, realm: realm}
 }
 
 // Verify matches HTTP Basic credentials against the entries.
@@ -104,19 +115,21 @@ func (v *MultiBasicVerifier) Verify(r *http.Request) (bool, string) {
 	if !ok {
 		return false, ""
 	}
-	matched := false
+	// Usernames are unique (see NewMultiBasicVerifier): find the one match by
+	// comparing against every entry, then run exactly one argon2 — against the
+	// dummy hash on a miss so both cases cost the same.
+	var match *BasicCredential
 	for i := range v.creds {
-		c := &v.creds[i]
-		if subtle.ConstantTimeCompare([]byte(user), []byte(c.Username)) != 1 {
-			continue
-		}
-		matched = true
-		if ok, _ := VerifyPasswordContext(r.Context(), pass, c.PasswordHash); ok {
-			return true, c.Username
+		if subtle.ConstantTimeCompare([]byte(user), []byte(v.creds[i].Username)) == 1 && match == nil {
+			match = &v.creds[i]
 		}
 	}
-	if !matched {
+	if match == nil {
 		_, _ = VerifyPasswordContext(r.Context(), pass, dummyHash())
+		return false, ""
+	}
+	if ok, _ := VerifyPasswordContext(r.Context(), pass, match.PasswordHash); ok {
+		return true, match.Username
 	}
 	return false, ""
 }

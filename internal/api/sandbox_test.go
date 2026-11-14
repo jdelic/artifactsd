@@ -107,3 +107,14 @@ func TestAuthEntryValidation(t *testing.T) {
 		t.Errorf("cleartext password (server-hashed) = %d (%s), want 200", rec.Code, rec.Body)
 	}
 }
+
+func TestAuthEntryValidation_DuplicateBasicUsernames(t *testing.T) {
+	h := newHarness(t)
+	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
+	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/f.txt", []byte("x"), nil)
+	rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/files/f.txt?meta",
+		[]byte(`{"access":{"visibility":"protected","auth":[{"type":"basic","username":"u","password":"a"},{"type":"basic","username":"u","password":"b"}]}}`), nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "duplicate") {
+		t.Errorf("duplicate basic usernames = %d (%s), want 400", rec.Code, rec.Body)
+	}
+}

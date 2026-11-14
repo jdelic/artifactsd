@@ -74,7 +74,9 @@ verifies. `WWW-Authenticate` on 401 reflects the configured schemes (e.g.
 - **One run per request**: all `basic` entries of an object share one
   `MultiBasicVerifier`; it verifies only username-matching entries and runs one
   dummy verification on a miss. `access.auth` is capped at 16 entries and
-  `token_hash` must be 64 lowercase hex characters.
+  `token_hash` must be 64 lowercase hex characters; basic usernames must be unique within a
+  document (the verifier also keeps only the first entry per username, so old
+  documents with duplicates still cost one run, artifactsd-7tl.4).
 - Cleartext secrets accepted only on write, hashed immediately, never persisted
   or logged, never returned on read (API returns presence booleans).
 - Constant-time comparisons (`crypto/subtle`) for all hash checks.
