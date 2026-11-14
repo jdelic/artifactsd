@@ -154,3 +154,39 @@ func TestAdapter_SessionBoundToToken(t *testing.T) {
 		t.Errorf("same token on its own session = %d", resp.StatusCode)
 	}
 }
+
+// TestMCP_SandboxState: tool results carry the sandbox warning and tree state
+// (artifactsd-7tl.9).
+func TestMCP_SandboxState(t *testing.T) {
+	ts := testserver.New(t)
+	srv := httptest.NewServer(New(Config{BaseURL: ts.BaseURL}).Handler())
+	t.Cleanup(srv.Close)
+	admin := connectMCP(t, srv.URL, ts.AdminToken)
+	call := func(cs *gosdk.ClientSession, name string, args map[string]any) map[string]any {
+		t.Helper()
+		res, err := cs.CallTool(context.Background(), &gosdk.CallToolParams{Name: name, Arguments: args})
+		if err != nil || res.IsError {
+			t.Fatalf("%s: %v %+v", name, err, res)
+		}
+		out, _ := res.StructuredContent.(map[string]any)
+		return out
+	}
+	call(admin, "artifact_create_collection", map[string]any{"name": "demo"})
+	call(admin, "artifact_set_metadata", map[string]any{"collection": "demo", "path": "spa/", "metadata": map[string]any{"content": map[string]any{"sandbox": false}}})
+
+	writer := connectMCP(t, srv.URL, mintToken(t, ts, `["collections:write"]`))
+	out := call(writer, "artifact_put_text", map[string]any{"collection": "demo", "path": "spa/a.html", "text": "<p>a</p>"})
+	if w, _ := out["warnings"].([]any); len(w) != 1 {
+		t.Errorf("put_text result = %v, want one sandbox warning", out)
+	}
+	tree := call(admin, "artifact_list_tree", map[string]any{"collection": "demo"})
+	items, _ := tree["items"].([]any)
+	got := map[string]any{}
+	for _, it := range items {
+		m, _ := it.(map[string]any)
+		got[m["path"].(string)] = m["sandbox"]
+	}
+	if got["spa"] != "unsandboxed" || got["spa/a.html"] != "awaiting_approval" {
+		t.Errorf("list_tree sandbox states = %v", got)
+	}
+}

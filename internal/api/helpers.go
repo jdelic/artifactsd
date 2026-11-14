@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/meta"
+	"github.com/jdelic/artifactsd/internal/sandbox"
+	"github.com/jdelic/artifactsd/internal/store"
 )
 
 const (
@@ -192,4 +195,35 @@ func keepAdminSandbox(doc *meta.Document, existing json.RawMessage) {
 	}
 	v := *old.Content.Sandbox
 	doc.Content.Sandbox = &v
+}
+
+// addSandboxState annotates a metadata view's effective map with how the
+// object is served: sandbox_state (sandboxed | unsandboxed |
+// awaiting_approval) and, while awaiting approval, sandbox_note
+// (artifactsd-7tl.9).
+func addSandboxState(effective map[string]any, isFile, trusted bool) sandbox.State {
+	eff, _ := effective["sandbox"].(bool)
+	st := sandbox.For(eff, isFile, trusted)
+	effective["sandbox_state"] = st
+	if st == sandbox.AwaitingApproval {
+		effective["sandbox_note"] = sandbox.AwaitingApprovalNote
+	}
+	return st
+}
+
+// sandboxWarnings returns the warnings for a file just written: when the
+// sandbox is turned off where it lives but its new content is untrusted, it
+// is served sandboxed until an admin re-approves it (artifactsd-7tl.9).
+func (h *Handler) sandboxWarnings(ctx context.Context, c *store.Collection, n *store.Node) []string {
+	if n.ContentTrusted {
+		return nil
+	}
+	effective, _, _, err := h.metaView(ctx, c, n.Path)
+	if err != nil {
+		return nil
+	}
+	if addSandboxState(effective, true, false) == sandbox.AwaitingApproval {
+		return []string{"served sandboxed until an admin re-approves it: " + sandbox.AwaitingApprovalNote}
+	}
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/paths"
+	"github.com/jdelic/artifactsd/internal/sandbox"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 )
@@ -111,6 +112,8 @@ type allFilesRow struct {
 	ExpiresSource string
 	ViewURL       string
 	MetaURL       string
+	// Sandbox is the file's sandbox state (artifactsd-7tl.9).
+	Sandbox string
 }
 
 type allFilesData struct {
@@ -144,6 +147,23 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]allFilesRow, 0, len(files))
 	base := strings.TrimRight(h.cfg.Server.BaseURL, "/")
+	// Sandbox states are computed once per listed collection.
+	states := map[string]map[string]sandbox.State{}
+	for _, f := range files {
+		if _, ok := states[f.CollectionName]; ok {
+			continue
+		}
+		states[f.CollectionName] = map[string]sandbox.State{}
+		c, err := h.store.GetCollectionByName(r.Context(), f.CollectionName)
+		if err != nil {
+			continue
+		}
+		nodes, err := h.store.ListCollectionNodes(r.Context(), c.ID)
+		if err != nil {
+			continue
+		}
+		states[f.CollectionName] = sandbox.ForNodes(h.cfg.Policy.Sandbox, c.Metadata, nodes)
+	}
 	for _, f := range files {
 		row := allFilesRow{
 			Collection:  f.CollectionName,
@@ -154,6 +174,7 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 			Created:     f.CreatedAt.UTC().Format("2006-01-02 15:04"),
 			ViewURL:     base + "/c/" + f.CollectionName + "/" + paths.EscapeURL(f.Path),
 			MetaURL:     h.cfg.Admin.Path + "/collections/" + f.CollectionName + "/meta?path=" + f.Path,
+			Sandbox:     string(states[f.CollectionName][f.Path]),
 		}
 		row.Expires, row.ExpiresSource = expiryCell(f.Effective)
 		rows = append(rows, row)

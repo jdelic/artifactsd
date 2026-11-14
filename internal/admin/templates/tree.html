@@ -27,7 +27,7 @@
       <tr><th>Name</th><th>Expires</th><th></th></tr>
       {{range .Folders}}
       <tr>
-        <td><a href="{{$.AdminPath}}/collections/{{$.Collection}}/tree?path={{.Path}}">{{.Name}}/</a></td>
+        <td><a href="{{$.AdminPath}}/collections/{{$.Collection}}/tree?path={{.Path}}">{{.Name}}/</a>{{template "sandbox_badge" .Sandbox}}</td>
         <td>{{if .Expires}}{{.Expires}}<span class="nc-expiry-source">{{.ExpiresSource}}</span>{{else}}—{{end}}</td>
         <td>
           <a href="{{$.AdminPath}}/collections/{{$.Collection}}/meta?path={{.Path}}">Edit</a>
@@ -51,13 +51,21 @@
       <tr><th>Name</th><th>Size</th><th>Content-Type</th><th>Expires</th><th></th></tr>
       {{range .Files}}
       <tr>
-        <td><a href="{{.ViewURL}}" target="_blank" rel="noopener">{{.Name}}</a></td>
+        <td><a href="{{.ViewURL}}" target="_blank" rel="noopener">{{.Name}}</a>{{template "sandbox_badge" .Sandbox}}</td>
         <td>{{.Size}}</td>
         <td>{{.ContentType}}</td>
         <td>{{if .Expires}}{{.Expires}}<span class="nc-expiry-source">{{.ExpiresSource}}</span>{{else}}—{{end}}</td>
         <td>
           <a href="{{$.AdminPath}}/collections/{{$.Collection}}/meta?path={{.Path}}">Edit</a>
           {{template "share_cell" (sharecell $.AdminPath $.Collection .Path .Shared .ShareURL)}}
+          {{if eq .Sandbox "awaiting_approval"}}
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/approve-content/{{.Path}}"
+                hx-target="#tree-panel" hx-swap="outerHTML"
+                hx-confirm="Approve the current content of &quot;{{.Name}}&quot; to run without the sandbox? Its scripts will be able to act on this site.">
+            <input type="hidden" name="dir" value="{{$.Dir}}">
+            <button class="nc-button" type="submit">Approve unsandboxed</button>
+          </form>
+          {{end}}
           <form class="nc-inline-form" hx-post="{{$.AdminPath}}/collections/{{$.Collection}}/delete-file/{{.Path}}"
                 hx-target="#tree-panel" hx-swap="outerHTML"
                 hx-confirm="Delete file &quot;{{.Name}}&quot;? This cannot be undone.">

@@ -31,6 +31,9 @@ type fileView struct {
 	URL         string  `json:"url"`
 	UpdatedAt   string  `json:"updated_at"`
 	ExpiresAt   *string `json:"expires_at,omitempty"`
+	// Warnings tells the writer how the file will be served when that may be
+	// surprising (artifactsd-7tl.9).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +123,9 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	node, _ = h.store.GetNodeByID(r.Context(), node.ID)
 
 	_ = h.audit.Record(r.Context(), &audit.Entry{Action: audit.ActionFilePut, Actor: actor(r), Target: c.Name + "/" + p})
-	writeJSON(w, status, h.toFileView(c.Name, node))
+	fv := h.toFileView(c.Name, node)
+	fv.Warnings = h.sandboxWarnings(r.Context(), c, node)
+	writeJSON(w, status, fv)
 }
 
 // wantsMeta reports whether the request addresses an object's metadata: the
@@ -203,6 +208,8 @@ func (h *Handler) serveFileMeta(w http.ResponseWriter, r *http.Request, filePath
 		h.internalServerError(w, "resolve metadata view", err)
 		return
 	}
+	isFile := node.Kind == store.KindFile
+	addSandboxState(effective, isFile, !isFile || node.ContentTrusted)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": node.Path, "own": own, "effective": effective, "chain": chain, "sources": sources,
 	})

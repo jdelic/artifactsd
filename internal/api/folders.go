@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/sandbox"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -39,6 +40,7 @@ func (h *Handler) getFolder(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "resolve metadata view", err)
 		return
 	}
+	addSandboxState(effective, false, true)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": p, "own": own, "effective": effective, "chain": chain, "sources": sources,
 	})
@@ -140,6 +142,9 @@ type treeNode struct {
 	Size        *int64  `json:"size,omitempty"`
 	ContentType *string `json:"content_type,omitempty"`
 	ExpiresAt   *string `json:"expires_at,omitempty"`
+	// Sandbox is set when the item is not plainly sandboxed: "unsandboxed" or
+	// "awaiting_approval" (artifactsd-7tl.9).
+	Sandbox string `json:"sandbox,omitempty"`
 }
 
 // tree returns a structured listing under ?path= up to ?depth= (management view,
@@ -161,6 +166,7 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "list nodes", err)
 		return
 	}
+	states := sandbox.ForNodes(h.cfg.Policy.Sandbox, c.Metadata, nodes)
 	items := make([]treeNode, 0, len(nodes))
 	for _, n := range nodes {
 		if !underBase(n.Path, base) {
@@ -169,7 +175,11 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 		if depth > 0 && relativeDepth(n.Path, base) > depth {
 			continue
 		}
-		items = append(items, toTreeNode(n))
+		tn := toTreeNode(n)
+		if st := states[n.Path]; st != sandbox.Sandboxed {
+			tn.Sandbox = string(st)
+		}
+		items = append(items, tn)
 	}
 	writeJSON(w, http.StatusOK, listResponse[treeNode]{Items: items})
 }

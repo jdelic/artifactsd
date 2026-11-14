@@ -97,6 +97,11 @@ artifactctl get <collection>/<path> [-o <localfile>]
 artifactctl rm [-r] <collection>/<path>
 ```
 
+- `put` / `put-tree` print server warnings on stderr, e.g. when a file lands
+  where an admin turned the sandbox off but is served sandboxed until an admin
+  re-approves it. `tree` marks such items `[sandbox off]` or
+  `[sandbox off: awaiting admin approval]`; `meta explain` shows
+  `sandbox_state`.
 - `put` infers content type from the file extension unless `--content-type` is
   given. Re-uploading a file **without** metadata flags keeps its existing
   metadata; any metadata flag replaces the stored document with the one the

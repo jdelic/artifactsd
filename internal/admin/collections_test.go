@@ -323,3 +323,44 @@ func TestAdminUpload_PreservesMetadata(t *testing.T) {
 		t.Errorf("metadata after admin re-upload = %s, want private kept", n.Metadata)
 	}
 }
+
+// TestAdminTree_SandboxBadgesAndApprove (artifactsd-7tl.9).
+func TestAdminTree_SandboxBadgesAndApprove(t *testing.T) {
+	ha := newFullHarness(t)
+	ctx := context.Background()
+	form := url.Values{"name": {"demo-run"}}
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	seedFile(t, ha, "demo-run", "spa/user.html", "<p>u</p>")
+	c, _ := ha.st.GetCollectionByName(ctx, "demo-run")
+	folder, _ := ha.st.GetNode(ctx, c.ID, "spa")
+	folder.Metadata = []byte(`{"content":{"sandbox":false}}`)
+	if err := ha.st.UpsertNode(ctx, folder); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate content a non-admin replaced after approval.
+	n, _ := ha.st.GetNode(ctx, c.ID, "spa/user.html")
+	n.ContentTrusted = false
+	if err := ha.st.UpsertNode(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+
+	body := doReq(t, ha, http.MethodGet, "/collections/demo-run/tree?path=spa", http.NoBody, "").Body.String()
+	if !strings.Contains(body, "awaiting approval") || !strings.Contains(body, "approve-content/spa/user.html") {
+		t.Fatalf("tree lacks the awaiting-approval badge/action:\n%s", body)
+	}
+	root := doReq(t, ha, http.MethodGet, "/collections/demo-run/tree", http.NoBody, "").Body.String()
+	if !strings.Contains(root, "nc-sandbox-off") {
+		t.Errorf("unsandboxed folder has no badge:\n%s", root)
+	}
+
+	rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/approve-content/spa/user.html", strings.NewReader("dir=spa"), "application/x-www-form-urlencoded")
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "awaiting approval") {
+		t.Errorf("approve = %d, body still shows awaiting approval:\n%s", rec.Code, rec.Body)
+	}
+	if n, _ := ha.st.GetNode(ctx, c.ID, "spa/user.html"); !n.ContentTrusted {
+		t.Error("approve did not trust the content")
+	}
+	if files := doReq(t, ha, http.MethodGet, "/files", http.NoBody, "").Body.String(); !strings.Contains(files, "nc-sandbox-off") {
+		t.Error("all-files view lacks the sandbox badge")
+	}
+}

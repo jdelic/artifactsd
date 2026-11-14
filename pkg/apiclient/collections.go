@@ -103,6 +103,9 @@ type TreeNode struct {
 	Size        *int64  `json:"size,omitempty"`
 	ContentType *string `json:"content_type,omitempty"`
 	ExpiresAt   *string `json:"expires_at,omitempty"`
+	// Sandbox is "unsandboxed" or "awaiting_approval" when the item is not
+	// plainly sandboxed; empty otherwise.
+	Sandbox string `json:"sandbox,omitempty"`
 }
 
 // Tree lists a collection's files and folders (design/04 §4). path scopes the

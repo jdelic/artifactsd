@@ -189,7 +189,9 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	_ = h.audit.Record(r.Context(), &audit.Entry{
 		Action: audit.ActionUploadComplete, Actor: audit.ActorUpload, Target: c.Name + "/" + session.TargetPath,
 	})
-	writeJSON(w, status, h.toFileView(c.Name, node))
+	fv := h.toFileView(c.Name, node)
+	fv.Warnings = h.sandboxWarnings(r.Context(), c, node)
+	writeJSON(w, status, fv)
 }
 
 // getUploadStatus reports a session's lifecycle state. Like the PUT, this is a

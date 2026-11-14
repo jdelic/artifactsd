@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jdelic/artifactsd/internal/meta"
+	"github.com/jdelic/artifactsd/internal/sandbox"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -46,14 +47,11 @@ func applyDefaultVisibility(doc *meta.Document) string {
 	return *doc.Access.Visibility
 }
 
-// publicURLAllowed reports whether a committed file is reachable anonymously
-// by URL: its effective visibility (server defaults → collection → ancestor
-// folders → file) is public or unlisted and neither the collection nor any
-// ancestor folder is private. Lookup errors fail closed.
-func (h *Handler) publicURLAllowed(ctx context.Context, c *store.Collection, nodePath string, fileDoc *meta.Document) bool {
-	if c.Visibility == meta.VisibilityPrivate {
-		return false
-	}
+// resolveFile resolves a committed file's effective metadata (server defaults
+// → collection → ancestor folders → file) and whether the collection or an
+// ancestor folder is private. Lookup errors are returned.
+func (h *Handler) resolveFile(ctx context.Context, c *store.Collection, nodePath string, fileDoc *meta.Document) (*meta.Effective, bool, error) {
+	private := c.Visibility == meta.VisibilityPrivate
 	layers := []*meta.Document{docOrNil(c.Metadata)}
 	segs := strings.Split(nodePath, "/")
 	prefix := ""
@@ -68,10 +66,10 @@ func (h *Handler) publicURLAllowed(ctx context.Context, c *store.Collection, nod
 			continue
 		}
 		if err != nil {
-			return false
+			return nil, false, err
 		}
 		if n.Visibility != nil && *n.Visibility == meta.VisibilityPrivate {
-			return false
+			private = true
 		}
 		layers = append(layers, docOrNil(n.Metadata))
 	}
@@ -83,7 +81,29 @@ func (h *Handler) publicURLAllowed(ctx context.Context, c *store.Collection, nod
 		Indexable:        h.cfg.Policy.Indexable,
 		Sandbox:          h.cfg.Policy.Sandbox,
 	}, layers...)
+	return eff, private, nil
+}
+
+// publicURLAllowed reports whether a committed file is reachable anonymously
+// by URL: its effective visibility is public or unlisted and neither the
+// collection nor any ancestor folder is private. Lookup errors fail closed.
+func (h *Handler) publicURLAllowed(ctx context.Context, c *store.Collection, nodePath string, fileDoc *meta.Document) bool {
+	eff, private, err := h.resolveFile(ctx, c, nodePath, fileDoc)
+	if err != nil || private {
+		return false
+	}
 	return eff.Visibility == meta.VisibilityPublic || eff.Visibility == meta.VisibilityUnlisted
+}
+
+// sandboxWarning explains, for a file uploaded through a link (always
+// untrusted content), that it is served sandboxed although the sandbox is
+// turned off where it lives (artifactsd-7tl.9). Empty when not applicable.
+func (h *Handler) sandboxWarning(ctx context.Context, c *store.Collection, nodePath string, fileDoc *meta.Document) string {
+	eff, _, err := h.resolveFile(ctx, c, nodePath, fileDoc)
+	if err != nil || sandbox.For(eff.Sandbox, true, false) != sandbox.AwaitingApproval {
+		return ""
+	}
+	return "served sandboxed until an admin re-approves it: " + sandbox.AwaitingApprovalNote
 }
 
 func docOrNil(raw []byte) *meta.Document {

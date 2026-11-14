@@ -45,6 +45,16 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   unsandboxes the content **currently** under it — no re-upload needed. Content
   a non-admin writes or replaces afterwards is served sandboxed until an admin
   sets `sandbox: false` again (a metadata change, not an upload).
+- **Sandbox state** is reported wherever it matters:
+  - file writes (`PUT`, large upload, upload links) return
+    `"warnings": [...]` (upload links: a per-file `warning`) when the content is
+    served sandboxed although the sandbox is turned off where it lives;
+  - metadata views (`GET …?meta`) add `effective.sandbox_state`
+    (`sandboxed` | `unsandboxed` | `awaiting_approval`) and, while awaiting
+    approval, `effective.sandbox_note`;
+  - `GET /collections/{c}/tree` items carry `"sandbox": "unsandboxed"` or
+    `"awaiting_approval"` (omitted when sandboxed).
+  Share-level overrides apply only through that share and are not reflected.
 
 ## Collections
 

@@ -286,6 +286,8 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		Path     string  `json:"path"`
 		Size     int64   `json:"size"`
 		URL      *string `json:"url,omitempty"`
+		// Warning explains surprising serving behavior (artifactsd-7tl.9).
+		Warning string `json:"warning,omitempty"`
 	}
 	uploaded := make([]uploadedFile, 0, len(rc.files))
 	for _, f := range rc.files {
@@ -301,6 +303,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 			Path:     f.node.Path,
 			Size:     *f.node.Size,
 			URL:      fileURL,
+			Warning:  h.sandboxWarning(ctx, c, f.node.Path, fileMeta),
 		})
 	}
 

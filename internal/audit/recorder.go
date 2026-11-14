@@ -28,6 +28,7 @@ const (
 	ActionUploadRequestExpire = "upload_request.expire"
 	ActionAdminLogin          = "admin.login"
 	ActionAdminLoginDenied    = "admin.login_denied"
+	ActionContentApprove      = "content.approve"
 )
 
 // ActorAnonymous is the actor recorded for unauthenticated capability-URL

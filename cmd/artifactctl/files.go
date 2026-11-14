@@ -286,7 +286,10 @@ func (a *app) putTreeFile(cmd *cobra.Command, cli *apiclient.Client, collection 
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	_, err = uploadFile(cmd, cli, collection, tf.rel, f, tf.size, contentType, threshold, metadata)
+	info, err := uploadFile(cmd, cli, collection, tf.rel, f, tf.size, contentType, threshold, metadata)
+	if err == nil {
+		a.printWarnings(info)
+	}
 	return err
 }
 
@@ -332,7 +335,15 @@ func (a *app) renderFile(info *apiclient.FileInfo, genToken, textMsg string) err
 		a.printf(textMsg, info.Path, info.Size)
 	}
 	a.printf("url: %s\n", info.URL)
+	a.printWarnings(info)
 	return nil
+}
+
+// printWarnings shows the server's warnings about a written file on stderr.
+func (a *app) printWarnings(info *apiclient.FileInfo) {
+	for _, w := range info.Warnings {
+		_, _ = fmt.Fprintf(a.err, "warning: %s: %s\n", info.Path, w)
+	}
 }
 
 // splitTarget splits "collection/path" into its two parts.

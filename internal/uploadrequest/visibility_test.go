@@ -121,3 +121,19 @@ func TestVisibility_LegacyLinkWithoutVisibility(t *testing.T) {
 		t.Errorf("anonymous GET = %d, want 404", c)
 	}
 }
+
+// TestUpload_SandboxWarning: a file uploaded into an admin-unsandboxed folder
+// is reported as served sandboxed until approved (artifactsd-7tl.9).
+func TestUpload_SandboxWarning(t *testing.T) {
+	ts := newDemo(t)
+	mustAPI(t, ts, http.MethodPatch, "/api/v1/collections/demo/folders/in?meta", `{"content":{"sandbox":false}}`)
+	id := createLink(t, ts, `{"collection":"demo","target_folder":"in"}`)
+	code, b := upload(t, ts, id, part{"a.html", "<p>a</p>"})
+	if code != http.StatusOK || !strings.Contains(string(b), `"warning":"served sandboxed until an admin re-approves it`) {
+		t.Errorf("upload into unsandboxed folder: %d %s, want a warning", code, b)
+	}
+	other := createLink(t, ts, `{"collection":"demo","target_folder":"plain"}`)
+	if _, b := upload(t, ts, other, part{"b.html", "<p>b</p>"}); strings.Contains(string(b), "warning") {
+		t.Errorf("plain upload has a warning: %s", b)
+	}
+}

@@ -291,6 +291,14 @@ the sandbox CSP to untrusted content regardless of `content.sandbox`.
 - Users can't change `content.sandbox` at all (403), and a non-admin metadata
   replacement keeps the stored admin value. Metadata-only PATCHes keep trust.
 - Files existing before the migration count as trusted.
+- **Visibility** (artifactsd-7tl.9, `internal/sandbox`): writes return a warning
+  when they land awaiting approval (API `warnings`, upload-link per-file
+  `warning` shown on the upload page, CLI stderr, MCP tool result); metadata
+  views report `sandbox_state` (+ `sandbox_note`); the tree API, `artifactctl
+  tree` and MCP `artifact_list_tree` mark items; the admin UI shows a
+  "sandbox off" badge on collections, folders and files and an "awaiting
+  approval" badge with a one-click **Approve unsandboxed** action
+  (`content.approve` audit entry).
 
 **Defense in depth on the admin side.** Every admin response sets
 `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,

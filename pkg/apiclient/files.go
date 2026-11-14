@@ -20,6 +20,9 @@ type FileInfo struct {
 	URL         string  `json:"url"`
 	UpdatedAt   string  `json:"updated_at"`
 	ExpiresAt   *string `json:"expires_at,omitempty"`
+	// Warnings explain surprising serving behavior, e.g. content served
+	// sandboxed until an admin re-approves it.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // PutFileOptions are optional inputs to PutFile.

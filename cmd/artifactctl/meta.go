@@ -99,7 +99,7 @@ func (a *app) newMetaGetCmd() *cobra.Command {
 // explainOrder fixes a readable property order for `meta explain`; header and
 // robots keys (sorted) are appended after their section anchor.
 var explainOrder = []string{
-	"visibility", "directory_listing", "auth", "content_type", "sandbox",
+	"visibility", "directory_listing", "auth", "content_type", "sandbox", "sandbox_state", "sandbox_note",
 	"crawlable", "indexable", "expires_at", "x_robots_tag",
 }
 

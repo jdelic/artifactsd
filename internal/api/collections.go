@@ -140,6 +140,7 @@ func (h *Handler) getCollectionMeta(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "resolve metadata view", err)
 		return
 	}
+	addSandboxState(effective, false, true)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": "", "own": redactMetadata(c.Metadata), "effective": effective, "chain": chain, "sources": sources,
 	})
