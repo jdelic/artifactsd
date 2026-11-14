@@ -12,12 +12,12 @@ func TestFolders_MetaAndDelete(t *testing.T) {
 	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/docs/a.txt", []byte("a"), nil)
 
 	// PATCH folder meta materializes the folder.
-	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/docs/meta",
+	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/docs?meta",
 		[]byte(`{"access":{"directory_listing":true}}`), nil); rec.Code != http.StatusOK {
 		t.Fatalf("patch folder = %d (%s)", rec.Code, rec.Body)
 	}
 	// GET folder meta reflects it.
-	rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/folders/docs/meta", nil, nil)
+	rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/folders/docs?meta", nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get folder meta = %d", rec.Code)
 	}

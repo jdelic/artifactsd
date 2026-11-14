@@ -35,8 +35,8 @@ installs) a systemd unit for it — see
 | `artifact_create_collection` | `POST /collections` | name + policy flags; optional `expires_in` (e.g. `7d`) sets `expiry.expires_at` |
 | `artifact_put_text` | `PUT .../files/{path}` | small text artifacts inline |
 | `artifact_begin_upload` | `POST .../uploads` | returns a direct upload URL for large/binary |
-| `artifact_get_metadata` | `GET .../meta` | own + effective + provenance; empty path = collection, trailing `/` = folder |
-| `artifact_set_metadata` | `PATCH .../meta` | merge, same path convention |
+| `artifact_get_metadata` | `GET ...?meta` (collection: `GET /collections/{c}/meta`) | own + effective + provenance; empty path = collection, trailing `/` = folder |
+| `artifact_set_metadata` | `PATCH ...?meta` (collection: `PATCH /collections/{c}/meta`) | merge, same path convention |
 | `artifact_delete` | `DELETE .../files/{path}` | needs a token with `collections:delete` |
 | `artifact_list_tree` | `GET .../tree` | structured listing (unfiltered management view) |
 | `artifact_get_public_url` | local compose | builds a `/c/...` URL |

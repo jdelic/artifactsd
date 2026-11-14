@@ -117,11 +117,20 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, h.toFileView(c.Name, node))
 }
 
-// getFile dispatches GET to either a metadata read (".../meta" suffix) or a
-// file download.
+// wantsMeta reports whether the request addresses an object's metadata: the
+// "meta" query parameter is present, with any value (artifactsd-m9e.23). It
+// replaces the old ".../meta" path suffix, which was ambiguous for a file whose
+// path really ends in "/meta".
+func wantsMeta(r *http.Request) bool { return r.URL.Query().Has("meta") }
+
+// errMetaQueryRequired is the 400 for routes that only address metadata.
+const errMetaQueryRequired = "add ?meta to address metadata"
+
+// getFile serves the file's metadata with ?meta, else downloads the file —
+// for any path, including one ending in "/meta".
 func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
-	if mp, isMeta := strings.CutSuffix(r.PathValue("path"), "/meta"); isMeta {
-		h.serveFileMeta(w, r, mp)
+	if wantsMeta(r) {
+		h.serveFileMeta(w, r, r.PathValue("path"))
 		return
 	}
 	h.downloadFile(w, r)
@@ -193,14 +202,14 @@ func (h *Handler) serveFileMeta(w http.ResponseWriter, r *http.Request, filePath
 	})
 }
 
-// patchFile requires the ".../meta" suffix (only metadata is patchable).
+// patchFile merges file metadata; it requires ?meta (only metadata is
+// patchable).
 func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
-	mp, isMeta := strings.CutSuffix(r.PathValue("path"), "/meta")
-	if !isMeta {
-		writeError(w, http.StatusBadRequest, CodeBadRequest, "PATCH applies to .../meta only")
+	if !wantsMeta(r) {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, errMetaQueryRequired)
 		return
 	}
-	node, _, ok := h.resolveFile(w, r, mp)
+	node, _, ok := h.resolveFile(w, r, r.PathValue("path"))
 	if !ok {
 		return
 	}
@@ -292,8 +301,6 @@ func (h *Handler) resolveFile(w http.ResponseWriter, r *http.Request, rawPath st
 	return node, c, true
 }
 
-// uploadMetadata parses the optional Artifactsd-Metadata header, validating and
-// hashing its secrets.
 // uploadMetadata decodes the optional Artifactsd-Metadata header. supplied is
 // false when the header is absent: the caller then keeps an existing file's
 // metadata (artifactsd-m9e.3). An explicit "e30" ({}) is supplied and resets.

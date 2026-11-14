@@ -86,7 +86,7 @@ func TestContentHeaders_LegacyStoredHeaderNotServed(t *testing.T) {
 		t.Errorf("allowed legacy header dropped")
 	}
 	// Patching an unrelated field still works.
-	if r := call(t, ts, http.MethodPatch, "/api/v1/collections/demo/files/old.txt/meta", ts.AdminToken,
+	if r := call(t, ts, http.MethodPatch, "/api/v1/collections/demo/files/old.txt?meta", ts.AdminToken,
 		`{"crawl":{"indexable":false}}`, map[string]string{"Content-Type": "application/json"}); r.StatusCode != http.StatusOK {
 		t.Errorf("unrelated PATCH on a legacy document = %d, want 200", r.StatusCode)
 	}

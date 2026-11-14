@@ -302,7 +302,7 @@ $ artifactctl put-tree web-assets ./public --public \
 | `put-tree` | many `PUT` / begin-upload |
 | `get` | `GET /collections/{c}/files/{path}` |
 | `rm` / `rm -r` | `DELETE .../files/{path}` / `DELETE .../folders/{path}` |
-| `meta get/set/explain` | `GET`/`PATCH` `.../meta` (collection, folder, or file level) |
+| `meta get/set/explain` | `GET`/`PATCH` `.../files/{path}?meta`, `.../folders/{path}?meta`, or `/collections/{c}/meta` |
 | `share create/list/revoke` | `/collections/{c}/shares`, `/shares/{id}` |
 | `upload-request create/list/show` | `/upload-requests`, `/upload-requests/{id}` |
 | `upload-request close` / `revoke` | `PATCH` status=closed / `DELETE /upload-requests/{id}` |

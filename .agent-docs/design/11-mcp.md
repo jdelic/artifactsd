@@ -25,8 +25,8 @@ API. **MCP is an adapter, not the canonical storage layer** (SPEC §3, §16).
 | `artifact_create_collection` | `POST /collections` | name + policy flags |
 | `artifact_put_text` | `PUT .../files/{path}` | small text artifacts inline |
 | `artifact_begin_upload` | `POST .../uploads` | returns direct upload URL for large/binary |
-| `artifact_get_metadata` | `GET .../meta` | effective + own |
-| `artifact_set_metadata` | `PATCH .../meta` | merge |
+| `artifact_get_metadata` | `GET ...?meta` (collection: `/collections/{c}/meta`) | effective + own |
+| `artifact_set_metadata` | `PATCH ...?meta` (collection: `/collections/{c}/meta`) | merge |
 | `artifact_delete` | `DELETE .../files/{path}` | |
 | `artifact_list_tree` | `GET .../tree` or `/crawl` | structured listing |
 | `artifact_get_public_url` | local compose | builds `/c/...` URL |

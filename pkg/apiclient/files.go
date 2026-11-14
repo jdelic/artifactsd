@@ -92,7 +92,7 @@ type ChainEntry struct {
 // GetFileMeta reads a file's own and effective metadata (design/04 §3).
 func (c *Client) GetFileMeta(ctx context.Context, collection, path string) (*FileMeta, error) {
 	var out FileMeta
-	if err := c.sendJSON(ctx, http.MethodGet, filePath(collection, path)+"/meta", nil, &out); err != nil {
+	if err := c.sendJSON(ctx, http.MethodGet, filePath(collection, path)+"?meta", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -102,7 +102,7 @@ func (c *Client) GetFileMeta(ctx context.Context, collection, path string) (*Fil
 // metadata (design/04 §3).
 func (c *Client) PatchFileMeta(ctx context.Context, collection, path string, patch json.RawMessage) (*FileMeta, error) {
 	var out FileMeta
-	if err := c.sendJSON(ctx, http.MethodPatch, filePath(collection, path)+"/meta", patch, &out); err != nil {
+	if err := c.sendJSON(ctx, http.MethodPatch, filePath(collection, path)+"?meta", patch, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -113,7 +113,7 @@ func (c *Client) PatchFileMeta(ctx context.Context, collection, path string, pat
 // (own is then an empty document).
 func (c *Client) GetFolderMeta(ctx context.Context, collection, path string) (*FileMeta, error) {
 	var out FileMeta
-	if err := c.sendJSON(ctx, http.MethodGet, folderPath(collection, path)+"/meta", nil, &out); err != nil {
+	if err := c.sendJSON(ctx, http.MethodGet, folderPath(collection, path)+"?meta", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -123,7 +123,7 @@ func (c *Client) GetFolderMeta(ctx context.Context, collection, path string) (*F
 // folder node if it does not exist yet (design/04 §4).
 func (c *Client) PatchFolderMeta(ctx context.Context, collection, path string, patch json.RawMessage) (*FileMeta, error) {
 	var out FileMeta
-	if err := c.sendJSON(ctx, http.MethodPatch, folderPath(collection, path)+"/meta", patch, &out); err != nil {
+	if err := c.sendJSON(ctx, http.MethodPatch, folderPath(collection, path)+"?meta", patch, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

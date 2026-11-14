@@ -28,7 +28,7 @@ func TestOIDCIssuerAllowlist(t *testing.T) {
 	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/f.txt", ts.AdminToken, "secret", nil)
 
 	patch := func(issuer string) int {
-		return call(t, ts, http.MethodPatch, "/api/v1/collections/demo/files/f.txt/meta", ts.AdminToken,
+		return call(t, ts, http.MethodPatch, "/api/v1/collections/demo/files/f.txt?meta", ts.AdminToken,
 			`{"access":{"visibility":"protected","auth":[{"type":"oidc","issuer":"`+issuer+`","audience":"a","any_authenticated":true}]}}`,
 			jsonHdr).StatusCode
 	}

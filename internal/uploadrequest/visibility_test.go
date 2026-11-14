@@ -41,7 +41,7 @@ func TestVisibility_DefaultPrivate(t *testing.T) {
 	if c := anonGet(t, ts.BaseURL+"/c/demo/in/a.txt"); c != http.StatusNotFound {
 		t.Errorf("anonymous GET = %d, want 404", c)
 	}
-	meta := mustAPI(t, ts, http.MethodGet, "/api/v1/collections/demo/files/in/a.txt/meta", "")
+	meta := mustAPI(t, ts, http.MethodGet, "/api/v1/collections/demo/files/in/a.txt?meta", "")
 	if !strings.Contains(string(meta), `"private"`) {
 		t.Errorf("own metadata: %s", meta)
 	}
@@ -70,7 +70,7 @@ func TestVisibility_UnlistedWithUploaderAccess(t *testing.T) {
 
 func TestVisibility_NoURLUnderPrivateAncestor(t *testing.T) {
 	ts := newDemo(t)
-	mustAPI(t, ts, http.MethodPatch, "/api/v1/collections/demo/folders/in/meta", `{"access":{"visibility":"private"}}`)
+	mustAPI(t, ts, http.MethodPatch, "/api/v1/collections/demo/folders/in?meta", `{"access":{"visibility":"private"}}`)
 	id := createLink(t, ts, `{"collection":"demo","target_folder":"in","allow_uploader_access":true,
 		"file_metadata":{"access":{"visibility":"public"}}}`)
 	code, b := upload(t, ts, id, part{"a.txt", "a"})

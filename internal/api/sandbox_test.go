@@ -32,8 +32,8 @@ func TestSandboxOff_RequiresAdmin(t *testing.T) {
 		headers                     map[string]string
 	}{
 		{"put file", writer, http.MethodPut, "/api/v1/collections/demo/files/y.html", "<p>y</p>", hdr},
-		{"patch file meta", writer, http.MethodPatch, "/api/v1/collections/demo/files/d/x.html/meta", sandboxOff, nil},
-		{"patch folder meta", writer, http.MethodPatch, "/api/v1/collections/demo/folders/d/meta", sandboxOff, nil},
+		{"patch file meta", writer, http.MethodPatch, "/api/v1/collections/demo/files/d/x.html?meta", sandboxOff, nil},
+		{"patch folder meta", writer, http.MethodPatch, "/api/v1/collections/demo/folders/d?meta", sandboxOff, nil},
 		{"patch collection meta", writer, http.MethodPatch, "/api/v1/collections/demo/meta", sandboxOff, nil},
 		{"create collection", writer, http.MethodPost, "/api/v1/collections", `{"name":"other","metadata":` + sandboxOff + `}`, nil},
 		{"begin large upload", writer, http.MethodPost, "/api/v1/collections/demo/uploads", `{"path":"z.html","metadata":` + sandboxOff + `}`, nil},
@@ -68,7 +68,7 @@ func TestSandboxOff_NonAdminCanTouchOtherFields(t *testing.T) {
 	}
 	writer := mkToken(t, h.st, "writer", `["collections:write"]`)
 	// An unrelated patch keeps the admin-set sandbox=false.
-	if rec := h.do(t, writer, http.MethodPatch, "/api/v1/collections/demo/files/app.html/meta",
+	if rec := h.do(t, writer, http.MethodPatch, "/api/v1/collections/demo/files/app.html?meta",
 		[]byte(`{"crawl":{"indexable":false}}`), nil); rec.Code != http.StatusOK {
 		t.Fatalf("unrelated patch = %d (%s)", rec.Code, rec.Body)
 	}
@@ -76,7 +76,7 @@ func TestSandboxOff_NonAdminCanTouchOtherFields(t *testing.T) {
 		t.Errorf("own = %s, want sandbox false kept", own)
 	}
 	// Setting sandbox true (or leaving it unset) is always allowed.
-	if rec := h.do(t, writer, http.MethodPatch, "/api/v1/collections/demo/files/app.html/meta",
+	if rec := h.do(t, writer, http.MethodPatch, "/api/v1/collections/demo/files/app.html?meta",
 		[]byte(`{"content":{"sandbox":true}}`), nil); rec.Code != http.StatusOK {
 		t.Errorf("sandbox true by writer = %d (%s)", rec.Code, rec.Body)
 	}
@@ -89,7 +89,7 @@ func TestAuthEntryValidation(t *testing.T) {
 	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
 	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/f.txt", []byte("x"), nil)
 	patch := func(auth string) *httptest.ResponseRecorder {
-		return h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/files/f.txt/meta",
+		return h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/files/f.txt?meta",
 			[]byte(`{"access":{"visibility":"protected","auth":`+auth+`}}`), nil)
 	}
 	slow := `[{"type":"basic","username":"u","password_hash":"$argon2id$v=19$m=262144,t=40,p=1$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}]`

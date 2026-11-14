@@ -95,7 +95,7 @@ func TestE2E_MetaSet_Index(t *testing.T) {
 }
 
 // TestE2E_MetaGetSet_Folder confirms `meta get`/`meta set` also works against
-// a folder path, not just a file: the underlying .../files/{path}/meta
+// a folder path, not just a file: the underlying .../files/{path}?meta
 // endpoint resolves any node by path regardless of kind (internal/api
 // resolveFile doesn't discriminate on Kind), so the CLI's single `meta`
 // command happens to cover folders too.

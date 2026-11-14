@@ -19,7 +19,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("DELETE /api/v1/collections/{c}", h.requireScope(auth.ScopeCollectionsDelete, h.deleteCollection))
 
 	// Files (design/04 §3). Go's ServeMux requires {path...} to be the final
-	// segment, so the ".../meta" sub-resource is dispatched in code by suffix.
+	// segment, so metadata is addressed with the ?meta query parameter
+	// (artifactsd-m9e.23) rather than a path suffix.
 	mux.Handle("PUT /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.putFile))
 	mux.Handle("GET /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsRead, h.getFile))
 	mux.Handle("PATCH /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFile))

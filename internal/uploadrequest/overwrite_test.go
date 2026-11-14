@@ -45,7 +45,7 @@ func TestOverwrite_DefaultLinkRefusesExistingFile(t *testing.T) {
 	if got, _ := fileContent(t, ts, "demo", "report.html"); got != "<h1>official</h1>" {
 		t.Errorf("content = %q, want original", got)
 	}
-	meta := mustAPI(t, ts, http.MethodGet, "/api/v1/collections/demo/files/report.html/meta", "")
+	meta := mustAPI(t, ts, http.MethodGet, "/api/v1/collections/demo/files/report.html?meta", "")
 	if !strings.Contains(string(meta), `"private"`) {
 		t.Errorf("metadata changed: %s", meta)
 	}

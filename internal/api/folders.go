@@ -11,13 +11,13 @@ import (
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
-// getFolder handles GET on a folder's ".../meta" sub-resource.
+// getFolder serves a folder's metadata; it requires ?meta.
 func (h *Handler) getFolder(w http.ResponseWriter, r *http.Request) {
-	mp, isMeta := strings.CutSuffix(r.PathValue("path"), "/meta")
-	if !isMeta {
-		writeError(w, http.StatusBadRequest, CodeBadRequest, "GET applies to .../meta only")
+	if !wantsMeta(r) {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, errMetaQueryRequired)
 		return
 	}
+	mp := r.PathValue("path")
 	c, ok := h.lookupCollection(w, r)
 	if !ok {
 		return
@@ -44,13 +44,14 @@ func (h *Handler) getFolder(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// patchFolder sets/merges folder metadata, materializing the folder node.
+// patchFolder sets/merges folder metadata, materializing the folder node; it
+// requires ?meta.
 func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
-	mp, isMeta := strings.CutSuffix(r.PathValue("path"), "/meta")
-	if !isMeta {
-		writeError(w, http.StatusBadRequest, CodeBadRequest, "PATCH applies to .../meta only")
+	if !wantsMeta(r) {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, errMetaQueryRequired)
 		return
 	}
+	mp := r.PathValue("path")
 	c, ok := h.lookupCollection(w, r)
 	if !ok {
 		return

@@ -26,7 +26,7 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   Codes: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`,
   `payload_too_large`, `unsupported_media_type`, `rate_limited`, `internal`.
 - **Timestamps** — RFC3339 UTC. **Durations** — `30d`, `48h`, `2w`.
-- **Idempotency** — `PUT` of a file is a full, idempotent replace; `PATCH .../meta`
+- **Idempotency** — `PUT` of a file is a full, idempotent replace; `PATCH ...?meta`
   merges.
 - **Pagination** — `GET /collections` takes `?limit=&cursor=` and returns
   `{ "items": [...], "next_cursor": "..." }`. The other list endpoints use the
@@ -72,8 +72,8 @@ collection.
 ```
 PUT    /api/v1/collections/{c}/files/{path...}        upload/replace   collections:write
 GET    /api/v1/collections/{c}/files/{path...}        download         collections:read
-GET    /api/v1/collections/{c}/files/{path...}/meta   read metadata    collections:read
-PATCH  /api/v1/collections/{c}/files/{path...}/meta   merge metadata   collections:write
+GET    /api/v1/collections/{c}/files/{path...}?meta   read metadata    collections:read
+PATCH  /api/v1/collections/{c}/files/{path...}?meta   merge metadata   collections:write
 DELETE /api/v1/collections/{c}/files/{path...}        delete           collections:delete
 ```
 
@@ -96,7 +96,15 @@ bodies get `413`. Response:
   "updated_at": "2026-06-21T10:15:00Z" }
 ```
 
-**Metadata (`GET .../meta`)** — available at all three levels (collection,
+**Addressing metadata.** File and folder metadata is addressed with the `meta`
+query parameter (any or empty value): `GET|PATCH .../files/{path}?meta` and
+`GET|PATCH .../folders/{path}?meta`. Without it, `GET .../files/{path}`
+downloads the file for **any** path, including one that ends in `/meta`;
+`PATCH .../files/{path}` and `GET|PATCH .../folders/{path}` answer `400` "add
+?meta to address metadata". The collection's own metadata keeps its fixed route
+`/collections/{c}/meta`. (The former `.../meta` path suffix was removed.)
+
+**Metadata (`GET ...?meta`; `GET /collections/{c}/meta` for a collection)** — available at all three levels (collection,
 folder, file) in one shape: the object's own metadata, the resolved
 **effective** metadata (flat view, secrets redacted to presence booleans), and
 provenance — `chain` (the inheritance layers, lowest precedence first) and
@@ -122,15 +130,15 @@ This backs `artifactctl meta explain`:
                "crawlable": "defaults" } }
 ```
 
-`PATCH .../meta` takes a partial document and merges it. Setting
+`PATCH ...?meta` takes a partial document and merges it. Setting
 `access.auth[].token` or `password` in cleartext causes server-side hashing; the
 cleartext is never stored.
 
 ## Folders
 
 ```
-GET    /api/v1/collections/{c}/folders/{path...}/meta   read folder metadata     collections:read
-PATCH  /api/v1/collections/{c}/folders/{path...}/meta   set/merge (materializes) collections:write
+GET    /api/v1/collections/{c}/folders/{path...}?meta   read folder metadata     collections:read
+PATCH  /api/v1/collections/{c}/folders/{path...}?meta   set/merge (materializes) collections:write
 DELETE /api/v1/collections/{c}/folders/{path...}        delete subtree           collections:delete
 GET    /api/v1/collections/{c}/tree?path=&depth=        structured listing       collections:read
 ```
