@@ -45,6 +45,8 @@ type Handler struct {
 	lastAccess   *lastAccessUpdater
 	robotsCache  *robotsCache
 	sitemapCache *sitemapCache
+	// metaPolicy filters content.headers at serve time; nil = defaults.
+	metaPolicy *meta.Policy
 	// now is the clock used for effective-expiry decisions; injectable so tests
 	// are deterministic rather than depending on the wall clock relative to the
 	// expiry timestamps they set up.
@@ -53,8 +55,10 @@ type Handler struct {
 
 // New builds a serving handler.
 func New(d Deps) *Handler {
+	mp, _ := d.Config.MetaPolicy() // validated at startup; nil = defaults
 	return &Handler{
-		store: d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
+		metaPolicy: mp,
+		store:      d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit, oidc: d.OIDC, log: d.Logger,
 		lastAccess:   newLastAccessUpdater(d.Store, d.Config.Limits.AccessUpdateThrottle, string(d.Config.Policy.Visibility), d.Logger),
 		robotsCache:  newRobotsCache(),
 		sitemapCache: newSitemapCache(),
@@ -286,7 +290,7 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Col
 	}
 	defer func() { _ = rc.Close() }()
 
-	for k, v := range meta.FilterHeaders(eff.Headers) {
+	for k, v := range h.metaPolicy.FilterHeaders(eff.Headers) {
 		w.Header().Set(k, v)
 	}
 	// Sandbox artifact-controlled content into an opaque origin so its JavaScript

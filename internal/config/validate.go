@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jdelic/artifactsd/internal/clientip"
+	"github.com/jdelic/artifactsd/internal/meta"
 )
 
 // Validate performs startup validation and fails fast, returning an error that
@@ -132,6 +133,9 @@ func (c *Config) validateAdmin(add func(string, ...any)) {
 }
 
 func (c *Config) validatePolicy(add func(string, ...any)) {
+	if err := meta.ValidateExtraHeaders(c.Policy.ExtraAllowedHeaders); err != nil {
+		add("%v", err)
+	}
 	switch c.Policy.Visibility {
 	case VisibilityPublic, VisibilityPrivate:
 	default:

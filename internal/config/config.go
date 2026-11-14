@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/clientip"
+	"github.com/jdelic/artifactsd/internal/meta"
 )
 
 // HostOnly strips an optional :port from a host[:port] string, returning the
@@ -202,6 +203,18 @@ type DefaultPolicy struct {
 	// or read the same-origin admin UI (design/14 §7, artifactsd-c63). Default
 	// true; a per-object content.sandbox overrides it.
 	Sandbox bool
+	// ExtraAllowedHeaders extends the content.headers allowlist
+	// (ARTIFACTSD_EXTRA_ALLOWED_HEADERS, artifactsd-m9e.5). Entries apply to
+	// every writer.
+	ExtraAllowedHeaders []string
+}
+
+// MetaPolicy builds the metadata policy (header allowlist extensions) handed
+// to validation and serving. The configuration is validated at startup, so an
+// error here only comes from a hand-built Config; callers fall back to the
+// built-in defaults (a nil *meta.Policy) in that case.
+func (c *Config) MetaPolicy() (*meta.Policy, error) {
+	return meta.NewPolicy(meta.PolicyOptions{ExtraAllowedHeaders: c.Policy.ExtraAllowedHeaders})
 }
 
 // Limits holds size/rate/janitor/upload knobs (design/12 §4).

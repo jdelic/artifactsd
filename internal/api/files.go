@@ -302,7 +302,7 @@ func (h *Handler) uploadMetadata(w http.ResponseWriter, r *http.Request) (doc *m
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return nil, false, false
 	}
-	if err := doc.Validate(); err != nil {
+	if err := doc.ValidateWith(h.metaPolicy); err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return nil, false, false
 	}

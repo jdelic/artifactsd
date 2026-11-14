@@ -159,6 +159,13 @@ overrides them via the API/CLI.
 Per-object robots blocks and headers are richer than env can express; they are
 set through the metadata API/CLI, not server config.
 
+`ARTIFACTSD_EXTRA_ALLOWED_HEADERS` / `--extra-allowed-headers` (comma-separated)
+extends the `content.headers` allowlist ([03 §6](03-metadata-policy.md),
+artifactsd-m9e.5). **Warning: entries apply to all writers.** Each must be a
+legal header token; hop-by-hop headers, `Set-Cookie`, `Content-Length` and
+`Content-Type` are a startup error. It reaches `meta` as a `*meta.Policy`
+built from config (`Config.MetaPolicy`); `meta` never reads config.
+
 `ARTIFACTSD_DEFAULT_DELETE_AFTER_CREATION` is a creation-relative default object
 expiry (e.g. `30d`). When set, it is applied during denormalization to any
 collection or node whose own metadata sets no expiry, so new content expires by

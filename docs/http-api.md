@@ -288,7 +288,7 @@ not management endpoints.
 |-----------|------|
 | Success (read/replace) | `200` |
 | Created | `201` |
-| Bad input / unsafe header / bad path | `400` |
+| Bad input / header not in the allowlist ([configuration](configuration.md#allowed-response-headers)) / bad path | `400` |
 | Missing or invalid API token | `401` |
 | Valid token, insufficient scope | `403` |
 | Unknown object, or private/expired on a public route | `404` |

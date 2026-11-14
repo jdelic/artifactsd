@@ -13,6 +13,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/blob"
 	"github.com/jdelic/artifactsd/internal/config"
+	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -63,19 +64,24 @@ type Handler struct {
 	cleaner Cleaner
 	log     *slog.Logger
 	baseURL string
+	// metaPolicy carries operator metadata rules (header allowlist
+	// extensions) into validation; nil = built-in defaults.
+	metaPolicy *meta.Policy
 }
 
 // New builds the API handler.
 func New(d Deps) *Handler { //nolint:gocritic // Deps is built once at construction
+	mp, _ := d.Config.MetaPolicy() // validated at startup; nil = defaults
 	return &Handler{
-		store:   d.Store,
-		blob:    d.Blob,
-		cfg:     d.Config,
-		audit:   d.Audit,
-		authn:   d.Authn,
-		cleaner: d.Cleaner,
-		log:     d.Logger,
-		baseURL: d.BaseURL,
+		metaPolicy: mp,
+		store:      d.Store,
+		blob:       d.Blob,
+		cfg:        d.Config,
+		audit:      d.Audit,
+		authn:      d.Authn,
+		cleaner:    d.Cleaner,
+		log:        d.Logger,
+		baseURL:    d.BaseURL,
 	}
 }
 

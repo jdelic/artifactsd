@@ -183,14 +183,30 @@ before the decision.
 
 ## 6. Header safety
 
-`content.headers` is filtered before emission. Rejected (hop-by-hop / unsafe,
-SPEC §7.2): `connection`, `transfer-encoding`, `content-length`, `host`,
-`keep-alive`, `upgrade`, `te`, `trailer`, `proxy-authenticate`,
-`proxy-authorization`, and `set-cookie` (an artifact must not plant cookies on
-the shared admin/artifact origin — artifactsd-c63). `content-type` from headers
-is ignored in favor of the resolved `content.content_type`. Setting these via
-API/CLI is rejected at write time with a 400, and re-filtered at serve time as
-defense in depth.
+`content.headers` is an **allowlist** (artifactsd-m9e.5; it replaced a short
+hop-by-hop denylist). Headers emitted on an artifact response act on the whole
+origin — `NEL`/`Report-To` register a reporting endpoint that receives the
+visitor's later URLs (including capability links), `Clear-Site-Data` logs the
+admin out, `Service-Worker-Allowed` widens a worker's scope, and `ETag`/
+`Content-Range` corrupt conditional/range handling — so only these are allowed:
+`Cache-Control`, `Content-Disposition`, `Content-Language`, `Content-Encoding`,
+`Content-Security-Policy`, `Content-Security-Policy-Report-Only`, `X-Robots-Tag`,
+`Link`, `Vary`, `Expires`, `Referrer-Policy`, `Permissions-Policy`,
+`Cross-Origin-Resource-Policy`, `Cross-Origin-Opener-Policy`,
+`Cross-Origin-Embedder-Policy`, `Timing-Allow-Origin`, `X-Content-Type-Options`,
+`X-Frame-Options`, every `Access-Control-*` header, and every `X-*` header except
+`X-Request-Id`, `X-Forwarded-*`, `X-Accel-*` and `X-Sendfile`.
+
+`content-type` from headers is accepted but ignored in favour of the resolved
+`content.content_type`. Values must not contain CR/LF/NUL; names ≤ 128 bytes,
+values ≤ 8 KiB, ≤ 32 headers per document. Operators extend the list with
+`ARTIFACTSD_EXTRA_ALLOWED_HEADERS` ([12](12-config.md)).
+
+Enforcement: write-time validation (`Document.ValidateWith(policy)`) rejects
+the incoming document or patch with a 400 naming the header; serve-time
+`Policy.FilterHeaders` silently drops anything not allowed. Already-stored
+documents are never re-validated: they stay readable and patchable, and the
+serve filter keeps their disallowed headers off the wire.
 
 Author-supplied `content-security-policy` is **allowed**: the server emits its
 own sandbox CSP as a separate header (§ below), and because browsers intersect

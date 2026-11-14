@@ -126,7 +126,7 @@ func (h *Handler) saveMetaFields(w http.ResponseWriter, r *http.Request) {
 			expiryField(r, "expires_at"), expiryField(r, "delete_after_creation"), expiryField(r, "delete_after_last_access"),
 		),
 	}
-	if err := doc.Validate(); err != nil {
+	if err := doc.ValidateWith(h.metaPolicy); err != nil {
 		h.renderFieldsError(ctx, w, c, p, raw, err.Error())
 		return
 	}
@@ -157,7 +157,7 @@ func (h *Handler) saveMetaRaw(w http.ResponseWriter, r *http.Request) {
 		h.renderRawError(ctx, w, c, p, body, err.Error())
 		return
 	}
-	if err := doc.Validate(); err != nil {
+	if err := doc.ValidateWith(h.metaPolicy); err != nil {
 		h.renderRawError(ctx, w, c, p, body, err.Error())
 		return
 	}

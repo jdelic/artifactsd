@@ -49,7 +49,7 @@ type Document struct {
 // Content holds content-type and custom response headers.
 type Content struct {
 	ContentType *string           `json:"content_type,omitempty" yaml:"content_type,omitempty" jsonschema:"MIME type served for this object, e.g. text/html; charset=utf-8"`
-	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty" jsonschema:"Extra response headers by name; an empty string value removes an inherited header"`
+	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty" jsonschema:"Extra response headers by name, from an allowlist (Cache-Control, Content-Disposition, Content-Security-Policy, Link, Vary, Access-Control-*, most X-*, …; see docs/configuration.md); an empty string value removes an inherited header"`
 	// Sandbox overrides the server default for whether this object is served
 	// with a CSP sandbox (design/14 §7, artifactsd-c63). Pointer so "unset"
 	// (inherit the default) is distinct from an explicit false (trusted content

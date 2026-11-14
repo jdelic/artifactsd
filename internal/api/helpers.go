@@ -79,7 +79,7 @@ func (h *Handler) prepareMetadata(w http.ResponseWriter, r *http.Request, raw js
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return nil, false
 	}
-	if err = doc.Validate(); err != nil {
+	if err = doc.ValidateWith(h.metaPolicy); err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return nil, false
 	}
@@ -110,7 +110,7 @@ func (h *Handler) mergeMetadata(w http.ResponseWriter, r *http.Request, existing
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return nil, false
 	}
-	if err = patch.Validate(); err != nil {
+	if err = patch.ValidateWith(h.metaPolicy); err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return nil, false
 	}
