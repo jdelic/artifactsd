@@ -11,7 +11,7 @@ permissions:
 jobs:
   goreleaser:
     name: goreleaser
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,7 +73,7 @@ jobs:
 
   docker:
     name: docker image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
