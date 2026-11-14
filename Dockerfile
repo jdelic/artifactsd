@@ -9,7 +9,7 @@
 # VERSION, COMMIT and DATE are stamped into the binary (artifactsd version, the
 # admin UI footer); the release workflow passes all three as --build-arg.
 
-FROM golang:1.26-trixie AS build
+FROM golang:1.26.11-trixie AS build
 WORKDIR /src
 ARG TARGETOS
 ARG TARGETARCH
