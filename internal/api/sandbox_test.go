@@ -118,3 +118,21 @@ func TestAuthEntryValidation_DuplicateBasicUsernames(t *testing.T) {
 		t.Errorf("duplicate basic usernames = %d (%s), want 400", rec.Code, rec.Body)
 	}
 }
+
+// TestPatchMeta_SandboxRoundTrip: a metadata PATCH can set and clear
+// content.sandbox (artifactsd-7tl.8).
+func TestPatchMeta_SandboxRoundTrip(t *testing.T) {
+	h := newHarness(t)
+	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
+	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/a.html", []byte("<p/>"), nil)
+	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/files/a.html?meta", []byte(sandboxOff), nil); rec.Code != http.StatusOK {
+		t.Fatalf("patch = %d", rec.Code)
+	}
+	if own := ownMeta(t, h, "a.html"); !strings.Contains(own, `"sandbox":false`) {
+		t.Errorf("own after PATCH sandbox=false = %s", own)
+	}
+	h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/files/a.html?meta", []byte(`{"content":{"sandbox":true}}`), nil)
+	if own := ownMeta(t, h, "a.html"); !strings.Contains(own, `"sandbox":true`) {
+		t.Errorf("own after PATCH sandbox=true = %s", own)
+	}
+}

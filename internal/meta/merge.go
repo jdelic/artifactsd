@@ -20,6 +20,9 @@ func (d *Document) Merge(patch *Document) {
 		if patch.Content.ContentType != nil {
 			d.Content.ContentType = patch.Content.ContentType
 		}
+		if patch.Content.Sandbox != nil {
+			d.Content.Sandbox = patch.Content.Sandbox
+		}
 		if len(patch.Content.Headers) > 0 {
 			// Canonicalize the base so case-variant patch keys hit the existing
 			// entry; the merge then operates entirely in canonical form.
