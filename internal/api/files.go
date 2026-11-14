@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"path"
 	"strings"
@@ -136,6 +137,11 @@ func (h *Handler) downloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc, err := h.blob.Open(r.Context(), blob.Ref(*node.BlobID))
+	if errors.Is(err, fs.ErrNotExist) {
+		// A node pointing at a missing blob (artifactsd-m9e.10).
+		h.internalServerError(w, fmt.Sprintf("dangling blob reference (node %d, blob %s)", node.ID, *node.BlobID), err)
+		return
+	}
 	if err != nil {
 		h.internalServerError(w, "open blob", err)
 		return

@@ -22,7 +22,9 @@ data/tmp/<random>                    # in-progress writes
 - `Put` streams to `data/tmp/<rand>`, hashing as it writes, fsyncs, then renames
   to the final sharded path (atomic on same filesystem). Returns the
   `sha256:<hex>` ref.
-- Identical content dedupes naturally (same hash → same file). The `nodes` row
+- Identical content dedupes naturally (same hash → same file). A dedupe hit
+  refreshes the blob's mtime so the janitor's grace period (design/08 §5)
+  protects it until the new node is written. The `nodes` row
   maps logical path → `blob_id`.
 - `Delete` is reference-counted: only unlink when no `nodes.blob_id` references
   the hash (checked under the janitor; see [08](08-expiry-janitor.md)).

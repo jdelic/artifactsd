@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -301,6 +302,12 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Col
 		return
 	}
 	rc, err := h.blob.Open(r.Context(), blob.Ref(*node.BlobID))
+	if errors.Is(err, fs.ErrNotExist) {
+		// A node pointing at a missing blob: say so plainly so it can be
+		// diagnosed (artifactsd-m9e.10).
+		h.serverError(w, fmt.Sprintf("dangling blob reference (node %d, blob %s)", node.ID, *node.BlobID), err)
+		return
+	}
 	if err != nil {
 		h.serverError(w, "open blob", err)
 		return

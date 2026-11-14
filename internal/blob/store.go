@@ -70,6 +70,14 @@ type Lister interface {
 	ListRefs(ctx context.Context) ([]Ref, error)
 }
 
+// Ager is an optional capability reporting when a blob was last written. The
+// janitor leaves unreferenced blobs younger than its grace period alone: an
+// upload stores its blob before the node that references it, so a fresh
+// unreferenced blob is usually in flight, not orphaned (artifactsd-m9e.10).
+type Ager interface {
+	ModTime(ctx context.Context, ref Ref) (time.Time, error)
+}
+
 // TempSweeper is an optional capability for blob stores with a filesystem
 // staging area that can accumulate orphaned temp files after a crash
 // mid-upload (design/07 §6, design/08 §5).
@@ -155,8 +163,16 @@ func (s *FSStore) Put(ctx context.Context, r io.Reader) (Ref, int64, string, err
 	}
 
 	if _, statErr := os.Stat(final); statErr == nil {
-		// Already stored — dedupe; temp removed by deferred cleanup.
-		return ref, size, sum, nil
+		// Already stored — dedupe; temp removed by deferred cleanup. Refresh
+		// the mtime so the janitor's grace period protects the re-used blob
+		// until its new node is written (it may be an orphan about to be
+		// collected). If it vanished in between, store our copy instead.
+		now := time.Now()
+		if err := os.Chtimes(final, now, now); err == nil {
+			return ref, size, sum, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", 0, "", fmt.Errorf("blob: refreshing mtime: %w", err)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o750); err != nil {
 		return "", 0, "", fmt.Errorf("blob: creating shard dir: %w", err)
@@ -165,6 +181,19 @@ func (s *FSStore) Put(ctx context.Context, r io.Reader) (Ref, int64, string, err
 		return "", 0, "", fmt.Errorf("blob: rename into place: %w", err)
 	}
 	return ref, size, sum, nil
+}
+
+// ModTime returns when the blob was last written or re-used (see Ager).
+func (s *FSStore) ModTime(_ context.Context, ref Ref) (time.Time, error) {
+	p, err := s.path(ref)
+	if err != nil {
+		return time.Time{}, err
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return fi.ModTime(), nil
 }
 
 // Open returns a seekable reader for the blob.
