@@ -85,3 +85,18 @@ func TestClient_TokenGrants(t *testing.T) {
 		t.Errorf("calls = %v", calls)
 	}
 }
+
+func TestClient_RestrictToken(t *testing.T) {
+	var call string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		call = r.Method + " " + r.URL.Path
+		_ = json.NewEncoder(w).Encode(Token{ID: 4, Restricted: true})
+	})
+	tok, err := c.RestrictToken(context.Background(), 4)
+	if err != nil || !tok.Restricted {
+		t.Fatalf("RestrictToken = %+v, %v", tok, err)
+	}
+	if call != "POST /api/v1/tokens/4/restrict" {
+		t.Errorf("call = %q", call)
+	}
+}

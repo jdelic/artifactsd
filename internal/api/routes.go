@@ -64,6 +64,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /api/v1/tokens", h.requireScope(auth.ScopeAdmin, h.listTokens))
 	mux.Handle("POST /api/v1/tokens", h.requireScope(auth.ScopeAdmin, h.createToken))
 	mux.Handle("DELETE /api/v1/tokens/{id}", h.requireScope(auth.ScopeAdmin, h.deleteToken))
+	mux.Handle("POST /api/v1/tokens/{id}/restrict", h.requireScope(auth.ScopeAdmin, h.restrictToken))
 	mux.Handle("PUT /api/v1/tokens/{id}/grants/{c}", h.requireScope(auth.ScopeAdmin, h.putTokenGrant))
 	mux.Handle("DELETE /api/v1/tokens/{id}/grants/{c}", h.requireScope(auth.ScopeAdmin, h.deleteTokenGrant))
 	mux.Handle("GET /api/v1/audit", h.requireScope(auth.ScopeAdmin, h.getAudit))

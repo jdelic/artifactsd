@@ -72,3 +72,52 @@ func TestTokenGrants_Store(t *testing.T) {
 		t.Errorf("LookupToken = %+v, %v", rec, err)
 	}
 }
+
+func TestRestrictToken_Store(t *testing.T) {
+	s, ctx := newStore(t)
+	mk := func(name string, scopes string) *APIToken {
+		t.Helper()
+		tok := &APIToken{Name: name, TokenHash: "h-" + name, TokenPrefix: "tok_" + name, Scopes: []byte(scopes)}
+		if err := s.CreateToken(ctx, tok); err != nil {
+			t.Fatal(err)
+		}
+		return tok
+	}
+	plain := mk("plain", `["collections:write","shares:read"]`)
+	admin := mk("admin", `["collections:read","admin"]`)
+	gone := mk("gone", `["collections:read"]`)
+	if err := s.RevokeToken(ctx, gone.ID, s.now()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.RestrictToken(ctx, plain.ID); err != nil {
+		t.Fatalf("RestrictToken(plain) = %v", err)
+	}
+	got, err := s.GetToken(ctx, plain.ID)
+	if err != nil || !got.Restricted || string(got.Scopes) != `[]` {
+		t.Fatalf("restricted token = %+v, %v; want restricted with no scopes", got, err)
+	}
+	// Now grants attach to it.
+	c := mustCollection(t, s, ctx, "alpha")
+	if err := s.SetTokenGrant(ctx, &TokenGrant{TokenID: plain.ID, CollectionID: c.ID, Scopes: []byte(`["collections:read"]`)}); err != nil {
+		t.Errorf("grant after restrict = %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		id   int64
+		want error
+	}{
+		{"already restricted", plain.ID, ErrTokenRestricted},
+		{"admin", admin.ID, ErrTokenAdmin},
+		{"revoked", gone.ID, ErrTokenRevoked},
+		{"unknown", 9999, ErrNotFound},
+	} {
+		if err := s.RestrictToken(ctx, tc.id); !errors.Is(err, tc.want) {
+			t.Errorf("%s: RestrictToken = %v, want %v", tc.name, err, tc.want)
+		}
+	}
+	if got, _ := s.GetToken(ctx, admin.ID); got.Restricted || string(got.Scopes) != `["collections:read","admin"]` {
+		t.Errorf("admin token changed: %+v", got)
+	}
+}

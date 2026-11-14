@@ -45,6 +45,13 @@ CREATE INDEX idx_token_grants_collection ON token_grants(collection_id);
 - **Restriction is an explicit flag** (decision D3b). A restricted token with no
   grants reaches nothing; deleting its last granted collection never widens it.
   Existing tokens stay unrestricted (`restricted = 0`).
+- **Restricting later** (artifactsd-m9e.31): an admin can restrict an existing
+  active, non-admin token (`POST /api/v1/tokens/{id}/restrict`,
+  `artifactctl token restrict`, Restrict on the admin Tokens screen). Its
+  token-level scopes are dropped in the same UPDATE, so it reaches nothing until
+  granted collections; there are no partial states. One-way: unrestricting would
+  widen access silently, so mint a new token instead. Audited as
+  `token.restrict`.
 - **Scopes live on the grant** (decision D2a). Allowed grant scopes:
   `collections:read|write|delete` and `shares:read|write|delete`, with the usual
   implications (`:write` ⇒ `:read`, `:delete` ⇒ `:read`, `:write` ⇏ `:delete`).
@@ -119,7 +126,9 @@ flood the audit table.
 ## 7. Surfaces
 
 - **Admin UI:** Tokens and Audit Log are top-level menu items. The token form
-  gets a "restricted" checkbox (scopes left unchecked; `admin` refused). In
+  gets a "restricted" checkbox (scopes left unchecked; `admin` refused). Admin
+  tokens carry an admin badge and offer only Revoke; other unrestricted tokens
+  offer Restrict (with a confirm). In
   the token list a restricted token shows a badge and a link to its own
   **grants page** (`{admin}/tokens/{id}/grants`, artifactsd-m9e.30): a table of
   its grants (collection, scopes, granted, Remove) and a grant form
@@ -129,7 +138,8 @@ flood the audit table.
   grants pages.
 - **CLI:** `artifactctl token create <name> --restricted --grant reports=collections:read,collections:write`
   (repeatable), `artifactctl token grant <id> <collection> --scope …`,
-  `artifactctl token ungrant <id> <collection>`, `token list` shows grants.
+  `artifactctl token ungrant <id> <collection>`, `artifactctl token restrict <id>`,
+  `token list` shows grants.
 - **MCP:** no adapter change — it forwards each client's own token
   (artifactsd-m9e.18); a restricted agent simply sees fewer collections.
 

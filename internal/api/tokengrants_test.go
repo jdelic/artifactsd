@@ -351,3 +351,65 @@ func TestTokenGrants_ManageGrants(t *testing.T) {
 		t.Errorf("audit token.grant=%d token.ungrant=%d, want 3 and 1", grants, ungrants)
 	}
 }
+
+// TestTokenGrants_Restrict: POST /tokens/{id}/restrict turns an existing
+// non-admin token into a restricted one that reaches only what it is granted
+// afterwards; admin, revoked and already restricted tokens are refused.
+func TestTokenGrants_Restrict(t *testing.T) {
+	h := newHarness(t)
+	grantsFixture(t, h)
+	plain := mkGrantedToken(t, h, `{"name":"plain","scopes":["collections:write"]}`)
+	admin := mkGrantedToken(t, h, `{"name":"root","scopes":["admin"]}`)
+	gone := mkGrantedToken(t, h, `{"name":"gone","scopes":["collections:read"]}`)
+	mustCode(t, h.do(t, h.token, http.MethodDelete, "/api/v1/tokens/"+strconv.FormatInt(gone.ID, 10), nil, nil), http.StatusNoContent)
+	restrictURL := func(id int64) string { return "/api/v1/tokens/" + strconv.FormatInt(id, 10) + "/restrict" }
+
+	mustCode(t, h.do(t, plain.Token, http.MethodGet, "/api/v1/collections/beta", nil, nil), http.StatusOK)
+	// Only admins restrict, and not even a token itself.
+	mustCode(t, h.do(t, plain.Token, http.MethodPost, restrictURL(plain.ID), nil, nil), http.StatusForbidden)
+
+	rec := h.do(t, h.token, http.MethodPost, restrictURL(plain.ID), nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restrict = %d (%s)", rec.Code, rec.Body)
+	}
+	var view grantedToken
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil || !view.Restricted || len(view.Grants) != 0 {
+		t.Fatalf("restricted view = %s (%v)", rec.Body, err)
+	}
+	// Its global scopes are gone: it reaches nothing until granted.
+	mustCode(t, h.do(t, plain.Token, http.MethodGet, "/api/v1/collections/beta", nil, nil), http.StatusForbidden)
+	mustCode(t, h.do(t, h.token, http.MethodPut, "/api/v1/tokens/"+strconv.FormatInt(plain.ID, 10)+"/grants/alpha",
+		[]byte(`{"scopes":["collections:read"]}`), nil), http.StatusOK)
+	mustCode(t, h.do(t, plain.Token, http.MethodGet, "/api/v1/collections/alpha", nil, nil), http.StatusOK)
+	mustCode(t, h.do(t, plain.Token, http.MethodGet, "/api/v1/collections/beta", nil, nil), http.StatusNotFound)
+
+	for _, bad := range []struct {
+		target string
+		want   int
+	}{
+		{restrictURL(plain.ID), http.StatusConflict},
+		{restrictURL(admin.ID), http.StatusBadRequest},
+		{restrictURL(gone.ID), http.StatusConflict},
+		{restrictURL(99999), http.StatusNotFound},
+		{"/api/v1/tokens/x/restrict", http.StatusBadRequest},
+	} {
+		if rec := h.do(t, h.token, http.MethodPost, bad.target, nil, nil); rec.Code != bad.want {
+			t.Errorf("POST %s = %d (%s), want %d", bad.target, rec.Code, rec.Body, bad.want)
+		}
+	}
+	mustCode(t, h.do(t, admin.Token, http.MethodGet, "/api/v1/tokens", nil, nil), http.StatusOK)
+
+	entries, err := h.st.QueryAudit(t.Context(), store.AuditFilter{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restricts int
+	for _, e := range entries {
+		if e.Action == audit.ActionTokenRestrict {
+			restricts++
+		}
+	}
+	if restricts != 1 {
+		t.Errorf("audit token.restrict = %d, want 1", restricts)
+	}
+}

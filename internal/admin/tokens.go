@@ -2,9 +2,11 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/audit"
@@ -25,6 +27,9 @@ type tokenRow struct {
 	// the grants are managed on the token's grants subpage.
 	Restricted bool
 	GrantCount int
+	// Admin tokens are marked on the screen and cannot be restricted
+	// (design/16 D4); Scopes then lists their other scopes, if any.
+	Admin bool
 }
 
 // tokensPanelData backs the "tokens_panel" partial.
@@ -125,6 +130,47 @@ func validateTokenForm(restricted bool, scopes []string) string {
 	return ""
 }
 
+// restrictToken makes an existing non-admin token restricted (design/16 §2):
+// its token-level scopes are dropped, so it reaches nothing until granted
+// collections on its grants page. One-way.
+func (h *Handler) restrictToken(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		h.renderTokensPanel(w, r, "", "", "invalid token id")
+		return
+	}
+	ctx := r.Context()
+	switch err := h.store.RestrictToken(ctx, id); {
+	case err == nil:
+	case errors.Is(err, store.ErrNotFound):
+		h.renderTokensPanel(w, r, "", "", "token does not exist")
+		return
+	case errors.Is(err, store.ErrTokenAdmin):
+		h.renderTokensPanel(w, r, "", "", "admin tokens cannot be restricted")
+		return
+	case errors.Is(err, store.ErrTokenRestricted):
+		h.renderTokensPanel(w, r, "", "", "token is already restricted")
+		return
+	case errors.Is(err, store.ErrTokenRevoked):
+		h.renderTokensPanel(w, r, "", "", "token is revoked")
+		return
+	default:
+		h.renderTokensPanel(w, r, "", "", "restricting token: "+err.Error())
+		return
+	}
+	if h.audit != nil {
+		target := strconv.FormatInt(id, 10)
+		if tok, err := h.store.GetToken(ctx, id); err == nil {
+			target = tok.Name
+		}
+		_ = h.audit.Record(ctx, &audit.Entry{
+			Action: audit.ActionTokenRestrict, Actor: actorOf(session.FromContext(ctx)), Target: target,
+			Details: json.RawMessage(`{"token_id":` + strconv.FormatInt(id, 10) + `}`),
+		})
+	}
+	h.renderTokensPanel(w, r, "", "", "")
+}
+
 // revokeToken revokes an API token.
 func (h *Handler) revokeToken(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -171,6 +217,13 @@ func (h *Handler) loadTokensPanel(r *http.Request, newToken, newTokenFor, errMsg
 			ID: t.ID, Name: t.Name, Prefix: t.TokenPrefix, Scopes: joinScopes(t.Scopes),
 			CreatedAt: t.CreatedAt.UTC().Format("2006-01-02 15:04"), Revoked: t.RevokedAt != nil,
 			Restricted: t.Restricted, GrantCount: len(grants[t.ID]),
+		}
+		if set, err := auth.ParseScopes(t.Scopes); err == nil && set.Has(auth.ScopeAdmin) {
+			row.Admin = true
+			delete(set, auth.ScopeAdmin)
+			others := set.Strings()
+			sort.Strings(others)
+			row.Scopes = strings.Join(others, ", ")
 		}
 		rows = append(rows, row)
 	}

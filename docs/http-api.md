@@ -307,6 +307,7 @@ the token carries `admin` scope.
 GET    /api/v1/tokens                  list API tokens (metadata only)   admin
 POST   /api/v1/tokens                  create token → secret shown ONCE  admin
 DELETE /api/v1/tokens/{id}             revoke token                      admin
+POST   /api/v1/tokens/{id}/restrict    restrict an existing token        admin
 PUT    /api/v1/tokens/{id}/grants/{c}  create/replace a grant {"scopes":[…]} admin
 DELETE /api/v1/tokens/{id}/grants/{c}  remove a grant                    admin
 GET    /api/v1/audit?since=&action=    audit log                         admin
@@ -335,6 +336,13 @@ empty or `admin` grant scopes, token-level `scopes` on a restricted token,
 grants on an unrestricted one, or `admin` together with `restricted`. Grant
 changes are audited as `token.grant` / `token.ungrant`; requests outside a
 token's grants are only logged at debug level.
+
+`POST /api/v1/tokens/{id}/restrict` restricts an existing token: its
+token-level scopes are dropped and it reaches nothing until granted collections
+with `PUT …/grants/{c}`. It returns the token and cannot be undone. `400` for an
+admin token (admin tokens cannot be restricted), `409` for a token that is
+already restricted or revoked, `404` for an unknown one. Audited as
+`token.restrict`.
 
 > **Downgrades:** an artifactsd release older than token grants ignores the
 > restriction, so restricted tokens would reach every collection. Revoke them

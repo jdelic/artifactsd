@@ -77,3 +77,34 @@ func TestE2E_TokenGrants(t *testing.T) {
 		}
 	}
 }
+
+// TestE2E_TokenRestrict: `token restrict` turns an existing token restricted
+// (artifactsd-m9e.31).
+func TestE2E_TokenRestrict(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "reports"); code != exitOK {
+		t.Fatalf("create: %s", errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "token", "create", "ci", "--scope", "collections:read")
+	if code != exitOK {
+		t.Fatalf("token create: %s", errOut)
+	}
+	var tok apiclient.CreateTokenResponse
+	if err := json.Unmarshal([]byte(out), &tok); err != nil {
+		t.Fatal(err)
+	}
+	id := strconv.FormatInt(tok.ID, 10)
+	code, out, errOut = e.run("token", "restrict", id)
+	if code != exitOK || !strings.Contains(out, "restricted: no grants") {
+		t.Fatalf("token restrict = %d %q %q", code, out, errOut)
+	}
+	if code, _, _ := e.run("token", "restrict", id); code == exitOK {
+		t.Error("restricting twice succeeded")
+	}
+	if code, _, errOut := e.run("token", "grant", id, "reports", "--scope", "collections:read"); code != exitOK {
+		t.Errorf("grant after restrict: %s", errOut)
+	}
+	if code, _, _ := e.run("token", "restrict", "nope"); code != exitUsage {
+		t.Errorf("restrict nope = %d, want usage error", code)
+	}
+}

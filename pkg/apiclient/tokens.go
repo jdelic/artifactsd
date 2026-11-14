@@ -85,6 +85,17 @@ func (c *Client) DeleteTokenGrant(ctx context.Context, id int64, collection stri
 	return c.sendJSON(ctx, http.MethodDelete, tokenGrantPath(id, collection), nil, nil)
 }
 
+// RestrictToken makes an existing non-admin token restricted (admin only):
+// its token-level scopes are dropped, so it reaches nothing until granted
+// collections with SetTokenGrant. One-way.
+func (c *Client) RestrictToken(ctx context.Context, id int64) (*Token, error) {
+	var out Token
+	if err := c.sendJSON(ctx, http.MethodPost, "/api/v1/tokens/"+strconv.FormatInt(id, 10)+"/restrict", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func tokenGrantPath(id int64, collection string) string {
 	return "/api/v1/tokens/" + strconv.FormatInt(id, 10) + "/grants/" + url.PathEscape(collection)
 }

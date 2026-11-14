@@ -17,6 +17,7 @@
   --nc-white: #fcfcfc;
   --nc-red: #fc5454;
   --nc-grey: #a8a8a8;
+  --nc-magenta: #fc54fc;
 }
 
 * {
@@ -190,6 +191,15 @@ body {
 
 .nc-saved {
   color: var(--nc-cyan-bright);
+}
+
+/* A one-time value to copy (new token secret, new share URL): the UI font at
+   the UI size rather than the browser's default monospace, in the palette's
+   bright magenta so it stands out against the blue panel. */
+.nc-saved code {
+  font: inherit;
+  color: var(--nc-magenta);
+  overflow-wrap: anywhere;
 }
 
 .nc-form {
@@ -585,6 +595,12 @@ body {
 .nc-restricted {
   color: var(--nc-cyan-bright);
   border: 1px solid var(--nc-cyan-bright);
+  padding: 0 4px;
+  font-size: 0.85em;
+}
+.nc-admin {
+  color: var(--nc-magenta);
+  border: 1px solid var(--nc-magenta);
   padding: 0 4px;
   font-size: 0.85em;
 }

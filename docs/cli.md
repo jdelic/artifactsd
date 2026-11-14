@@ -211,6 +211,7 @@ artifactctl token create <name> [--scope ...] [--expires-in <dur>]
 artifactctl token create <name> --restricted [--grant <collection>=<scope>[,<scope>...]]...
 artifactctl token list
 artifactctl token revoke <id>
+artifactctl token restrict <id>
 artifactctl token grant <id> <collection> --scope <scope> [--scope ...]
 artifactctl token ungrant <id> <collection>
 ```
@@ -237,7 +238,10 @@ artifactctl token ungrant 7 scratch
 `collections:*` and `shares:*` scopes — never `admin`. Restricted tokens cannot
 create collections: create one first, then grant it. `token list` shows
 `restricted: reports=collections:read,collections:write; ...` instead of
-scopes. In the admin UI, **Tokens** links each restricted token to its own
+scopes. `token restrict <id>` turns an existing non-admin token restricted: it
+loses its scopes and reaches nothing until granted collections (one-way; admin
+tokens cannot be restricted). In the admin UI, **Tokens** marks admin tokens,
+offers **Restrict** for the other unrestricted ones, and links each restricted token to its own
 grants page, where grants are added and removed, and a collection's **Shares**
 screen lists the restricted tokens that can reach it.
 

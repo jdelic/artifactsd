@@ -325,6 +325,46 @@ func (h *Handler) deleteTokenGrant(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// restrictToken handles POST /api/v1/tokens/{id}/restrict (design/16 §2):
+// an existing non-admin token becomes restricted, dropping its token-level
+// scopes, so it reaches nothing until granted collections. One-way.
+func (h *Handler) restrictToken(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "invalid token id")
+		return
+	}
+	ctx := r.Context()
+	switch err := h.store.RestrictToken(ctx, id); {
+	case err == nil:
+	case isNotFound(err):
+		writeError(w, http.StatusNotFound, CodeNotFound, "token does not exist")
+		return
+	case errors.Is(err, store.ErrTokenAdmin):
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "admin tokens cannot be restricted")
+		return
+	case errors.Is(err, store.ErrTokenRestricted):
+		writeError(w, http.StatusConflict, CodeConflict, "token is already restricted")
+		return
+	case errors.Is(err, store.ErrTokenRevoked):
+		writeError(w, http.StatusConflict, CodeConflict, "token is revoked")
+		return
+	default:
+		h.internalServerError(w, "restrict token", err)
+		return
+	}
+	tok, err := h.store.GetToken(ctx, id)
+	if err != nil {
+		h.internalServerError(w, "lookup token", err)
+		return
+	}
+	_ = h.audit.Record(ctx, &audit.Entry{
+		Action: audit.ActionTokenRestrict, Actor: actor(r), Target: tok.Name,
+		Details: json.RawMessage(`{"token_id":` + strconv.FormatInt(tok.ID, 10) + `}`),
+	})
+	h.writeTokenView(w, r, tok)
+}
+
 // writeTokenView responds with a token and its current grants.
 func (h *Handler) writeTokenView(w http.ResponseWriter, r *http.Request, tok *store.APIToken) {
 	grants, err := h.store.TokenGrants(r.Context(), tok.ID)
