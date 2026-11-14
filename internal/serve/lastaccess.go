@@ -47,6 +47,8 @@ type lastAccessUpdater struct {
 
 	mu   sync.Mutex
 	seen map[accessKey]time.Time
+	// lastPrune is when stale seen entries were last dropped (artifactsd-m9e.17).
+	lastPrune time.Time
 }
 
 // lastAccessStore is the slice of *store.Store the updater needs, kept narrow
@@ -105,6 +107,7 @@ func (u *lastAccessUpdater) touchKey(ctx context.Context, k accessKey) {
 			return
 		}
 		u.seen[k] = now
+		u.pruneLocked(now)
 		u.mu.Unlock()
 	}
 
@@ -135,4 +138,23 @@ func (u *lastAccessUpdater) warn(what string, err error) {
 	if u.log != nil {
 		u.log.Warn("serve: "+what, "error", err)
 	}
+}
+
+// pruneLocked drops seen entries older than the window — they no longer
+// throttle anything — at most once per 10 windows, so the map stays bounded by
+// recent traffic rather than every object ever served. Caller holds u.mu.
+func (u *lastAccessUpdater) pruneLocked(now time.Time) {
+	if u.lastPrune.IsZero() {
+		u.lastPrune = now
+		return
+	}
+	if now.Sub(u.lastPrune) <= 10*u.window {
+		return
+	}
+	for k, last := range u.seen {
+		if now.Sub(last) >= u.window {
+			delete(u.seen, k)
+		}
+	}
+	u.lastPrune = now
 }
