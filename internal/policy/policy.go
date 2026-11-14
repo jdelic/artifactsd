@@ -23,8 +23,9 @@ const (
 	NotFound
 	// Unauthorized: 401 with a WWW-Authenticate challenge.
 	Unauthorized
-	// Forbidden: 403 — authenticated but not permitted (reserved; object policy
-	// generally prefers 404/401).
+	// Forbidden: 403 — authenticated but not permitted: a signed-in viewer
+	// whose identity the object's oidc entries don't admit (artifactsd-m9e.22).
+	// Subject names who is signed in.
 	Forbidden
 	// RedirectOIDC: 302 to the OIDC authorization endpoint (browser request).
 	RedirectOIDC
@@ -58,6 +59,27 @@ type Input struct {
 	// discovery + JWKS). When nil, OIDC entries cannot authenticate and only
 	// drive the challenge (redirect/401).
 	OIDC *auth.OIDCProviderCache
+	// ViewerLogin describes the server's own OIDC login; nil when OIDC is not
+	// configured. Only oidc entries for this issuer and client can be satisfied
+	// by a viewer session or trigger the browser login (artifactsd-m9e.22).
+	ViewerLogin *ViewerLogin
+	// Viewer is the identity from a valid viewer session cookie, if any.
+	Viewer *ViewerIdentity
+}
+
+// ViewerLogin is the server's OIDC client, as far as object access cares.
+type ViewerLogin struct {
+	Issuer   string
+	ClientID string
+	// GroupClaim is the claim groups were read from at login.
+	GroupClaim string
+}
+
+// ViewerIdentity is a person signed in through the browser login.
+type ViewerIdentity struct {
+	Subject string
+	Email   string
+	Groups  []string
 }
 
 // Decide evaluates the access policy for a public serve route.
@@ -82,11 +104,29 @@ func Decide(in Input) Decision {
 
 	// 3. Auth-required → verify any-of, else challenge by type.
 	if eff.RequiresAuth() {
+		eligible := viewerEntries(eff.Auth, in.ViewerLogin)
+		if in.Viewer != nil {
+			for _, e := range eligible {
+				if ok, subject := oidcConfigFor(e).AuthorizesIdentity(
+					in.Viewer.Subject, in.Viewer.Email, in.Viewer.Groups, in.ViewerLogin.GroupClaim); ok {
+					return decideDirectory(in, Decision{Outcome: Serve, Subject: subject, Scheme: "OIDC"})
+				}
+			}
+		}
 		verifiers := compileVerifiers(eff.Auth, in.OIDC)
 		if ok, subject, scheme := auth.Authenticate(verifiers, in.Request); ok {
 			return decideDirectory(in, Decision{Outcome: Serve, Subject: subject, Scheme: scheme})
 		}
-		return challenge(eff.Auth, in.Request)
+		if in.Viewer != nil && len(eligible) > 0 {
+			// Signed in, but not admitted: say so instead of sending the
+			// browser back to the IdP, which would loop under SSO.
+			who := in.Viewer.Email
+			if who == "" {
+				who = in.Viewer.Subject
+			}
+			return Decision{Outcome: Forbidden, Subject: who}
+		}
+		return challenge(eff.Auth, in.Request, len(eligible) > 0)
 	}
 
 	// 4 & 5. Public/unlisted with no auth → serve (subject to directory rules).
@@ -105,7 +145,7 @@ func decideDirectory(in Input, served Decision) Decision {
 
 // challenge picks the response for an unauthenticated auth-required object by
 // auth-type precedence oidc → basic → bearer (design/03 §5, decision C4).
-func challenge(entries []meta.AuthEntry, r *http.Request) Decision {
+func challenge(entries []meta.AuthEntry, r *http.Request, browserLogin bool) Decision {
 	var hasOIDC, hasBasic, hasBearer bool
 	for i := range entries {
 		switch entries[i].Type {
@@ -120,8 +160,10 @@ func challenge(entries []meta.AuthEntry, r *http.Request) Decision {
 
 	switch {
 	case hasOIDC:
-		// Browsers get redirected to the IdP; API clients get a 401 Bearer.
-		if isBrowser(r) {
+		// Browsers are sent to the viewer login, but only when an entry can
+		// be satisfied by it (the server's own issuer/client) and the request
+		// is a plain read; everyone else gets a 401 Bearer challenge.
+		if browserLogin && isBrowser(r) && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			return Decision{Outcome: RedirectOIDC}
 		}
 		return Decision{Outcome: Unauthorized, Challenge: "Bearer"}
@@ -162,15 +204,7 @@ func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCach
 			// auth-required and fails closed with the normal challenge, and no
 			// discovery request is ever made (artifactsd-m9e.21).
 			if oidcCache != nil && e.Issuer != "" && oidcCache.IssuerAllowed(e.Issuer) {
-				verifiers = append(verifiers, auth.NewOIDCVerifier(&auth.OIDCConfig{
-					Issuer:                    e.Issuer,
-					Audience:                  e.Audience,
-					AllowedSubjects:           e.AllowedSubjects,
-					AllowedGroups:             e.AllowedGroups,
-					GroupClaim:                e.GroupClaim,
-					InsecureSkipAudienceCheck: e.InsecureSkipAudienceCheck,
-					AnyAuthenticated:          e.AnyAuthenticated,
-				}, oidcCache))
+				verifiers = append(verifiers, auth.NewOIDCVerifier(oidcConfigFor(e), oidcCache))
 			}
 		}
 	}
@@ -183,4 +217,37 @@ func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCach
 // isBrowser reports whether the request prefers an HTML response.
 func isBrowser(r *http.Request) bool {
 	return r != nil && strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
+// oidcConfigFor converts an oidc metadata entry to an auth.OIDCConfig.
+func oidcConfigFor(e *meta.AuthEntry) *auth.OIDCConfig {
+	return &auth.OIDCConfig{
+		Issuer:                    e.Issuer,
+		Audience:                  e.Audience,
+		AllowedSubjects:           e.AllowedSubjects,
+		AllowedGroups:             e.AllowedGroups,
+		GroupClaim:                e.GroupClaim,
+		InsecureSkipAudienceCheck: e.InsecureSkipAudienceCheck,
+		AnyAuthenticated:          e.AnyAuthenticated,
+	}
+}
+
+// viewerEntries returns the oidc entries a viewer session (the server's own
+// OIDC login) can satisfy: same issuer, and the server's client id as audience
+// unless the entry skips the audience check.
+func viewerEntries(entries []meta.AuthEntry, login *ViewerLogin) []*meta.AuthEntry {
+	if login == nil || login.Issuer == "" || login.ClientID == "" {
+		return nil
+	}
+	var out []*meta.AuthEntry
+	for i := range entries {
+		e := &entries[i]
+		if e.Type != meta.AuthOIDC || auth.NormalizeIssuer(e.Issuer) != auth.NormalizeIssuer(login.Issuer) {
+			continue
+		}
+		if e.Audience == login.ClientID || e.InsecureSkipAudienceCheck {
+			out = append(out, e)
+		}
+	}
+	return out
 }

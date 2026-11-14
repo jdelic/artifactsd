@@ -46,6 +46,34 @@ verify on username miss). **Unauthenticated/invalid → 401
 
 ### 2.3 OIDC
 
+**Browser login for objects** (artifactsd-m9e.22). Before this, a browser hitting
+an OIDC-protected object was sent to the *admin* login (whose `return_to` only
+allows admin paths) and the object's verifier only read `Authorization: Bearer`,
+so a person could never open it. Now:
+- **Viewer session.** Cookie `artifactsd_viewer` (HttpOnly, SameSite=Lax, Secure
+  as admin, Path=/, 8 h), signed with the admin key but a different MAC
+  *purpose* (`session.Manager.WithPurpose`), so viewer and admin cookies can
+  never be swapped. It carries `{sub, email, groups}` and never satisfies
+  `adminGate`; `/api/v1` ignores cookies.
+- **Flow purpose.** `/auth/oidc/login?purpose=view&return_to=/c/…|/s/…`
+  (strictly validated: same-site path, no `//`, backslash, control chars or
+  scheme/host → else 400). The flow cookie records the purpose; the callback of
+  a view flow sets only the viewer cookie and returns to the object. The redirect
+  URI of view flows is `<base_url>/auth/oidc/callback`.
+- **Host isolation.** With `ARTIFACTSD_ADMIN_HOST`, view flows run (login and
+  callback) only on the public host, admin flows only on the admin host.
+- **Policy.** Only oidc entries naming the server's issuer and client
+  (audience = client id, or skip-audience) are *eligible*: a viewer session is
+  evaluated against them (group rules only when the entry's `group_claim` is the
+  claim read at login, `ARTIFACTSD_ADMIN_GROUP_CLAIM`); browsers are redirected to
+  the viewer login only for eligible entries; a signed-in but non-admitted viewer
+  gets 403. Other issuers stay Bearer-only (401, no redirect).
+- **Caching.** Credentialed responses: `Cache-Control: private` unless the author
+  set one, `Vary: Cookie, Authorization`.
+- **Accepted risk.** An *unsandboxed* artifact (`content.sandbox: false`, which
+  only admins can set) shares the origin and can make requests that carry the
+  viewer cookie, i.e. read other OIDC-protected objects the viewer may see.
+
 **Issuer allowlist** (artifactsd-m9e.21): an oidc entry makes the server fetch
 `<issuer>/.well-known/openid-configuration` and the JWKS it points to, so an
 arbitrary issuer is blind SSRF. Only issuers in `ARTIFACTSD_OIDC_ALLOWED_ISSUERS`

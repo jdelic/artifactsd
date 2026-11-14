@@ -5,7 +5,6 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -81,6 +80,7 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 	decision := policy.Decide(policy.Input{
 		Effective: eff, Expired: expired, AncestorPrivate: ancestorPrivate,
 		IsDirectory: true, Request: r, OIDC: h.oidc,
+		ViewerLogin: h.viewerLogin, Viewer: h.viewerIdentity(r),
 	})
 
 	switch decision.Outcome {
@@ -90,11 +90,12 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	case policy.Forbidden:
-		http.Error(w, "forbidden", http.StatusForbidden)
+		forbidden(w, decision)
 	case policy.RedirectOIDC:
-		http.Redirect(w, r, "/auth/oidc/login?return_to="+url.QueryEscape(r.URL.Path), http.StatusFound)
+		redirectToViewerLogin(w, r)
 	case policy.Serve:
 		h.recordAccess(r.Context(), acc)
+		privateCaching(w, &decision)
 		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, expiry, sh != nil)
 	case policy.NotFound:
 		// Decide returns NotFound here for one of: private/under-private-

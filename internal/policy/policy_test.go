@@ -108,11 +108,13 @@ func TestDecide_BasicChallenges401(t *testing.T) {
 	}
 }
 
+var testLogin = &ViewerLogin{Issuer: "https://idp", ClientID: "artifactsd", GroupClaim: "groups"}
+
 func TestDecide_OIDCBrowserRedirectsAPIGets401(t *testing.T) {
-	entries := []meta.AuthEntry{{Type: meta.AuthOIDC, Issuer: "https://idp", AnyAuthenticated: true}}
+	entries := []meta.AuthEntry{{Type: meta.AuthOIDC, Issuer: "https://idp", Audience: "artifactsd", AnyAuthenticated: true}}
 
 	// Browser → 302 redirect.
-	d := Decide(Input{Effective: effective(meta.VisibilityProtected, entries), Request: req(map[string]string{"Accept": "text/html"})})
+	d := Decide(Input{Effective: effective(meta.VisibilityProtected, entries), Request: req(map[string]string{"Accept": "text/html"}), ViewerLogin: testLogin})
 	if d.Outcome != RedirectOIDC {
 		t.Errorf("oidc browser outcome = %v, want RedirectOIDC", d.Outcome)
 	}
@@ -129,10 +131,10 @@ func TestDecide_ChallengePrecedenceOIDCOverBasicOverBearer(t *testing.T) {
 	entries := []meta.AuthEntry{
 		{Type: meta.AuthBearer, TokenHash: "x"},
 		{Type: meta.AuthBasic, Username: "u", PasswordHash: pw},
-		{Type: meta.AuthOIDC, Issuer: "https://idp", AnyAuthenticated: true},
+		{Type: meta.AuthOIDC, Issuer: "https://idp", Audience: "artifactsd", AnyAuthenticated: true},
 	}
 	// Browser, unauthenticated → OIDC wins (redirect).
-	d := Decide(Input{Effective: effective(meta.VisibilityProtected, entries), Request: req(map[string]string{"Accept": "text/html"})})
+	d := Decide(Input{Effective: effective(meta.VisibilityProtected, entries), Request: req(map[string]string{"Accept": "text/html"}), ViewerLogin: testLogin})
 	if d.Outcome != RedirectOIDC {
 		t.Errorf("precedence: outcome = %v, want RedirectOIDC (oidc precedence)", d.Outcome)
 	}
@@ -183,5 +185,50 @@ func TestDecide_OIDCWithCacheFailsClosedOnBadToken(t *testing.T) {
 	}
 	if d.Outcome != Unauthorized || d.Challenge != "Bearer" {
 		t.Errorf("oidc bad-token = %v / %q, want 401 Bearer", d.Outcome, d.Challenge)
+	}
+}
+
+// TestDecide_ViewerSession covers the browser-login viewer session
+// (artifactsd-m9e.22).
+func TestDecide_ViewerSession(t *testing.T) {
+	own := meta.AuthEntry{Type: meta.AuthOIDC, Issuer: "https://idp/", Audience: "artifactsd", AllowedSubjects: []string{"alice@example.com"}}
+	browser := map[string]string{"Accept": "text/html"}
+
+	alice := &ViewerIdentity{Subject: "s1", Email: "alice@example.com"}
+	d := Decide(Input{Effective: effective(meta.VisibilityProtected, []meta.AuthEntry{own}), Request: req(browser), ViewerLogin: testLogin, Viewer: alice})
+	if d.Outcome != Serve || d.Subject != "alice@example.com" || d.Scheme != "OIDC" {
+		t.Errorf("allowed viewer = %+v, want Serve as alice via OIDC", d)
+	}
+
+	bob := &ViewerIdentity{Subject: "s2", Email: "bob@example.com"}
+	d = Decide(Input{Effective: effective(meta.VisibilityProtected, []meta.AuthEntry{own}), Request: req(browser), ViewerLogin: testLogin, Viewer: bob})
+	if d.Outcome != Forbidden || d.Subject != "bob@example.com" {
+		t.Errorf("signed-in but not allowed = %+v, want Forbidden naming bob (no redirect loop)", d)
+	}
+
+	// Groups only match when the entry's claim is the one read at login.
+	grp := meta.AuthEntry{Type: meta.AuthOIDC, Issuer: "https://idp", Audience: "artifactsd", AllowedGroups: []string{"staff"}, GroupClaim: "roles"}
+	carol := &ViewerIdentity{Subject: "s3", Groups: []string{"staff"}}
+	d = Decide(Input{Effective: effective(meta.VisibilityProtected, []meta.AuthEntry{grp}), Request: req(browser), ViewerLogin: testLogin, Viewer: carol})
+	if d.Outcome == Serve {
+		t.Error("group rule matched through a different group claim")
+	}
+	grp.GroupClaim = ""
+	d = Decide(Input{Effective: effective(meta.VisibilityProtected, []meta.AuthEntry{grp}), Request: req(browser), ViewerLogin: testLogin, Viewer: carol})
+	if d.Outcome != Serve {
+		t.Errorf("group rule with the login's claim = %+v, want Serve", d)
+	}
+
+	// An entry for another (allowlisted) issuer: Bearer-only, no redirect.
+	other := meta.AuthEntry{Type: meta.AuthOIDC, Issuer: "https://other-idp", Audience: "artifactsd", AnyAuthenticated: true}
+	d = Decide(Input{Effective: effective(meta.VisibilityProtected, []meta.AuthEntry{other}), Request: req(browser), ViewerLogin: testLogin, Viewer: alice})
+	if d.Outcome != Unauthorized || d.Challenge != "Bearer" {
+		t.Errorf("other issuer = %+v, want 401 Bearer and no redirect", d)
+	}
+
+	// OIDC not configured on the server: 401, never a redirect.
+	d = Decide(Input{Effective: effective(meta.VisibilityProtected, []meta.AuthEntry{own}), Request: req(browser)})
+	if d.Outcome != Unauthorized {
+		t.Errorf("no server OIDC = %+v, want 401", d)
 	}
 }

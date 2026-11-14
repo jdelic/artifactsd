@@ -27,7 +27,7 @@ func TestCompleteLogin_NonAdminGets403(t *testing.T) {
 	s := serverWithStore(t) // admin group "admins"
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback", http.NoBody)
-	s.completeLogin(rec, r, flowState{ReturnTo: "/admin/"}, &auth.LoginResult{
+	s.completeLogin(rec, r, &flowState{ReturnTo: "/admin/"}, &auth.LoginResult{
 		Subject: "sub-1", Email: "mallory@example.com", Groups: []string{"users"},
 	})
 	if rec.Code != http.StatusForbidden {
@@ -50,7 +50,7 @@ func TestCompleteLogin_AdminGetsSession(t *testing.T) {
 	s := serverWithStore(t)
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/auth/oidc/callback", http.NoBody)
-	s.completeLogin(rec, r, flowState{ReturnTo: "/admin/collections"}, &auth.LoginResult{
+	s.completeLogin(rec, r, &flowState{ReturnTo: "/admin/collections"}, &auth.LoginResult{
 		Subject: "sub-2", Email: "alice@example.com", Groups: []string{"admins"},
 	})
 	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/admin/collections" {

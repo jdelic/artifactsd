@@ -29,7 +29,14 @@ type flowState struct {
 	Verifier string    `json:"verifier"`
 	ReturnTo string    `json:"return_to"`
 	Expiry   time.Time `json:"exp"`
+	// Purpose is "" (admin login) or flowPurposeView (viewer login for
+	// OIDC-protected objects, artifactsd-m9e.22).
+	Purpose string `json:"purpose,omitempty"`
 }
+
+// flowPurposeView marks a viewer login: it sets only the viewer cookie and
+// returns to a /c/ or /s/ object, never to the admin UI.
+const flowPurposeView = "view"
 
 // initAdminAuth sets up the session manager and the basic-admin fallback hash.
 func (s *Server) initAdminAuth() {
@@ -41,6 +48,9 @@ func (s *Server) initAdminAuth() {
 	}
 	secure := s.cfg.TLS.Mode != config.TLSOff || strings.HasPrefix(s.cfg.Server.BaseURL, "https://")
 	s.session = session.NewManager(key, "", secure)
+	// Same key, different purpose and cookie: a viewer cookie never satisfies
+	// adminGate, and an admin cookie is never a viewer session.
+	s.viewer = s.session.WithPurpose(session.PurposeViewer, session.ViewerCookieName)
 
 	switch {
 	case s.cfg.Admin.BasicPasswordHash != "":
@@ -76,9 +86,23 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 
 	verifier := auth.NewVerifier()
 	state := randomToken()
-	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"), s.cfg.Admin.Path)
-
-	fs := flowState{State: state, Verifier: verifier, ReturnTo: returnTo, Expiry: time.Now().Add(flowStateTTL)}
+	fs := flowState{State: state, Verifier: verifier, Expiry: time.Now().Add(flowStateTTL)}
+	redirectURL := ""
+	switch purpose := r.URL.Query().Get("purpose"); purpose {
+	case "", "admin":
+		fs.ReturnTo = sanitizeReturnTo(r.URL.Query().Get("return_to"), s.cfg.Admin.Path)
+	case flowPurposeView:
+		rt, ok := viewerReturnTo(r.URL.Query().Get("return_to"))
+		if !ok {
+			http.Error(w, "invalid return_to: must be a /c/ or /s/ path on this site", http.StatusBadRequest)
+			return
+		}
+		fs.ReturnTo, fs.Purpose = rt, flowPurposeView
+		redirectURL = s.viewerRedirectURL()
+	default:
+		http.Error(w, "invalid purpose", http.StatusBadRequest)
+		return
+	}
 	payload, _ := json.Marshal(fs)
 	http.SetCookie(w, &http.Cookie{
 		Name:     flowCookieName,
@@ -89,7 +113,36 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		Secure:   s.Secure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, login.AuthCodeURL(state, verifier), http.StatusFound)
+	http.Redirect(w, r, login.AuthCodeURLFor(state, verifier, redirectURL), http.StatusFound)
+}
+
+// viewerRedirectURL is the OIDC redirect URI of viewer logins: the callback on
+// the public base URL, so the viewer cookie is set where objects are served.
+// Operators register it at the IdP next to the admin one (they are the same
+// URL unless ARTIFACTSD_ADMIN_HOST or ARTIFACTSD_OIDC_REDIRECT_URL is set).
+func (s *Server) viewerRedirectURL() string {
+	return strings.TrimRight(s.cfg.Server.BaseURL, "/") + config.OIDCCallbackPath
+}
+
+// viewerReturnTo validates a viewer-login return path: a same-site /c/ or /s/
+// path (with optional query), never an absolute or scheme-relative URL.
+func viewerReturnTo(raw string) (string, bool) {
+	if !strings.HasPrefix(raw, "/c/") && !strings.HasPrefix(raw, "/s/") {
+		return "", false
+	}
+	if strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\") {
+		return "", false
+	}
+	for _, c := range raw {
+		if c < 0x20 || c == 0x7f {
+			return "", false
+		}
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil {
+		return "", false
+	}
+	return raw, true
 }
 
 // handleOIDCCallback completes the flow, verifies state, and establishes a session.
@@ -129,21 +182,29 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := login.Exchange(r.Context(), code, fs.Verifier)
+	redirectURL := ""
+	if fs.Purpose == flowPurposeView {
+		redirectURL = s.viewerRedirectURL()
+	}
+	result, err := login.ExchangeFor(r.Context(), code, fs.Verifier, redirectURL)
 	if err != nil {
 		s.log.Warn("oidc exchange failed", "error", err)
 		http.Error(w, "login failed", http.StatusUnauthorized)
 		return
 	}
 
-	s.completeLogin(w, r, fs, result)
+	if fs.Purpose == flowPurposeView {
+		s.completeViewerLogin(w, r, &fs, result)
+		return
+	}
+	s.completeLogin(w, r, &fs, result)
 }
 
 // completeLogin finishes an OIDC admin login once the IdP has authenticated
 // the user. Only an authorized admin gets a session: anyone else gets a 403
 // explanation and no cookie, instead of being sent back to the IdP, where SSO
 // would loop forever (artifactsd-m9e.16). Both outcomes are audited.
-func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, fs flowState, result *auth.LoginResult) {
+func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, fs *flowState, result *auth.LoginResult) {
 	id := &session.Identity{
 		Subject: result.Subject,
 		Email:   result.Email,
@@ -163,6 +224,27 @@ func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, fs flowSt
 	}
 	s.recordAdminLogin(r, audit.ActionAdminLogin, id)
 	http.Redirect(w, r, fs.ReturnTo, http.StatusFound)
+}
+
+// completeViewerLogin finishes a viewer login: it sets ONLY the viewer cookie
+// (never an admin session) and returns to the object. Whether this identity may
+// see that object is decided when it is served (artifactsd-m9e.22).
+func (s *Server) completeViewerLogin(w http.ResponseWriter, r *http.Request, fs *flowState, result *auth.LoginResult) {
+	s.clearFlowCookie(w)
+	rt, ok := viewerReturnTo(fs.ReturnTo)
+	if !ok {
+		http.Error(w, "invalid return_to", http.StatusBadRequest)
+		return
+	}
+	id := &session.Identity{
+		Subject: result.Subject, Email: result.Email, Groups: result.Groups,
+		Expiry: time.Now().Add(adminSessionTTL),
+	}
+	if err := s.viewer.SetCookie(w, id); err != nil {
+		http.Error(w, "session error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, rt, http.StatusFound)
 }
 
 // forbidNonAdmin answers 403 for an authenticated identity that is not

@@ -89,16 +89,38 @@ func NewOIDCLogin(ctx context.Context, cache *OIDCProviderCache, issuer, clientI
 func NewVerifier() string { return oauth2.GenerateVerifier() }
 
 // AuthCodeURL builds the authorization-endpoint URL with the state and a PKCE
-// S256 challenge derived from pkceVerifier.
+// S256 challenge derived from pkceVerifier, using the configured redirect URL.
 func (l *OIDCLogin) AuthCodeURL(state, pkceVerifier string) string {
-	return l.oauth2.AuthCodeURL(state, oauth2.S256ChallengeOption(pkceVerifier))
+	return l.AuthCodeURLFor(state, pkceVerifier, "")
+}
+
+// AuthCodeURLFor is AuthCodeURL with an explicit redirect URL (empty = the
+// configured one). Viewer logins on the public host use their own callback
+// URL (artifactsd-m9e.22); the same value must be passed to ExchangeFor.
+func (l *OIDCLogin) AuthCodeURLFor(state, pkceVerifier, redirectURL string) string {
+	return l.config(redirectURL).AuthCodeURL(state, oauth2.S256ChallengeOption(pkceVerifier))
+}
+
+// config returns the oauth2 config, with redirectURL overriding the default.
+func (l *OIDCLogin) config(redirectURL string) *oauth2.Config {
+	if redirectURL == "" {
+		return &l.oauth2
+	}
+	c := l.oauth2
+	c.RedirectURL = redirectURL
+	return &c
 }
 
 // Exchange completes the flow: swap the code for tokens (with the PKCE
 // verifier), verify the ID token, and return the identity.
 func (l *OIDCLogin) Exchange(ctx context.Context, code, pkceVerifier string) (*LoginResult, error) {
+	return l.ExchangeFor(ctx, code, pkceVerifier, "")
+}
+
+// ExchangeFor is Exchange for a flow started with AuthCodeURLFor(redirectURL).
+func (l *OIDCLogin) ExchangeFor(ctx context.Context, code, pkceVerifier, redirectURL string) (*LoginResult, error) {
 	cctx := l.cache.clientContext(ctx)
-	tok, err := l.oauth2.Exchange(cctx, code, oauth2.VerifierOption(pkceVerifier))
+	tok, err := l.config(redirectURL).Exchange(cctx, code, oauth2.VerifierOption(pkceVerifier))
 	if err != nil {
 		return nil, fmt.Errorf("auth: oidc code exchange: %w", err)
 	}

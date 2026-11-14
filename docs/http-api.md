@@ -326,5 +326,18 @@ GET      /version                     running build: {"version", "commit", "date
 ```
 
 Protected and private objects, and expired ones, return `404` on these routes so
-their existence isn't leaked. See [`.agent-docs/design/05-serving-crawl.md`](../.agent-docs/design/05-serving-crawl.md)
+their existence isn't leaked.
+
+**OIDC-protected objects in a browser.** When an object's `access.auth` has an
+`oidc` entry for the server's own issuer (`ARTIFACTSD_OIDC_ISSUER`) and client
+(`audience` = `ARTIFACTSD_OIDC_CLIENT_ID`, or `insecure_skip_audience_check`),
+a browser `GET` without a session is redirected to
+`/auth/oidc/login?purpose=view&return_to=<object>`. After signing in, a viewer
+session cookie (`artifactsd_viewer`, 8 h) brings the browser back to the object.
+A signed-in viewer whom the entry doesn't admit gets `403` ("Signed in as …"),
+not another redirect. Entries for other allowlisted issuers are Bearer-only
+(`401`, `WWW-Authenticate: Bearer`, no redirect). Responses served because of a
+session or credentials carry `Cache-Control: private` (unless the object sets
+its own) and `Vary: Cookie, Authorization`. The viewer cookie is never accepted
+by the admin UI or `/api/v1`. See [`.agent-docs/design/05-serving-crawl.md`](../.agent-docs/design/05-serving-crawl.md)
 for the serving and crawl details.

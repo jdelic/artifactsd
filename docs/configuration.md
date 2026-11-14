@@ -158,6 +158,10 @@ choice here usually fails opaquely at login time:
   `https://artifacts.example.com/auth/oidc/callback`). This is the default value
   of `ARTIFACTSD_OIDC_REDIRECT_URL`; register this exact URL as an allowed
   redirect URI. Most providers reject any `redirect_uri` not on the list.
+  **Viewer logins** (people opening OIDC-protected objects in a browser) always
+  use `<base_url>/auth/oidc/callback` on the **public** host. When that differs
+  from the admin redirect URL (with `ARTIFACTSD_ADMIN_HOST`, or a custom
+  `ARTIFACTSD_OIDC_REDIRECT_URL`), register **both** URLs.
 - **Client type: confidential** — a `client_id` **and** `client_secret`. PKCE is
   always sent in addition (`code_challenge_method=S256`); you do not need to
   enable a separate "public/PKCE" client type.

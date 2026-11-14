@@ -139,3 +139,29 @@ func TestCSRFToken_DifferentKeysDiffer(t *testing.T) {
 		t.Error("CSRFToken collided across independently generated keys")
 	}
 }
+
+// TestPurposeDomainSeparation: a value signed by the admin manager never
+// verifies as a viewer session, and vice versa (artifactsd-m9e.22).
+func TestPurposeDomainSeparation(t *testing.T) {
+	key, _ := GenerateKey()
+	admin := NewManager(key, "", true)
+	viewer := admin.WithPurpose(PurposeViewer, ViewerCookieName)
+	id := &Identity{Subject: "u", Expiry: time.Now().Add(time.Hour)}
+	a, err := admin.Encode(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := viewer.Encode(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := viewer.Decode(a); err == nil {
+		t.Error("admin cookie accepted as viewer session")
+	}
+	if _, err := admin.Decode(v); err == nil {
+		t.Error("viewer cookie accepted as admin session")
+	}
+	if _, err := viewer.Decode(v); err != nil {
+		t.Errorf("viewer round trip: %v", err)
+	}
+}
