@@ -98,6 +98,7 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	node := &store.Node{
 		CollectionID: c.ID, ParentID: parentID, Path: p, Name: lastSegment(p), Kind: store.KindFile,
 		BlobID: &refStr, Size: &size, ContentType: strPtrOrNil(contentType), Checksum: &sum, Metadata: metaJSON,
+		ContentTrusted: isAdmin(r),
 	}
 	status := http.StatusCreated
 	if existing != nil {

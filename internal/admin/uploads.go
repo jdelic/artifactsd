@@ -81,7 +81,9 @@ func (h *Handler) beginUpload(w http.ResponseWriter, r *http.Request) {
 		// keeps its metadata (artifactsd-m9e.3).
 		UploadID: uploadID, CollectionID: c.ID, TargetPath: p, Metadata: json.RawMessage(`{}`),
 		MetadataSupplied: false,
-		ContentType:      strPtrOrNil(req.ContentType), Status: store.UploadPending,
+		// The admin UI is admin-only: its uploads are trusted content.
+		ContentTrusted: true,
+		ContentType:    strPtrOrNil(req.ContentType), Status: store.UploadPending,
 		ExpiresAt: now.Add(h.cfg.Limits.UploadTTL),
 	}
 	if err := h.store.CreateUploadSession(ctx, sess); err != nil {

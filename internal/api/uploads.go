@@ -90,6 +90,7 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 	session := &store.UploadSession{
 		UploadID: uploadID, CollectionID: c.ID, TargetPath: p, Metadata: metaJSON,
 		MetadataSupplied: supplied,
+		ContentTrusted:   isAdmin(r),
 		ContentType:      docContentType(doc), Status: store.UploadPending,
 		ExpiresAt: now.Add(h.cfg.Limits.UploadTTL),
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 const uploadCols = `id, upload_id, collection_id, target_path, metadata, content_type,
-	status, temp_blob_id, created_at, expires_at, completed_at, metadata_supplied`
+	status, temp_blob_id, created_at, expires_at, completed_at, metadata_supplied, content_trusted`
 
 func scanUpload(row interface{ Scan(...any) error }) (*UploadSession, error) {
 	var (
@@ -22,7 +22,7 @@ func scanUpload(row interface{ Scan(...any) error }) (*UploadSession, error) {
 	)
 	if err := row.Scan(
 		&u.ID, &u.UploadID, &u.CollectionID, &u.TargetPath, &meta, &contentType,
-		&u.Status, &tempBlob, &created, &expires, &completed, &u.MetadataSupplied,
+		&u.Status, &tempBlob, &created, &expires, &completed, &u.MetadataSupplied, &u.ContentTrusted,
 	); err != nil {
 		return nil, err
 	}
@@ -52,11 +52,11 @@ func (s *Store) CreateUploadSession(ctx context.Context, u *UploadSession) error
 		ctx,
 		`INSERT INTO upload_sessions
 			(upload_id, collection_id, target_path, metadata, content_type, status, temp_blob_id, created_at, expires_at,
-			 metadata_supplied)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 metadata_supplied, content_trusted)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		u.UploadID, u.CollectionID, u.TargetPath, defaultJSON(u.Metadata), u.ContentType,
 		u.Status, u.TempBlobID, fmtTime(u.CreatedAt), fmtTime(u.ExpiresAt),
-		boolToInt(u.MetadataSupplied),
+		boolToInt(u.MetadataSupplied), boolToInt(u.ContentTrusted),
 	)
 	if err != nil {
 		return err
@@ -113,18 +113,20 @@ func (s *Store) CommitUpload(ctx context.Context, uploadID string, n *Node, at t
 	if !at.Before(exp) {
 		return ErrUploadSessionExpired
 	}
-	var metadataSupplied bool
+	var metadataSupplied, trusted bool
 	err = tx.QueryRowContext(ctx,
 		`UPDATE upload_sessions SET status = ?, temp_blob_id = ?, completed_at = ?
 		 WHERE upload_id = ? AND status = ?
-		 RETURNING metadata_supplied`,
-		UploadCompleted, n.BlobID, fmtTime(at), uploadID, UploadPending).Scan(&metadataSupplied)
+		 RETURNING metadata_supplied, content_trusted`,
+		UploadCompleted, n.BlobID, fmtTime(at), uploadID, UploadPending).Scan(&metadataSupplied, &trusted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
+	// The committed bytes carry the trust of whoever began the session.
+	n.ContentTrusted = trusted
 	if !metadataSupplied {
 		existing, err := getNode(ctx, tx, n.CollectionID, n.Path)
 		switch {

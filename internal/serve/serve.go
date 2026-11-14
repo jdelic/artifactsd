@@ -379,7 +379,10 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, coll *store.Col
 	// (the directive only constrains browsing contexts), so applied broadly to
 	// also cover content the browser would otherwise sniff as HTML. Trusted
 	// content opts out via content.sandbox=false (then it keeps its real origin).
-	if eff.Sandbox {
+	// content.sandbox=false only applies to content an admin wrote: bytes from
+	// any other writer stay sandboxed whatever the (possibly inherited or
+	// share-level) metadata says (artifactsd-7tl.2).
+	if eff.Sandbox || !node.ContentTrusted {
 		w.Header().Add("Content-Security-Policy", "sandbox allow-scripts allow-downloads")
 	}
 	if ct := detectContentType(eff, node); ct != "" {

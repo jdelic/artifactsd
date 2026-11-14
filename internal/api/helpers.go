@@ -146,7 +146,7 @@ func requireSandboxPrivilege(w http.ResponseWriter, r *http.Request, doc *meta.D
 	if doc == nil || doc.Content == nil || doc.Content.Sandbox == nil || *doc.Content.Sandbox {
 		return true
 	}
-	if p := auth.PrincipalFromContext(r.Context()); p != nil && p.Scopes.Has(auth.ScopeAdmin) {
+	if isAdmin(r) {
 		return true
 	}
 	writeError(w, http.StatusForbidden, CodeForbidden, "content.sandbox=false requires an admin-scoped token")

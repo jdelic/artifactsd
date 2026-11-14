@@ -12,7 +12,7 @@ import (
 
 const nodeCols = `id, collection_id, parent_id, path, name, kind, blob_id, size,
 	content_type, checksum, metadata, created_at, updated_at, last_access_at,
-	visibility, expires_at, upload_request_id`
+	visibility, expires_at, upload_request_id, content_trusted`
 
 func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	var (
@@ -33,7 +33,7 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	if err := row.Scan(
 		&n.ID, &n.CollectionID, &parentID, &n.Path, &n.Name, &n.Kind,
 		&blobID, &size, &contentType, &checksum, &meta,
-		&created, &updated, &lastAccess, &visibility, &expires, &uploadReq,
+		&created, &updated, &lastAccess, &visibility, &expires, &uploadReq, &n.ContentTrusted,
 	); err != nil {
 		return nil, err
 	}
@@ -100,8 +100,8 @@ func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
 		`INSERT INTO nodes
 			(collection_id, parent_id, path, name, kind, blob_id, size, content_type,
 			 checksum, metadata, created_at, updated_at, last_access_at, visibility, expires_at,
-			 upload_request_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 upload_request_id, content_trusted)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(collection_id, path) DO UPDATE SET
 			parent_id    = excluded.parent_id,
 			name         = excluded.name,
@@ -116,12 +116,13 @@ func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
 			updated_at   = excluded.updated_at,
 			visibility   = excluded.visibility,
 			expires_at   = excluded.expires_at,
-			upload_request_id = excluded.upload_request_id
+			upload_request_id = excluded.upload_request_id,
+			content_trusted = excluded.content_trusted
 		 RETURNING id`,
 		n.CollectionID, n.ParentID, n.Path, n.Name, n.Kind, n.BlobID, n.Size, n.ContentType,
 		n.Checksum, defaultJSON(n.Metadata), fmtTime(n.CreatedAt), fmtTime(n.UpdatedAt),
 		fmtTimePtr(n.LastAccessAt), n.Visibility, fmtTimePtr(n.ExpiresAt),
-		n.UploadRequestID,
+		n.UploadRequestID, boolToInt(n.ContentTrusted),
 	).Scan(&n.ID)
 	return err
 }

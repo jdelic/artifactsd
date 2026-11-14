@@ -58,6 +58,11 @@ type Node struct {
 	// other writer did (artifactsd-m9e.1). A link with allow_overwrite may only
 	// replace files carrying its own id.
 	UploadRequestID *int64
+	// ContentTrusted is true when an admin-scoped principal wrote the file's
+	// bytes. Only trusted content may be served without the CSP sandbox
+	// (artifactsd-7tl.2). Fresh nodes default to untrusted; a metadata-only
+	// update round-trips the loaded value.
+	ContentTrusted bool
 }
 
 // Share is an unguessable-URL grant to a collection subtree (design/02 §2).
@@ -85,12 +90,15 @@ type UploadSession struct {
 	// document: committing it over an existing file then keeps that file's
 	// metadata (and content type) instead of replacing it (artifactsd-m9e.3).
 	MetadataSupplied bool
-	ContentType      *string
-	Status           string
-	TempBlobID       *string
-	CreatedAt        time.Time
-	ExpiresAt        time.Time
-	CompletedAt      *time.Time
+	// ContentTrusted is true when an admin-scoped principal began the session;
+	// the committed file inherits it (artifactsd-7tl.2).
+	ContentTrusted bool
+	ContentType    *string
+	Status         string
+	TempBlobID     *string
+	CreatedAt      time.Time
+	ExpiresAt      time.Time
+	CompletedAt    *time.Time
 }
 
 // APIToken is a management/admin credential; only the hash is stored.

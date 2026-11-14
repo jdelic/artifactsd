@@ -91,6 +91,8 @@ func (h *harness) file(t *testing.T, c *store.Collection, p, content, metaJSON, 
 	n := &store.Node{
 		CollectionID: c.ID, ParentID: h.ensureParents(t, c, p), Path: p, Name: path.Base(p), Kind: store.KindFile,
 		BlobID: &refStr, Size: &size, Checksum: &sum, Metadata: []byte(metaJSON),
+		// Fixtures stand in for admin-published content (artifactsd-7tl.2).
+		ContentTrusted: true,
 	}
 	if ct != "" {
 		n.ContentType = &ct

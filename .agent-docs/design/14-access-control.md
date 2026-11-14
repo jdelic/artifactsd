@@ -274,6 +274,15 @@ any admin who opens it, so write scope must not be enough. The check lives in
 the API's metadata helpers (`requireSandboxPrivilege`), covering collection,
 folder, file, share and large-upload metadata; upload-request `file_metadata`
 and the admin UI are admin-only already.
+**Content trust** (artifactsd-7tl.2): the flag alone isn't enough — a writer could
+replace the *bytes* of an admin-unsandboxed file (metadata is kept on re-upload),
+or add files under an unsandboxed folder or share. So each file records whether an
+admin-scoped principal wrote its bytes (`nodes.content_trusted`, migration 0007;
+large uploads inherit it from the principal that began the session, upload links
+and non-admin tokens are untrusted). Serving applies the sandbox CSP to untrusted
+content regardless of `content.sandbox`, whether that comes from the file,
+an ancestor or a share. Metadata-only PATCHes keep the flag; an admin re-upload
+restores trust. Files existing before the migration count as trusted.
 
 **Defense in depth on the admin side.** Every admin response sets
 `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,
