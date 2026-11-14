@@ -20,6 +20,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/blob"
+	"github.com/jdelic/artifactsd/internal/clientip"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/internal/paths"
@@ -42,6 +43,9 @@ type Deps struct {
 	Audit   *audit.Recorder
 	Logger  interface{ Error(string, ...any) }
 	BaseURL string
+	// Proxies resolves the client address from trusted-proxy headers; nil
+	// ignores forwarded headers.
+	Proxies *clientip.Resolver
 }
 
 // Handler serves /r/{request_id}.
@@ -52,13 +56,14 @@ type Handler struct {
 	audit   *audit.Recorder
 	log     interface{ Error(string, ...any) }
 	baseURL string
+	proxies *clientip.Resolver
 }
 
 // New builds the public upload handler.
-func New(d Deps) *Handler {
+func New(d Deps) *Handler { //nolint:gocritic // Deps is built once at construction
 	return &Handler{
 		store: d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit,
-		log: d.Logger, baseURL: d.BaseURL,
+		log: d.Logger, baseURL: d.BaseURL, proxies: d.Proxies,
 	}
 }
 
@@ -157,7 +162,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := clientIP(r)
+	ip := h.proxies.ClientIPString(r)
 
 	ct := r.Header.Get("Content-Type")
 	mediaType, _, _ := mime.ParseMediaType(ct)
@@ -451,17 +456,6 @@ func strVal(s *string) string {
 		return ""
 	}
 	return *s
-}
-
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return strings.SplitN(xff, ",", 2)[0]
-	}
-	addr := r.RemoteAddr
-	if i := strings.LastIndex(addr, ":"); i >= 0 {
-		return addr[:i]
-	}
-	return addr
 }
 
 func sanitizeFilename(name string) string {

@@ -138,6 +138,7 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 			Audit:   audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
 			Logger:  opts.Logger,
 			BaseURL: opts.Config.Server.BaseURL,
+			Proxies: s.proxies,
 		})
 	}
 	handler := opts.Handler
