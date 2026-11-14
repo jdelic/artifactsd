@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{if .Label}}{{.Label}}{{else}}Upload files{{end}}</title>
-<style>
+<style nonce="{{.Nonce}}">
 *{box-sizing:border-box}
 body{font-family:system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0;margin:0;padding:2rem;min-height:100vh}
 .card{background:#16213e;border:1px solid #0f3460;border-radius:8px;max-width:600px;margin:2rem auto;padding:2rem}
@@ -26,6 +26,7 @@ input[type=file]{display:none}
 .result ul{margin:0.5rem 0 0;padding-left:1.2rem}
 .hint{font-size:0.75rem;color:#666;margin-top:0.3rem}
 progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
+[hidden]{display:none !important}
 </style>
 </head>
 <body>
@@ -35,7 +36,7 @@ progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
 
   <div id="content">
     <form id="upload-form" enctype="multipart/form-data">
-      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <div class="drop-zone" id="drop-zone">
         <p>Click to choose files or drag &amp; drop here</p>
         {{if .MaxFileSize}}<p class="hint">Max file size: {{.MaxFileSizeHuman}}</p>{{end}}
       </div>
@@ -46,10 +47,10 @@ progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
     </form>
   </div>
 
-  <div id="result" class="result" style="display:none"></div>
+  <div id="result" class="result" hidden></div>
 </div>
 
-<script>
+<script nonce="{{.Nonce}}">
 (function(){
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
@@ -58,8 +59,10 @@ progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
   const progress  = document.getElementById('progress-bar');
   const result    = document.getElementById('result');
 
+  dropZone.addEventListener('click', () => fileInput.click());
+
   function updateList(files) {
-    fileList.innerHTML = '';
+    fileList.replaceChildren();
     Array.from(files).forEach(f => {
       const li = document.createElement('li');
       li.textContent = f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
@@ -98,24 +101,36 @@ progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
     };
     xhr.onload = () => {
       progress.style.display = 'none';
-      result.style.display = 'block';
+      result.hidden = false;
       try {
         const data = JSON.parse(xhr.responseText);
         if (xhr.status === 200) {
-          let html = '<strong>Files uploaded successfully!</strong>';
+          // Built with DOM APIs only: file names come from the uploader and
+          // must never be parsed as HTML.
+          const heading = document.createElement('strong');
+          heading.textContent = 'Files uploaded successfully!';
+          const nodes = [heading];
           if (data.files && data.uploader_access) {
-            html += '<ul>';
+            const ul = document.createElement('ul');
             data.files.forEach(f => {
-              if (f.url) {
-                html += '<li><a href="' + f.url + '" target="_blank" rel="noopener">' + f.filename + '</a></li>';
+              const li = document.createElement('li');
+              const name = String(f.filename);
+              if (typeof f.url === 'string' && f.url.startsWith(location.origin + '/')) {
+                const a = document.createElement('a');
+                a.href = f.url;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                a.textContent = name;
+                li.appendChild(a);
               } else {
-                html += '<li>' + f.filename + '</li>';
+                li.textContent = name;
               }
+              ul.appendChild(li);
             });
-            html += '</ul>';
+            nodes.push(ul);
           }
           result.className = 'result success';
-          result.innerHTML = html;
+          result.replaceChildren(...nodes);
           document.getElementById('content').style.display = 'none';
         } else {
           result.className = 'result error';
@@ -132,7 +147,7 @@ progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
     };
     xhr.onerror = () => {
       progress.style.display = 'none';
-      result.style.display = 'block';
+      result.hidden = false;
       result.className = 'result error';
       result.textContent = 'Network error. Please check your connection and try again.';
       submitBtn.disabled = false;

@@ -5,7 +5,9 @@ package uploadrequest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,6 +80,8 @@ func (h *Handler) Routes() http.Handler {
 
 // templateData is the data passed to upload.html.
 type templateData struct {
+	// Nonce authorizes the page's inline <script> and <style> under its CSP.
+	Nonce            string
 	Label            string
 	Description      string
 	MaxFileSize      int64
@@ -96,7 +100,13 @@ func (h *Handler) serveForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	nonce, err := newNonce()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	data := templateData{
+		Nonce:       nonce,
 		Label:       strVal(ur.Label),
 		Description: strVal(ur.Description),
 	}
@@ -110,8 +120,26 @@ func (h *Handler) serveForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	hdr := w.Header()
+	hdr.Set("Content-Type", "text/html; charset=utf-8")
+	// The page runs on the main origin: allow only its own nonce'd script and
+	// style, XHR back to this origin, and nothing else (artifactsd-m9e.8).
+	hdr.Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+
+		"'; style-src 'nonce-"+nonce+"'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	// The URL is a capability; never leak it in a Referer.
+	hdr.Set("Referrer-Policy", "no-referrer")
 	_, _ = w.Write(buf.Bytes())
+}
+
+// newNonce returns a fresh 128-bit CSP nonce (URL-safe base64, which the CSP
+// nonce grammar allows and html/template leaves unescaped).
+func newNonce() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }
 
 // serveStatus returns the JSON status of an upload request (GET /r/{request_id}/status).
