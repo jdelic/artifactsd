@@ -399,22 +399,33 @@ body {
   top: 135%;
   z-index: 30;
   width: max-content;
-  max-width: 320px;
-  white-space: normal;
+  max-width: min(480px, 90vw);
+  /* "\n" in a tip starts a new line and "\n\n" a paragraph (artifactsd-5ji). */
+  white-space: pre-line;
   font-style: normal;
-  font-size: 15px;
-  line-height: 1.25;
+  font-weight: normal;
+  font-size: 19px;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
   text-align: left;
+  text-transform: none;
   color: var(--nc-white);
   background: #000;
   border: 1px solid var(--nc-cyan-bright);
-  padding: 6px 8px;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.6);
+  padding: 8px 12px;
   display: none;
 }
 
 .nc-info:hover::after,
 .nc-info:focus::after {
   display: block;
+}
+
+/* Set by static/infotip.js for icons in the right half of the window. */
+.nc-info.nc-info-left::after {
+  left: auto;
+  right: 0;
 }
 
 /* Effective-expiry banner + sandbox-off warning (artifactsd-a0f / a8p). */

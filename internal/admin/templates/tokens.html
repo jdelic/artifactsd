@@ -9,6 +9,7 @@
       <label>Name <input type="text" name="name" placeholder="ci-runner" required data-shortcut="c" data-shortcut-action="focus"></label>
       <span class="nc-scopes">
         {{range .KnownScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
+        {{template "scopes_info"}}
       </span>
       <label class="nc-scope" title="Reaches only the collections granted on its grants page; leave scopes unchecked"><input type="checkbox" name="restricted" value="1"> restricted</label>
       <button class="nc-button" type="submit">Create</button>
@@ -23,7 +24,7 @@
   </div>
   <div class="nc-panel" data-label="Tokens">
     <table class="nc-table">
-      <tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Created</th><th>Status</th><th></th></tr>
+      <tr><th>Name</th><th>Prefix</th><th>Scopes {{template "scopes_info"}}</th><th>Created</th><th>Status</th><th></th></tr>
       {{range .Tokens}}
       <tr>
         <td>{{.Name}}</td>

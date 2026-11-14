@@ -23,6 +23,7 @@
       </label>
       <span class="nc-scopes">
         {{range .GrantScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
+        {{template "scopes_info"}}
       </span>
       <button class="nc-button" type="submit">Grant</button>
     </form>
@@ -35,7 +36,7 @@
   {{else if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
   <div class="nc-panel" data-label="Grants">
     <table class="nc-table">
-      <tr><th>Collection</th><th>Scopes</th><th>Granted</th><th></th></tr>
+      <tr><th>Collection</th><th>Scopes {{template "scopes_info"}}</th><th>Granted</th><th></th></tr>
       {{range .Grants}}
       <tr>
         <td><a href="{{$.AdminPath}}/collections/{{.Collection}}/shares">{{.Collection}}</a></td>

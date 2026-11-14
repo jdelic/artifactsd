@@ -1,0 +1,7 @@
+{{/* Shared info tooltips (artifactsd-5ji). nc_info renders an (i) icon whose
+     hover/focus box shows the given text; "\n" in the text starts a new line
+     and "\n\n" a new paragraph (the box uses white-space: pre-line). */}}
+{{define "nc_info"}}<span class="nc-info" tabindex="0" role="note" data-tip="{{.}}" aria-label="{{.}}">i</span>{{end}}
+
+{{/* scopes_info explains the API token scopes wherever a scope list is shown. */}}
+{{define "scopes_info"}}{{template "nc_info" "What each scope allows:\n\nadmin: everything. The only scope that manages tokens and upload requests, reads the audit log and stats, runs maintenance, and crawls non-crawlable objects. Cannot be granted to a restricted token.\n\ncollections:read: list and show collections, read files and metadata, crawl.\ncollections:write: create collections, upload and replace files, set metadata.\ncollections:delete: delete collections, folders and files.\n\nshares:read: list and show shares.\nshares:write: create shares and change their policy.\nshares:delete: revoke shares.\n\nA :write or :delete scope includes the matching :read. :write does not include :delete."}}{{end}}
