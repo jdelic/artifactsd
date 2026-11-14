@@ -94,6 +94,9 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 	case policy.RedirectOIDC:
 		redirectToViewerLogin(w, r)
 	case policy.Serve:
+		if redirectToSlash(w, r) {
+			return
+		}
 		h.recordAccess(r.Context(), acc)
 		privateCaching(w, &decision)
 		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, expiry, sh != nil)
@@ -150,6 +153,11 @@ func (h *Handler) serveIndexOrNotFound(w http.ResponseWriter, r *http.Request, c
 	}
 	if err != nil {
 		h.serverError(w, "lookup index", err)
+		return
+	}
+	// The folder is public (non-private checks passed) and has an index:
+	// serve it at the slash URL so its relative links resolve.
+	if redirectToSlash(w, r) {
 		return
 	}
 	if sh != nil {
@@ -241,4 +249,22 @@ func wantsJSONListing(r *http.Request) bool {
 	}
 	accept := r.Header.Get("Accept")
 	return strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html")
+}
+
+// redirectToSlash redirects a directory request whose URL lacks the trailing
+// slash to the slash form, keeping the query, and reports whether it did.
+// Relative links in a listing or an index.html resolve against the request
+// URL, so without the slash they would point into the parent folder
+// (artifactsd-7tl.6). Callers only use it once access has been granted, so a
+// redirect never discloses a folder that would otherwise 404.
+func redirectToSlash(w http.ResponseWriter, r *http.Request) bool {
+	if strings.HasSuffix(r.URL.Path, "/") {
+		return false
+	}
+	target := r.URL.EscapedPath() + "/"
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
+	return true
 }
