@@ -72,7 +72,7 @@ verifies. `WWW-Authenticate` on 401 reflects the configured schemes (e.g.
   (`auth.argon2Sem`); further requests queue and give up when their request
   context ends. Bounds peak memory to ~4 × 128 MiB regardless of load.
 - **One run per request**: all `basic` entries of an object share one
-  `MultiBasicVerifier`; it verifies only username-matching entries and runs one
+  `BasicUsersVerifier`; it verifies only username-matching entries and runs one
   dummy verification on a miss. `access.auth` is capped at 16 entries and
   `token_hash` must be 64 lowercase hex characters; basic usernames must be unique within a
   document (the verifier also keeps only the first entry per username, so old
