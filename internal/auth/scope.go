@@ -43,6 +43,12 @@ func IsKnownScope(sc Scope) bool {
 	return false
 }
 
+// IsGrantScope reports whether sc may appear on a per-collection grant
+// (design/16 §2): any known scope except admin.
+func IsGrantScope(sc Scope) bool {
+	return sc != ScopeAdmin && IsKnownScope(sc)
+}
+
 // ScopeSet is a token's granted scopes.
 type ScopeSet map[Scope]struct{}
 

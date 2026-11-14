@@ -27,6 +27,10 @@ type TokenRecord struct {
 	Scopes    ScopeSet
 	ExpiresAt *time.Time
 	RevokedAt *time.Time
+	// Restricted tokens reach only the collections in Grants, each with that
+	// grant's scopes; Scopes is then empty (design/16 §2).
+	Restricted bool
+	Grants     map[int64]ScopeSet
 }
 
 // TokenStore is the narrow dependency the Authenticator needs (decoupled from
@@ -44,6 +48,49 @@ type Principal struct {
 	Name    string
 	Prefix  string
 	Scopes  ScopeSet
+	// Restricted principals reach only the collections they hold a grant for
+	// (keyed by collection id), with that grant's scopes (design/16 §2).
+	Restricted bool
+	Grants     map[int64]ScopeSet
+}
+
+// Allows is the route gate (design/16 §4): an unrestricted principal needs the
+// scope itself; a restricted one needs it on at least one grant, and the
+// collection gate (CollectionAccess) then checks the addressed collection.
+func (p *Principal) Allows(required Scope) bool {
+	if !p.Restricted {
+		return p.Scopes.Satisfies(required)
+	}
+	if required == ScopeAdmin {
+		return false
+	}
+	for _, g := range p.Grants {
+		if g.Satisfies(required) {
+			return true
+		}
+	}
+	return false
+}
+
+// CollectionAccess is the collection gate (design/16 §4). visible reports
+// whether the principal may know the collection exists at all; allowed
+// whether it holds the required scope on it. Unrestricted principals are
+// governed by the route gate alone.
+func (p *Principal) CollectionAccess(collectionID int64, required Scope) (visible, allowed bool) {
+	if !p.Restricted {
+		return true, p.Scopes.Satisfies(required)
+	}
+	g, ok := p.Grants[collectionID]
+	if !ok {
+		return false, false
+	}
+	return true, required != ScopeAdmin && g.Satisfies(required)
+}
+
+// IsAdmin reports whether the principal holds the admin scope. Restricted
+// principals never do (design/16 §2).
+func (p *Principal) IsAdmin() bool {
+	return p != nil && !p.Restricted && p.Scopes.Has(ScopeAdmin)
 }
 
 // Authenticator authenticates management-API requests by their bearer token.
@@ -104,7 +151,13 @@ func (a *Authenticator) Authenticate(ctx context.Context, r *http.Request) (*Pri
 	// Best-effort last-used tracking; never fail the request on it.
 	_ = a.store.MarkTokenUsed(ctx, rec.ID, now)
 
-	return &Principal{TokenID: rec.ID, Name: rec.Name, Prefix: rec.Prefix, Scopes: rec.Scopes}, nil
+	p := &Principal{TokenID: rec.ID, Name: rec.Name, Prefix: rec.Prefix, Scopes: rec.Scopes, Restricted: rec.Restricted}
+	if rec.Restricted {
+		// Grant scopes only; never anything the token-level column says.
+		p.Scopes = ScopeSet{}
+		p.Grants = rec.Grants
+	}
+	return p, nil
 }
 
 // ErrorResponder writes an auth failure response. The HTTP server injects one
@@ -140,18 +193,30 @@ func (a *Authenticator) Middleware(required Scope, onError ErrorResponder) func(
 				onError(w, r, status, code, msg)
 				return
 			}
-			if !principal.Scopes.Satisfies(required) {
+			if !principal.Allows(required) {
 				status, code, msg := statusFor(ErrInsufficientScope)
 				onError(w, r, status, code, msg+": requires "+string(required))
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), principal)))
+			ctx := WithPrincipal(r.Context(), principal)
+			ctx = context.WithValue(ctx, requiredScopeKey{}, required)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
 // principalKey is the context key for the authenticated Principal.
 type principalKey struct{}
+
+// requiredScopeKey is the context key for the scope the route gate checked.
+type requiredScopeKey struct{}
+
+// RequiredScopeFromContext returns the scope the route required (set by
+// Middleware), so collection-level checks apply the same scope; "" if unset.
+func RequiredScopeFromContext(ctx context.Context) Scope {
+	sc, _ := ctx.Value(requiredScopeKey{}).(Scope)
+	return sc
+}
 
 // WithPrincipal returns a context carrying the principal.
 func WithPrincipal(ctx context.Context, p *Principal) context.Context {

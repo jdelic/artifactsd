@@ -1,7 +1,8 @@
 # 16 — Per-collection grants for API tokens
 
-> **Status: ACCEPTED** (owner decisions 2026-11-14, artifactsd-m9e.26). The
-> implementation is tracked in the tickets listed in §10.
+> **Status: ACCEPTED** (owner decisions 2026-11-14, artifactsd-m9e.26).
+> Store, auth and API implemented in artifactsd-m9e.28; admin UI and CLI in
+> artifactsd-m9e.29.
 
 ## 1. Problem
 
@@ -71,6 +72,8 @@ Two steps, so no route can forget the check:
 1. **Route gate** (`requireScope`): an unrestricted principal must satisfy the
    route's scope as today. A restricted principal passes the gate if *any* of its
    grants satisfies it; the required scope is put in the request context.
+   A route whose scope no grant holds is therefore `403` before any collection
+   is looked up — independent of the collection, so it discloses nothing.
 2. **Collection gate** (`lookupCollection` and every place that resolves a
    collection indirectly): a restricted principal needs a grant for that
    collection satisfying the route's scope.
@@ -152,14 +155,15 @@ a downgrade — revoke them first if you ever roll back.
 
 1. **Store + auth + API** — migration, `Principal.Restricted/Grants`, the two
    gates of §4 on every route, grant management API (§5), audit (§6). Tests:
-   - restricted token with `read` on A: A's files/meta/tree/folders/crawl/shares
-     200; every route on B → 404; `GET /collections` and `GET /crawl` list only
+   - restricted token with every grant scope on A: every route on A succeeds;
+     every route on B → 404; `GET /collections` and `GET /crawl` list only
      A; writes on A → 403 naming the scope;
    - grant with `read+write` on A, `read` on B: write on B → 403;
    - `POST /collections` with a restricted token → 403;
    - share routes by `share_id` for a collection without a grant → 404;
    - collection deleted → grants gone; re-created with the same name → 404;
-   - restricted + no grants → 404 everywhere; `admin` + restricted → 400;
+   - restricted + no grants → reaches nothing (403 at the route gate);
+     `admin` + restricted → 400;
    - existing (unrestricted) tokens behave exactly as before.
 2. **Admin UI + CLI + docs** — §7 surfaces; docs/http-api.md, docs/cli.md,
    design/04 §1/§8, design/14 §6.

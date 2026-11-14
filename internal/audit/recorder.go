@@ -29,6 +29,8 @@ const (
 	ActionAdminLogin          = "admin.login"
 	ActionAdminLoginDenied    = "admin.login_denied"
 	ActionContentApprove      = "content.approve"
+	ActionTokenGrant          = "token.grant"
+	ActionTokenUngrant        = "token.ungrant"
 )
 
 // ActorAnonymous is the actor recorded for unauthenticated capability-URL

@@ -19,6 +19,15 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   `admin` implies the rest, and is the only
   scope for tokens, upload requests, audit, stats, and maintenance;
   `<resource>:write` implies `<resource>:read`.
+- **Restricted tokens** — a token created with `"restricted": true` reaches
+  only the collections it holds a **grant** for, each grant with its own
+  scopes (see [Tokens](#tokens-audit--maintenance-admin-scoped)). Any other
+  collection answers `404` exactly as if it did not exist — including shares
+  addressed by `share_id`, `GET /collections` and `GET /crawl`, which list only
+  granted collections. A granted collection without the needed scope is a
+  `403` ("insufficient scope: requires collections:write on reports"); a scope
+  no grant holds is a `403` before any collection is looked up. Restricted
+  tokens cannot create collections and can never be `admin`.
 - **Errors** — a consistent JSON envelope:
   ```json
   { "error": { "code": "not_found", "message": "collection does not exist" } }
@@ -298,12 +307,38 @@ the token carries `admin` scope.
 GET    /api/v1/tokens                  list API tokens (metadata only)   admin
 POST   /api/v1/tokens                  create token → secret shown ONCE  admin
 DELETE /api/v1/tokens/{id}             revoke token                      admin
+PUT    /api/v1/tokens/{id}/grants/{c}  create/replace a grant {"scopes":[…]} admin
+DELETE /api/v1/tokens/{id}/grants/{c}  remove a grant                    admin
 GET    /api/v1/audit?since=&action=    audit log                         admin
 GET    /api/v1/stats                   counts and storage usage          admin
 POST   /api/v1/maintenance/cleanup     run a janitor pass now            admin
 ```
 
 The created token secret is returned **once** at creation and never again.
+
+A **restricted** token is limited to the collections it is granted
+(design/16). Create one with grants instead of token-level scopes:
+
+```json
+POST /api/v1/tokens
+{ "name": "agent-reports", "restricted": true,
+  "grants": [ { "collection": "reports",
+                "scopes": ["collections:read", "collections:write"] } ] }
+```
+
+Grant scopes are `collections:read|write|delete` and `shares:read|write|delete`
+(never `admin`). Token listings show `"restricted"` and each grant's collection
+and scopes. Grants bind to the collection, not its name: deleting a collection
+removes its grants, and a new collection with the same name is not covered. A
+restricted token without grants reaches nothing. `400` for unknown collections,
+empty or `admin` grant scopes, token-level `scopes` on a restricted token,
+grants on an unrestricted one, or `admin` together with `restricted`. Grant
+changes are audited as `token.grant` / `token.ungrant`; requests outside a
+token's grants are only logged at debug level.
+
+> **Downgrades:** an artifactsd release older than token grants ignores the
+> restriction, so restricted tokens would reach every collection. Revoke them
+> before rolling back.
 The audit log records deletions and admin actions (and authenticated access to
 protected objects). There is no access-log endpoint — access logs stream to
 stdout. OIDC and admin auth are configured via [environment](configuration.md),
@@ -318,7 +353,7 @@ not management endpoints.
 | Bad input / header not in the allowlist ([configuration](configuration.md#allowed-response-headers)) / bad path | `400` |
 | Missing or invalid API token | `401` |
 | Valid token, insufficient scope | `403` |
-| Unknown object, or private/expired on a public route | `404` |
+| Unknown object, private/expired on a public route, or a collection outside a restricted token's grants | `404` |
 | Name or share conflict | `409` |
 | New file in a collection at `ARTIFACTSD_MAX_FILES_PER_COLLECTION` ("collection has reached its file limit (N)") | `409` |
 | Over `max_upload_size` | `413` |

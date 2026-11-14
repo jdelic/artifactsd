@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jdelic/artifactsd/internal/audit"
+	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/internal/paths"
 	"github.com/jdelic/artifactsd/internal/store"
@@ -56,6 +57,12 @@ type createCollectionRequest struct {
 }
 
 func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
+	if p := auth.PrincipalFromContext(r.Context()); p != nil && p.Restricted {
+		// A grant can only name an existing collection; an admin creates the
+		// collection and grants it (design/16 §3).
+		writeError(w, http.StatusForbidden, CodeForbidden, "restricted tokens cannot create collections")
+		return
+	}
 	var req createCollectionRequest
 	if !decodeJSON(w, r, &req) {
 		return
@@ -100,6 +107,7 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "list collections", err)
 		return
 	}
+	cols = grantedCollections(r, cols, auth.ScopeCollectionsRead)
 	cursor := r.URL.Query().Get("cursor")
 	limit := parseLimit(r.URL.Query().Get("limit"))
 
@@ -205,7 +213,8 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// lookupCollection resolves {c}; writes 404 and returns false if absent.
+// lookupCollection resolves {c} and applies the collection gate; writes 404
+// and returns false if absent or not granted to the caller.
 func (h *Handler) lookupCollection(w http.ResponseWriter, r *http.Request) (*store.Collection, bool) {
 	name := r.PathValue("c")
 	c, err := h.store.GetCollectionByName(r.Context(), name)
@@ -217,5 +226,53 @@ func (h *Handler) lookupCollection(w http.ResponseWriter, r *http.Request) (*sto
 		h.internalServerError(w, "lookup collection", err)
 		return nil, false
 	}
+	if !h.authorizeCollection(w, r, c, "collection does not exist") {
+		return nil, false
+	}
 	return c, true
+}
+
+// authorizeCollection is the collection gate for restricted tokens
+// (design/16 §4): without a grant on c the request is answered 404 with
+// notFoundMsg — exactly as if c did not exist — and logged at debug level
+// only (not audited, so a leaked token cannot flood the audit log); with a
+// grant lacking the route's scope it is a 403 naming the scope. Every
+// handler that resolves a collection, directly or via a share, calls it.
+func (h *Handler) authorizeCollection(w http.ResponseWriter, r *http.Request, c *store.Collection, notFoundMsg string) bool {
+	p := auth.PrincipalFromContext(r.Context())
+	if p == nil {
+		return true // capability routes carry no principal
+	}
+	required := auth.RequiredScopeFromContext(r.Context())
+	visible, allowed := p.CollectionAccess(c.ID, required)
+	if !visible || (required == "" && p.Restricted) {
+		if h.log != nil {
+			h.log.Debug("api: collection outside token grants",
+				"token", p.Prefix, "collection_id", c.ID, "method", r.Method, "path", r.URL.Path)
+		}
+		writeError(w, http.StatusNotFound, CodeNotFound, notFoundMsg)
+		return false
+	}
+	if !allowed {
+		writeError(w, http.StatusForbidden, CodeForbidden,
+			"insufficient scope: requires "+string(required)+" on "+c.Name)
+		return false
+	}
+	return true
+}
+
+// grantedCollections filters cols to those the caller may list with scope
+// (all of them for unrestricted principals).
+func grantedCollections(r *http.Request, cols []*store.Collection, scope auth.Scope) []*store.Collection {
+	p := auth.PrincipalFromContext(r.Context())
+	if p == nil || !p.Restricted {
+		return cols
+	}
+	out := cols[:0:0]
+	for _, c := range cols {
+		if _, ok := p.CollectionAccess(c.ID, scope); ok {
+			out = append(out, c)
+		}
+	}
+	return out
 }
