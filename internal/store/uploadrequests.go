@@ -173,12 +173,24 @@ func (s *Store) CloseUploadRequest(ctx context.Context, requestID, status string
 	return requireOne(res)
 }
 
-// CommitUploadRequestSubmission creates a submission record, increments the
-// files_uploaded counter, and (when single_use is true) closes the request —
-// all in one transaction so the state is consistent even under concurrent POSTs.
-func (s *Store) CommitUploadRequestSubmission(
+// CommitUploadRequestFiles links the files received through an upload link
+// and records the submission, all in ONE transaction (artifactsd-m9e.2):
+//
+//  1. re-reads the request row: it must still be active (else
+//     ErrUploadRequestNotActive) and the files must fit max_files (else
+//     ErrUploadRequestQuotaExceeded);
+//  2. materializes each file's parent folders and upserts the file node,
+//     recomputing its denormalized columns;
+//  3. inserts the submission row (FileCount and TotalBytes are set from files)
+//     and bumps files_uploaded, closing the request when singleUse is set.
+//
+// Any error rolls back everything, so no file of a rejected submission becomes
+// visible. Blobs already stored for the files stay unreferenced and are
+// collected by the janitor. Each file's ParentID and ID are set on success.
+func (s *Store) CommitUploadRequestFiles(
 	ctx context.Context,
 	sub *UploadRequestSubmission,
+	files []*Node,
 	singleUse bool,
 	now time.Time,
 ) error {
@@ -188,28 +200,47 @@ func (s *Store) CommitUploadRequestSubmission(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Re-read status inside the transaction to ensure we win the race.
+	// Re-read status inside the transaction: this is the authoritative check.
 	var status string
-	var filesUploaded, maxFiles int64
-	var maxFilesNull sql.NullInt64
+	var filesUploaded int64
+	var maxFiles sql.NullInt64
 	if err := tx.QueryRowContext(
 		ctx,
 		`SELECT status, files_uploaded, max_files FROM upload_requests WHERE id = ?`,
 		sub.UploadRequestID,
-	).Scan(&status, &filesUploaded, &maxFilesNull); err != nil {
+	).Scan(&status, &filesUploaded, &maxFiles); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	}
-	if maxFilesNull.Valid {
-		maxFiles = maxFilesNull.Int64
-	}
 	if status != UploadRequestActive {
 		return ErrUploadRequestNotActive
 	}
-	if maxFiles > 0 && filesUploaded+sub.FileCount > maxFiles {
+
+	sub.FileCount = int64(len(files))
+	sub.TotalBytes = 0
+	for _, f := range files {
+		if f.Size != nil {
+			sub.TotalBytes += *f.Size
+		}
+	}
+	if maxFiles.Valid && maxFiles.Int64 > 0 && filesUploaded+sub.FileCount > maxFiles.Int64 {
 		return ErrUploadRequestQuotaExceeded
+	}
+
+	for _, f := range files {
+		parentID, err := s.ensureParentFolders(ctx, tx, f.CollectionID, f.Path)
+		if err != nil {
+			return err
+		}
+		f.ParentID = parentID
+		if err := s.upsertNode(ctx, tx, f); err != nil {
+			return err
+		}
+		if err := s.recomputeNodeDenormalized(ctx, tx, f.ID); err != nil {
+			return err
+		}
 	}
 
 	sub.CreatedAt = now

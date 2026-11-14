@@ -25,6 +25,16 @@ type DB struct {
 	sql *sql.DB
 }
 
+// querier is satisfied by both *sql.DB and *sql.Tx, so node helpers can run
+// inside a transaction. The pool has a single connection (SetMaxOpenConns(1)):
+// code inside a transaction must use only the *sql.Tx, never s.db.sql, or it
+// deadlocks waiting for the connection the transaction holds.
+type querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // openOptions are the connection pragmas applied to every connection.
 //
 //   - journal_mode=WAL: concurrent readers alongside a writer (persistent).

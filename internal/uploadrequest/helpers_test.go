@@ -104,3 +104,35 @@ func do(t *testing.T, ts *testserver.Server, req *http.Request) (int, []byte) {
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, b
 }
+
+// upload POSTs parts to /r/{id} and returns status and body.
+func upload(t *testing.T, ts *testserver.Server, id string, parts ...part) (int, []byte) {
+	t.Helper()
+	return do(t, ts, uploadReq(t, ts, id, parts...))
+}
+
+// fileContent fetches a file through the management API (bypassing serving
+// policy); ok is false when the file does not exist.
+func fileContent(t *testing.T, ts *testserver.Server, collection, path string) (content string, ok bool) {
+	t.Helper()
+	code, b := apiDo(t, ts, http.MethodGet, "/api/v1/collections/"+collection+"/files/"+path, "")
+	switch code {
+	case http.StatusOK:
+		return string(b), true
+	case http.StatusNotFound:
+		return "", false
+	default:
+		t.Fatalf("GET file %s/%s: status %d: %s", collection, path, code, b)
+		return "", false
+	}
+}
+
+// assertAbsent fails the test for every path that exists in collection.
+func assertAbsent(t *testing.T, ts *testserver.Server, collection string, paths ...string) {
+	t.Helper()
+	for _, p := range paths {
+		if _, ok := fileContent(t, ts, collection, p); ok {
+			t.Errorf("%s/%s exists, want absent", collection, p)
+		}
+	}
+}

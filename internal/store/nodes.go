@@ -72,7 +72,12 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 // folder in place — replacing one with the other requires an explicit
 // delete/recreate. Violations return ErrKindConflict without mutating any row.
 func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
-	if err := s.checkKindInvariants(ctx, n); err != nil {
+	return s.upsertNode(ctx, s.db.sql, n)
+}
+
+// upsertNode is UpsertNode on q (the DB or a transaction).
+func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
+	if err := checkKindInvariants(ctx, q, n); err != nil {
 		return err
 	}
 
@@ -82,7 +87,7 @@ func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
 	}
 	n.UpdatedAt = now
 
-	err := s.db.sql.QueryRowContext(
+	err := q.QueryRowContext(
 		ctx,
 		`INSERT INTO nodes
 			(collection_id, parent_id, path, name, kind, blob_id, size, content_type,
@@ -112,10 +117,10 @@ func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
 
 // checkKindInvariants verifies, before an upsert, that the parent is a folder
 // and that an existing node at the same path is not flipping kind (artifactsd-2bw).
-func (s *Store) checkKindInvariants(ctx context.Context, n *Node) error {
+func checkKindInvariants(ctx context.Context, q querier, n *Node) error {
 	if n.ParentID != nil {
 		var parentKind string
-		err := s.db.sql.QueryRowContext(ctx, `SELECT kind FROM nodes WHERE id = ?`, *n.ParentID).Scan(&parentKind)
+		err := q.QueryRowContext(ctx, `SELECT kind FROM nodes WHERE id = ?`, *n.ParentID).Scan(&parentKind)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrKindConflict // parent vanished; treat as a structural conflict
 		}
@@ -128,7 +133,7 @@ func (s *Store) checkKindInvariants(ctx context.Context, n *Node) error {
 	}
 
 	var existingKind string
-	err := s.db.sql.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT kind FROM nodes WHERE collection_id = ? AND path = ?`, n.CollectionID, n.Path).Scan(&existingKind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil // new path, no conflict
@@ -144,7 +149,11 @@ func (s *Store) checkKindInvariants(ctx context.Context, n *Node) error {
 
 // GetNode returns a node by (collection, path).
 func (s *Store) GetNode(ctx context.Context, collectionID int64, path string) (*Node, error) {
-	row := s.db.sql.QueryRowContext(ctx,
+	return getNode(ctx, s.db.sql, collectionID, path)
+}
+
+func getNode(ctx context.Context, q querier, collectionID int64, path string) (*Node, error) {
+	row := q.QueryRowContext(ctx,
 		`SELECT `+nodeCols+` FROM nodes WHERE collection_id = ? AND path = ?`, collectionID, path)
 	n, err := scanNode(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -155,7 +164,11 @@ func (s *Store) GetNode(ctx context.Context, collectionID int64, path string) (*
 
 // GetNodeByID returns a node by id.
 func (s *Store) GetNodeByID(ctx context.Context, id int64) (*Node, error) {
-	row := s.db.sql.QueryRowContext(ctx, `SELECT `+nodeCols+` FROM nodes WHERE id = ?`, id)
+	return getNodeByID(ctx, s.db.sql, id)
+}
+
+func getNodeByID(ctx context.Context, q querier, id int64) (*Node, error) {
+	row := q.QueryRowContext(ctx, `SELECT `+nodeCols+` FROM nodes WHERE id = ?`, id)
 	n, err := scanNode(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -392,6 +405,11 @@ func collectNodes(rows *sql.Rows) ([]*Node, error) {
 // ancestor returns ErrKindConflict. Shared by the API and admin upload paths
 // (previously duplicated in both packages).
 func (s *Store) EnsureParentFolders(ctx context.Context, collectionID int64, p string) (*int64, error) {
+	return s.ensureParentFolders(ctx, s.db.sql, collectionID, p)
+}
+
+// ensureParentFolders is EnsureParentFolders on q (the DB or a transaction).
+func (s *Store) ensureParentFolders(ctx context.Context, q querier, collectionID int64, p string) (*int64, error) {
 	segs := strings.Split(p, "/")
 	if len(segs) == 1 {
 		return nil, nil
@@ -404,7 +422,7 @@ func (s *Store) EnsureParentFolders(ctx context.Context, collectionID int64, p s
 		} else {
 			prefix += "/" + seg
 		}
-		existing, err := s.GetNode(ctx, collectionID, prefix)
+		existing, err := getNode(ctx, q, collectionID, prefix)
 		if err == nil {
 			if existing.Kind != KindFolder {
 				return nil, ErrKindConflict // an existing ancestor must be a folder
@@ -419,7 +437,7 @@ func (s *Store) EnsureParentFolders(ctx context.Context, collectionID int64, p s
 			CollectionID: collectionID, ParentID: parentID, Path: prefix,
 			Name: path.Base(prefix), Kind: KindFolder, Metadata: json.RawMessage(`{}`),
 		}
-		if err := s.UpsertNode(ctx, folder); err != nil {
+		if err := s.upsertNode(ctx, q, folder); err != nil {
 			return nil, err
 		}
 		id := folder.ID

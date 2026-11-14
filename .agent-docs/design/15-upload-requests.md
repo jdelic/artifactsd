@@ -311,11 +311,23 @@ footer pattern from [09 §1](09-admin-ui.md)).
   sessions ([14 §5](14-access-control.md)).
 - Size enforcement: `max_file_size` per request ≤ server `max_upload_size`; 413
   if exceeded. The server's global `MaxBytesReader` is the hard limit.
-- Quota enforcement: `max_files` counter is incremented atomically inside a DB
-  transaction; 409 if exceeded.
-- Single-use enforcement: when `single_use = true`, `status` is set to `closed`
-  inside the same DB transaction that commits the uploaded files. A concurrent
-  POST racing on the same link loses the transaction and receives 410.
+- **Receive, then commit** (artifactsd-m9e.2). A POST is handled in two phases:
+  1. *Receive*: each file is streamed to the blob store and kept in memory as a
+     pending node. Nothing is linked into the tree. Per-file size (413), the
+     100-files-per-request cap (400), duplicate target paths within the request
+     (400) and the link's remaining `max_files` quota (409, fail fast without
+     reading further parts) are enforced here.
+  2. *Commit*: `store.CommitUploadRequestFiles` runs ONE transaction that
+     re-reads the request row (not active → 410, over quota → 409), materializes
+     parent folders, upserts every node, inserts the submission row and bumps
+     `files_uploaded` (closing the link when `single_use`). Any failure rolls
+     back everything: a rejected request never leaves a visible file. Blobs of
+     rejected requests stay unreferenced and are collected by the janitor.
+- Quota enforcement: see above; `max_files` is checked inside the commit
+  transaction, so it is a hard limit.
+- Single-use enforcement: `status` is set to `closed` inside the same commit
+  transaction, so of concurrent POSTs on a single-use link exactly one commits;
+  the others receive 410 and none of their files become visible.
 - Expired/revoked links return **410 Gone** — informative for holders of a
   legitimate link, while the unguessable ID prevents enumeration.
 - Rate limiting: same per-IP rate limiter applied to auth attempts ([06](06-auth-security.md))

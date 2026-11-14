@@ -123,7 +123,12 @@ func (s *Store) RecomputeCollectionDenormalized(ctx context.Context, id int64, d
 // RecomputeNodeDenormalized re-derives and persists the denormalized columns
 // for one node. A node with no own visibility keeps NULL (inherit).
 func (s *Store) RecomputeNodeDenormalized(ctx context.Context, id int64) error {
-	n, err := s.GetNodeByID(ctx, id)
+	return s.recomputeNodeDenormalized(ctx, s.db.sql, id)
+}
+
+// recomputeNodeDenormalized is RecomputeNodeDenormalized on q.
+func (s *Store) recomputeNodeDenormalized(ctx context.Context, q querier, id int64) error {
+	n, err := getNodeByID(ctx, q, id)
 	if err != nil {
 		return err
 	}
@@ -140,7 +145,7 @@ func (s *Store) RecomputeNodeDenormalized(ctx context.Context, id int64) error {
 	if vis != "" {
 		visArg = vis
 	}
-	_, err = s.db.sql.ExecContext(ctx,
+	_, err = q.ExecContext(ctx,
 		`UPDATE nodes SET visibility = ?, expires_at = ? WHERE id = ?`,
 		visArg, fmtTimePtr(exp), id)
 	return err
