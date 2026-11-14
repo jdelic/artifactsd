@@ -17,7 +17,7 @@
       {{if .FieldsError}}<div class="nc-error nc-form-wide">{{.FieldsError}}</div>{{end}}
       <label>Content-Type {{template "nc_info" "Overrides the served Content-Type response header. Leave blank to auto-detect from the file extension."}}
         <input type="text" name="content_type" value="{{.ContentType}}" placeholder="(auto-detect)"></label>
-      <label>Visibility {{template "nc_info" "Who may fetch this object. public: anyone; unlisted: reachable by URL but hidden from listings; protected: requires auth; private: never served. (inherit) uses the parent/server default."}}
+      <label>Visibility {{template "nc_info" "Who may fetch this object. public: anyone, and it shows up in directory listings. unlisted: anyone who knows the URL, but it is left out of its parent folder's listing, sitemaps and indexes. protected: only with the auth set on this object or inherited from above (404 if none is set). private: must be accessed through a share link and may require auth. (inherit) uses the parent/server default."}}
         <select name="visibility">
           <option value="" {{if eq .Visibility ""}}selected{{end}}>(inherit)</option>
           <option value="public" {{if eq .Visibility "public"}}selected{{end}}>public</option>

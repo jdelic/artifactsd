@@ -58,7 +58,13 @@ Order: explicit `content.content_type` → stored `content_type` → extension m
 Generated listing for a folder shows immediate children (files + subfolders),
 each with name, size, content-type, modified time. Honors visibility: `private`
 children are omitted; `unlisted` children are omitted from listings (SPEC §8.1)
-even though directly fetchable. HTML listing is a styled `html/template`; JSON
+even though directly fetchable. "Unlisted" keeps an object out of its *parent's*
+listing: a child is omitted only when its own metadata says `unlisted`, not when
+it inherits that from the folder, collection or share being listed (that
+container was reached by URL and has listing on; artifactsd-f0q). A listing
+under `/s/{share_id}/` is titled "Index of shared files" and its `path`s are
+relative to the share root; it never names the collection or the shared
+folder's real location. HTML listing is a styled `html/template`; JSON
 listing mirrors the crawl entry shape for programmatic use.
 
 ## 3. Robots policy (SPEC §10.3)
