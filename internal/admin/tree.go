@@ -128,7 +128,7 @@ func (h *Handler) loadTreePanel(ctx context.Context, c *store.Collection, dir, e
 	if err != nil {
 		return treePanelData{}, err
 	}
-	states := sandbox.ForNodes(h.cfg.Policy.Sandbox, c.Metadata, allNodes)
+	states := sandbox.NodeStates(h.cfg.Policy.Sandbox, c.Metadata, allNodes)
 
 	data := treePanelData{
 		AdminPath:  h.cfg.Admin.Path,

@@ -53,7 +53,7 @@ func (h *Handler) allUploadRequests(w http.ResponseWriter, r *http.Request) {
 }
 
 // createUploadRequest mints a new upload request link (design/15 §5).
-func (h *Handler) createUploadRequestAdmin(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createUploadRequest(w http.ResponseWriter, r *http.Request) {
 	collection := r.FormValue("collection")
 	if collection == "" {
 		h.renderUploadRequestsPanel(w, r, "", "collection is required")
@@ -187,8 +187,8 @@ func (h *Handler) createUploadRequestAdmin(w http.ResponseWriter, r *http.Reques
 	h.renderUploadRequestsPanel(w, r, h.uploadRequestURL(requestID), "")
 }
 
-// revokeUploadRequestAdmin revokes an upload request link (design/15 §5).
-func (h *Handler) revokeUploadRequestAdmin(w http.ResponseWriter, r *http.Request) {
+// revokeUploadRequest revokes an upload request link (design/15 §5).
+func (h *Handler) revokeUploadRequest(w http.ResponseWriter, r *http.Request) {
 	requestID := r.PathValue("request_id")
 	ctx := r.Context()
 

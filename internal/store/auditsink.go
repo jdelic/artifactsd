@@ -23,15 +23,15 @@ func (a *AuditSink) AppendAudit(ctx context.Context, e *audit.Entry) error {
 	row := &AuditLog{
 		Timestamp: e.Timestamp,
 		Action:    e.Action,
-		Actor:     emptyToNil(e.Actor),
-		Target:    emptyToNil(e.Target),
-		RequestID: emptyToNil(e.RequestID),
+		Actor:     nilIfEmpty(e.Actor),
+		Target:    nilIfEmpty(e.Target),
+		RequestID: nilIfEmpty(e.RequestID),
 		Details:   e.Details,
 	}
 	return a.s.AppendAudit(ctx, row)
 }
 
-func emptyToNil(s string) *string {
+func nilIfEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}

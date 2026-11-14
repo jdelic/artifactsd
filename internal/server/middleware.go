@@ -125,7 +125,7 @@ func (s *Server) bodyLimit(next http.Handler) http.Handler {
 func (s *Server) rateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := rateLimitKey(s.clientIP(r))
-		if s.limitable(r) {
+		if s.shouldRateLimit(r) {
 			if blocked, retry := s.limiter.RetryAfter(key); blocked {
 				w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())))
 				http.Error(w, "too many requests", http.StatusTooManyRequests)
@@ -144,9 +144,9 @@ func (s *Server) rateLimit(next http.Handler) http.Handler {
 	})
 }
 
-// limitable reports whether the limiter may block r: it carries credentials or
+// shouldRateLimit reports whether the limiter may block r: it carries credentials or
 // targets a login surface (the admin UI or /auth/).
-func (s *Server) limitable(r *http.Request) bool {
+func (s *Server) shouldRateLimit(r *http.Request) bool {
 	return r.Header.Get("Authorization") != "" || s.loginSurface(r.URL.Path)
 }
 

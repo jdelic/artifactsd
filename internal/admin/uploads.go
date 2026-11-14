@@ -83,7 +83,7 @@ func (h *Handler) beginUpload(w http.ResponseWriter, r *http.Request) {
 		MetadataSupplied: false,
 		// The admin UI is admin-only: its uploads are trusted content.
 		ContentTrusted: true,
-		ContentType:    strPtrOrNil(req.ContentType), Status: store.UploadPending,
+		ContentType:    nilIfEmpty(req.ContentType), Status: store.UploadPending,
 		ExpiresAt: now.Add(h.cfg.Limits.UploadTTL),
 	}
 	if err := h.store.CreateUploadSession(ctx, sess); err != nil {
@@ -113,11 +113,4 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
-}
-
-func strPtrOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

@@ -100,7 +100,7 @@ func (h *Handler) publicURLAllowed(ctx context.Context, c *store.Collection, nod
 // turned off where it lives (artifactsd-7tl.9). Empty when not applicable.
 func (h *Handler) sandboxWarning(ctx context.Context, c *store.Collection, nodePath string, fileDoc *meta.Document) string {
 	eff, _, err := h.resolveFile(ctx, c, nodePath, fileDoc)
-	if err != nil || sandbox.For(eff.Sandbox, true, false) != sandbox.AwaitingApproval {
+	if err != nil || sandbox.StateOf(eff.Sandbox, true, false) != sandbox.AwaitingApproval {
 		return ""
 	}
 	return "served sandboxed until an admin re-approves it: " + sandbox.AwaitingApprovalNote

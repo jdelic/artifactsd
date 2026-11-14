@@ -41,10 +41,10 @@ func (h *Handler) allShares(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "allshares", allSharesFKeys, "READY", "Shares", data)
 }
 
-// revokeShareGlobal revokes a share from the cross-collection overview and
+// revokeShareFromList revokes a share from the cross-collection overview and
 // re-renders that panel (the per-collection revoke returns a per-collection
 // fragment, which would not fit this page).
-func (h *Handler) revokeShareGlobal(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) revokeShareFromList(w http.ResponseWriter, r *http.Request) {
 	shareID := r.PathValue("share_id")
 	ctx := r.Context()
 	sh, err := h.store.GetShare(ctx, shareID)
@@ -162,7 +162,7 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		states[f.CollectionName] = sandbox.ForNodes(h.cfg.Policy.Sandbox, c.Metadata, nodes)
+		states[f.CollectionName] = sandbox.NodeStates(h.cfg.Policy.Sandbox, c.Metadata, nodes)
 	}
 	for _, f := range files {
 		row := allFilesRow{

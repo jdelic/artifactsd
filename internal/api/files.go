@@ -105,7 +105,7 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	refStr := string(ref)
 	node := &store.Node{
 		CollectionID: c.ID, ParentID: parentID, Path: p, Name: lastSegment(p), Kind: store.KindFile,
-		BlobID: &refStr, Size: &size, ContentType: strPtrOrNil(contentType), Checksum: &sum, Metadata: metaJSON,
+		BlobID: &refStr, Size: &size, ContentType: nilIfEmpty(contentType), Checksum: &sum, Metadata: metaJSON,
 		ContentTrusted: isAdmin(r),
 	}
 	status := http.StatusCreated
@@ -239,7 +239,7 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "recompute node", err)
 		return
 	}
-	if err := h.vouchIfUnsandboxed(r, patch, c.ID, node.Path); err != nil {
+	if err := h.trustIfSandboxOff(r, patch, c.ID, node.Path); err != nil {
 		h.internalServerError(w, "trust content", err)
 		return
 	}
@@ -248,9 +248,9 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---------------------------------------------------------------
 
-// collectionFull answers 409 for a write that would exceed the per-collection
+// writeCollectionFull answers 409 for a write that would exceed the per-collection
 // file cap.
-func (h *Handler) collectionFull(w http.ResponseWriter) {
+func (h *Handler) writeCollectionFull(w http.ResponseWriter) {
 	writeError(w, http.StatusConflict, CodeConflict,
 		fmt.Sprintf("collection has reached its file limit (%d)", h.store.MaxFilesPerCollection()))
 }
@@ -261,7 +261,7 @@ func (h *Handler) collectionFull(w http.ResponseWriter) {
 func (h *Handler) checkCapacity(w http.ResponseWriter, r *http.Request, collectionID int64, p string) bool {
 	err := h.store.CheckCollectionCapacity(r.Context(), collectionID, p)
 	if errors.Is(err, store.ErrCollectionFull) {
-		h.collectionFull(w)
+		h.writeCollectionFull(w)
 		return false
 	}
 	if err != nil {
@@ -275,7 +275,7 @@ func (h *Handler) checkCapacity(w http.ResponseWriter, r *http.Request, collecti
 // kind conflict (artifactsd-2bw) becomes a 409, anything else a 500.
 func (h *Handler) storeWriteError(w http.ResponseWriter, what string, err error) {
 	if errors.Is(err, store.ErrCollectionFull) {
-		h.collectionFull(w)
+		h.writeCollectionFull(w)
 		return
 	}
 	if errors.Is(err, store.ErrKindConflict) {
@@ -398,7 +398,7 @@ func resolveContentType(metaCT *string, r *http.Request) string {
 
 func lastSegment(p string) string { return path.Base(p) }
 
-func strPtrOrNil(s string) *string {
+func nilIfEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}

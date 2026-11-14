@@ -107,8 +107,8 @@ func (h *Handler) serveForm(w http.ResponseWriter, r *http.Request) {
 	}
 	data := templateData{
 		Nonce:       nonce,
-		Label:       strVal(ur.Label),
-		Description: strVal(ur.Description),
+		Label:       strFromPtr(ur.Label),
+		Description: strFromPtr(ur.Description),
 	}
 	if ur.MaxFileSize != nil {
 		data.MaxFileSize = *ur.MaxFileSize
@@ -513,7 +513,7 @@ func acceptsJSON(r *http.Request) bool {
 	return false
 }
 
-func strVal(s *string) string {
+func strFromPtr(s *string) string {
 	if s == nil {
 		return ""
 	}

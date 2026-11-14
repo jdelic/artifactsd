@@ -14,10 +14,10 @@ import (
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
-// TestCreateUploadRequestAdmin_AllFields covers the admin create form's full
+// TestCreateUploadRequest_AllFields covers the admin create form's full
 // field set (artifactsd-nml): description, limits, behavior toggles, the
 // file-visibility metadata, and the split expires_at/expires_in pair.
-func TestCreateUploadRequestAdmin_AllFields(t *testing.T) {
+func TestCreateUploadRequest_AllFields(t *testing.T) {
 	ha := newHarness(t)
 	col := &store.Collection{Name: "inbox", Metadata: []byte(`{}`)}
 	if err := ha.st.CreateCollection(context.Background(), col); err != nil {
@@ -88,9 +88,9 @@ func TestCreateUploadRequestAdmin_AllFields(t *testing.T) {
 	}
 }
 
-// TestCreateUploadRequestAdmin_DefaultsPrivate: without a visibility the link's
+// TestCreateUploadRequest_DefaultsPrivate: without a visibility the link's
 // files are private, and uploader access then cannot be enabled.
-func TestCreateUploadRequestAdmin_DefaultsPrivate(t *testing.T) {
+func TestCreateUploadRequest_DefaultsPrivate(t *testing.T) {
 	ha := newHarness(t)
 	col := &store.Collection{Name: "inbox", Metadata: []byte(`{}`)}
 	if err := ha.st.CreateCollection(context.Background(), col); err != nil {
@@ -116,9 +116,9 @@ func TestCreateUploadRequestAdmin_DefaultsPrivate(t *testing.T) {
 	}
 }
 
-// TestCreateUploadRequestAdmin_ExpiryPairExclusive rejects setting both the
+// TestCreateUploadRequest_ExpiryPairExclusive rejects setting both the
 // absolute and the relative expiry, mirroring the CLI flag pair.
-func TestCreateUploadRequestAdmin_ExpiryPairExclusive(t *testing.T) {
+func TestCreateUploadRequest_ExpiryPairExclusive(t *testing.T) {
 	ha := newHarness(t)
 	col := &store.Collection{Name: "inbox", Metadata: []byte(`{}`)}
 	if err := ha.st.CreateCollection(context.Background(), col); err != nil {

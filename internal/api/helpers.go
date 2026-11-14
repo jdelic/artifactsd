@@ -168,11 +168,11 @@ func setsSandboxOff(doc *meta.Document) bool {
 	return sb != nil && !*sb
 }
 
-// vouchIfUnsandboxed records an admin's decision to unsandbox: when doc sets
+// trustIfSandboxOff records an admin's decision to unsandbox: when doc sets
 // content.sandbox=false, the files currently at or below prefix are marked
 // trusted, so they are served unsandboxed without being re-uploaded
 // (artifactsd-7tl.2). Only admins can reach this (requireSandboxPrivilege).
-func (h *Handler) vouchIfUnsandboxed(r *http.Request, doc *meta.Document, collectionID int64, prefix string) error {
+func (h *Handler) trustIfSandboxOff(r *http.Request, doc *meta.Document, collectionID int64, prefix string) error {
 	if !setsSandboxOff(doc) || !isAdmin(r) {
 		return nil
 	}
@@ -203,7 +203,7 @@ func keepAdminSandbox(doc *meta.Document, existing json.RawMessage) {
 // (artifactsd-7tl.9).
 func addSandboxState(effective map[string]any, isFile, trusted bool) sandbox.State {
 	eff, _ := effective["sandbox"].(bool)
-	st := sandbox.For(eff, isFile, trusted)
+	st := sandbox.StateOf(eff, isFile, trusted)
 	effective["sandbox_state"] = st
 	if st == sandbox.AwaitingApproval {
 		effective["sandbox_note"] = sandbox.AwaitingApprovalNote
