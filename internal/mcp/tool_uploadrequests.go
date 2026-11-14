@@ -21,11 +21,12 @@ type CreateUploadRequestIn struct {
 	Description          string         `json:"description,omitempty" jsonschema:"Longer description shown below the label"`
 	SingleUse            bool           `json:"single_use,omitempty" jsonschema:"Auto-close the link after the first successful submission"`
 	UseSubmissionFolders bool           `json:"use_submission_folders,omitempty" jsonschema:"Store each submission in its own sub-folder named by submission_id"`
-	AllowUploaderAccess  bool           `json:"allow_uploader_access,omitempty" jsonschema:"Return file URLs to the uploader for public and unlisted files"`
+	AllowUploaderAccess  bool           `json:"allow_uploader_access,omitempty" jsonschema:"Return file URLs to the uploader; requires file_metadata.access.visibility public or unlisted"`
+	AllowOverwrite       bool           `json:"allow_overwrite,omitempty" jsonschema:"Let the link replace files it uploaded itself (never other files). Default false: a name that already exists is refused with 409. Any holder of the link can replace another holder's file, so prefer use_submission_folders for shared links"`
 	MaxFiles             int64          `json:"max_files,omitempty" jsonschema:"Maximum total files that may be uploaded; 0 = unlimited"`
 	MaxFileSizeBytes     int64          `json:"max_file_size_bytes,omitempty" jsonschema:"Per-file size limit in bytes; 0 = server default"`
 	ExpiresIn            string         `json:"expires_in,omitempty" jsonschema:"Duration like 24h, 7d, or 2w; the link never expires if omitted"`
-	FileMetadata         *meta.Document `json:"file_metadata,omitempty" jsonschema:"Metadata document applied to every uploaded file, e.g. {\"access\":{\"visibility\":\"private\"}} or {\"expiry\":{\"delete_after_creation\":\"7d\"}}"`
+	FileMetadata         *meta.Document `json:"file_metadata,omitempty" jsonschema:"Metadata document applied to every uploaded file, e.g. {\"access\":{\"visibility\":\"unlisted\"}} or {\"expiry\":{\"delete_after_creation\":\"7d\"}}. Files are private unless access.visibility is set"`
 }
 
 // CreateUploadRequestOut is the output of artifact_create_upload_request.
@@ -46,6 +47,7 @@ func (s *Server) createUploadRequest(ctx context.Context, _ *gosdk.CallToolReque
 		SingleUse:            in.SingleUse,
 		UseSubmissionFolders: in.UseSubmissionFolders,
 		AllowUploaderAccess:  in.AllowUploaderAccess,
+		AllowOverwrite:       in.AllowOverwrite,
 	}
 	if in.Label != "" {
 		req.Label = &in.Label

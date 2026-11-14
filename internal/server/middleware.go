@@ -1,7 +1,6 @@
 package server
 
 import (
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -136,21 +135,13 @@ func (s *Server) rateLimit(next http.Handler) http.Handler {
 	})
 }
 
-// clientIP returns the client IP for logging/rate-limiting. Proxy headers are
-// honored only when trust_proxy is set (artifactsd-7bf refines this).
+// clientIP returns the client IP for logging/rate-limiting. X-Forwarded-For
+// is honored only from trusted proxies (design/06 §6, internal/clientip).
 func (s *Server) clientIP(r *http.Request) string {
-	if s.cfg.Server.TrustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if first, _, found := strings.Cut(xff, ","); found || first != "" {
-				return strings.TrimSpace(first)
-			}
-		}
+	if ip := s.proxies.ClientIPString(r); ip != "" {
+		return ip
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return r.RemoteAddr
 }
 
 // collectionFromPath extracts the collection name from a /c/{collection}/... path.

@@ -547,3 +547,29 @@ func TestE2E_MetaSetAndCollectionCreate_Auth(t *testing.T) {
 		t.Errorf("--clear-auth with --basic exit = %d, want %d", code, exitUsage)
 	}
 }
+
+// TestE2E_PutTwiceKeepsMetadata: a second put without metadata flags must not
+// wipe the file's metadata (artifactsd-m9e.3).
+func TestE2E_PutTwiceKeepsMetadata(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create collection: code=%d err=%s", code, errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/a.txt", local, "--private"); code != exitOK {
+		t.Fatalf("put 1: code=%d err=%s", code, errOut)
+	}
+	if code, _, errOut := e.run("put", "demo/a.txt", local); code != exitOK {
+		t.Fatalf("put 2: code=%d err=%s", code, errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "meta", "get", "demo/a.txt")
+	if code != exitOK {
+		t.Fatalf("meta get: code=%d err=%s", code, errOut)
+	}
+	if !strings.Contains(out, "private") {
+		t.Errorf("metadata after second put = %s, want private kept", out)
+	}
+}

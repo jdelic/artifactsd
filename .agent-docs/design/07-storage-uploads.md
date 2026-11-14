@@ -51,7 +51,11 @@ data/tmp/<random>                    # in-progress writes
 6. Audit entry; return summary JSON.
 
 `Artifactsd-Metadata` header (base64url JSON) lets binary uploads carry a metadata
-document without a multipart body (SPEC §12.2).
+document without a multipart body (SPEC §12.2). Absent header on a replace →
+the existing metadata is kept; present → it replaces (artifactsd-m9e.3). Large
+uploads store `upload_sessions.metadata_supplied` and `CommitUpload` applies
+the same rule inside its transaction; the admin UI never supplies metadata, so
+its re-uploads always keep it.
 
 ## 3. Large uploads (SPEC §12.3)
 
@@ -66,8 +70,15 @@ Two-step to avoid buffering huge bodies through the JSON API:
      upload directly (SPEC §16 flow). Safeguards: ≥95-bit id, short TTL,
      single-use (consumed on completion), size limit. See [14 §5](14-access-control.md).
    - Streams to a temp blob with size limit + hashing.
-   - On success: commit the node (same transaction logic as §2), mark session
-     `completed`.
+   - On success: `store.CommitUpload` claims the session (pending →
+     completed) and writes the node (parent folders, upsert, denormalized
+     columns) in ONE transaction (artifactsd-m9e.13). If the node write fails
+     (kind conflict, collection file cap, DB error) the claim rolls back and
+     the session stays `pending`, so the client can retry or abort. Of two
+     concurrent PUTs exactly one commits (artifactsd-ku3).
+   - Session creation pre-checks the target path (an ancestor that is a file,
+     or a path that is a folder → 409) and the collection file cap; both are
+     re-checked at commit.
 3. `GET /api/v1/uploads/{id}` → status; `DELETE` aborts and discards temp blob.
 
 Abandoned/expired sessions and their temp blobs are reaped by the janitor.

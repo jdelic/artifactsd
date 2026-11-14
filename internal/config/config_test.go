@@ -400,3 +400,54 @@ func TestAdminHostValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestTrustedProxies(t *testing.T) {
+	base := map[string]string{"ARTIFACTSD_BASE_URL": "https://x.example.com", "ARTIFACTSD_DATA_DIR": t.TempDir()}
+	load := func(extra map[string]string) (*Config, error) {
+		env := map[string]string{}
+		for k, v := range base {
+			env[k] = v
+		}
+		for k, v := range extra {
+			env[k] = v
+		}
+		return LoadAndValidate(nil, func(k string) string { return env[k] }, nil)
+	}
+
+	c, err := load(map[string]string{"ARTIFACTSD_TRUSTED_PROXIES": "10.0.0.0/8, 192.0.2.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Server.EffectiveTrustedProxies(); len(got) != 2 || got[1] != "192.0.2.1" {
+		t.Errorf("EffectiveTrustedProxies = %v", got)
+	}
+
+	if _, err := load(map[string]string{"ARTIFACTSD_TRUSTED_PROXIES": "10.0.0.0/8,proxy.example.com"}); err == nil ||
+		!strings.Contains(err.Error(), "trusted-proxies") {
+		t.Errorf("invalid entry: err = %v, want trusted-proxies error", err)
+	}
+
+	c, err = load(map[string]string{"ARTIFACTSD_TRUST_PROXY": "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Server.EffectiveTrustedProxies(); len(got) != 6 {
+		t.Errorf("deprecated trust-proxy defaults = %v", got)
+	}
+
+	c, err = load(map[string]string{"ARTIFACTSD_TRUST_PROXY": "true", "ARTIFACTSD_TRUSTED_PROXIES": "10.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Server.EffectiveTrustedProxies(); len(got) != 1 {
+		t.Errorf("explicit list must win over trust-proxy, got %v", got)
+	}
+
+	c, err = load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Server.EffectiveTrustedProxies(); got != nil {
+		t.Errorf("default = %v, want none", got)
+	}
+}

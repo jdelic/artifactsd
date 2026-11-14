@@ -8,7 +8,7 @@ import (
 )
 
 const uploadCols = `id, upload_id, collection_id, target_path, metadata, content_type,
-	status, temp_blob_id, created_at, expires_at, completed_at`
+	status, temp_blob_id, created_at, expires_at, completed_at, metadata_supplied`
 
 func scanUpload(row interface{ Scan(...any) error }) (*UploadSession, error) {
 	var (
@@ -22,7 +22,7 @@ func scanUpload(row interface{ Scan(...any) error }) (*UploadSession, error) {
 	)
 	if err := row.Scan(
 		&u.ID, &u.UploadID, &u.CollectionID, &u.TargetPath, &meta, &contentType,
-		&u.Status, &tempBlob, &created, &expires, &completed,
+		&u.Status, &tempBlob, &created, &expires, &completed, &u.MetadataSupplied,
 	); err != nil {
 		return nil, err
 	}
@@ -51,10 +51,12 @@ func (s *Store) CreateUploadSession(ctx context.Context, u *UploadSession) error
 	res, err := s.db.sql.ExecContext(
 		ctx,
 		`INSERT INTO upload_sessions
-			(upload_id, collection_id, target_path, metadata, content_type, status, temp_blob_id, created_at, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(upload_id, collection_id, target_path, metadata, content_type, status, temp_blob_id, created_at, expires_at,
+			 metadata_supplied)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		u.UploadID, u.CollectionID, u.TargetPath, defaultJSON(u.Metadata), u.ContentType,
 		u.Status, u.TempBlobID, fmtTime(u.CreatedAt), fmtTime(u.ExpiresAt),
+		boolToInt(u.MetadataSupplied),
 	)
 	if err != nil {
 		return err
@@ -74,16 +76,61 @@ func (s *Store) GetUploadSession(ctx context.Context, uploadID string) (*UploadS
 	return u, err
 }
 
-// CompleteUploadSession marks a session completed with its final temp blob.
-func (s *Store) CompleteUploadSession(ctx context.Context, uploadID, tempBlobID string, at time.Time) error {
-	res, err := s.db.sql.ExecContext(ctx,
-		`UPDATE upload_sessions SET status = ?, temp_blob_id = ?, completed_at = ?
-		 WHERE upload_id = ? AND status = ?`,
-		UploadCompleted, tempBlobID, fmtTime(at), uploadID, UploadPending)
+// CommitUpload completes a large-upload session and writes its file node in
+// ONE transaction (artifactsd-m9e.13): it claims the session (pending →
+// completed, recording n.BlobID; ErrNotFound when it is no longer pending),
+// materializes the parent folders, upserts n and recomputes its denormalized
+// columns. When the session was begun without metadata (MetadataSupplied
+// false) and n replaces an existing file, that file's metadata — and its
+// content type, if n has none — are kept (artifactsd-m9e.3). On any error
+// everything rolls back and the session stays pending,
+// so the client can retry or abort. Of two concurrent commits for one session
+// exactly one succeeds (artifactsd-ku3). n.ParentID and n.ID are set on
+// success.
+func (s *Store) CommitUpload(ctx context.Context, uploadID string, n *Node, at time.Time) error {
+	tx, err := s.db.sql.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return requireOne(res)
+	defer func() { _ = tx.Rollback() }()
+
+	var metadataSupplied bool
+	err = tx.QueryRowContext(ctx,
+		`UPDATE upload_sessions SET status = ?, temp_blob_id = ?, completed_at = ?
+		 WHERE upload_id = ? AND status = ?
+		 RETURNING metadata_supplied`,
+		UploadCompleted, n.BlobID, fmtTime(at), uploadID, UploadPending).Scan(&metadataSupplied)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !metadataSupplied {
+		existing, err := getNode(ctx, tx, n.CollectionID, n.Path)
+		switch {
+		case errors.Is(err, ErrNotFound):
+		case err != nil:
+			return err
+		case existing.Kind == KindFile:
+			n.Metadata = existing.Metadata
+			if n.ContentType == nil {
+				n.ContentType = existing.ContentType
+			}
+		}
+	}
+	parentID, err := s.ensureParentFolders(ctx, tx, n.CollectionID, n.Path)
+	if err != nil {
+		return err
+	}
+	n.ParentID = parentID
+	if err := s.upsertNode(ctx, tx, n); err != nil {
+		return err
+	}
+	if err := s.recomputeNodeDenormalized(ctx, tx, n.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetUploadStatus updates a session's status (e.g. aborted/expired).

@@ -219,7 +219,13 @@ its own CSP header so author CSPs only tighten it; `Set-Cookie` is stripped from
 artifact metadata. Tradeoff: a sandboxed page has a `null` origin, so it loses
 its own-origin storage/cookies and presents `Origin: null` to third-party APIs
 (only `*`-CORS APIs work) — trusted interactive content opts out with
-`content.sandbox: false`, regaining the real origin.
+`content.sandbox: false`, regaining the real origin. **Only admin-scoped
+principals may set `content.sandbox: false`** (artifactsd-m9e.4): in the
+single-domain topology an unsandboxed HTML artifact can drive the admin UI of
+any admin who opens it, so write scope must not be enough. The check lives in
+the API's metadata helpers (`requireSandboxPrivilege`), covering collection,
+folder, file, share and large-upload metadata; upload-request `file_metadata`
+and the admin UI are admin-only already.
 
 **Defense in depth on the admin side.** Every admin response sets
 `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,
@@ -252,8 +258,8 @@ it unset for single-domain (the default). When set:
   and `/auth/oidc/callback`) is served **only** on the admin host; the **public
   artifact plane** (`/c`, `/s`, `/robots.txt`, `/sitemap.xml`) **only** on the
   public (base-URL) host. Cross-plane requests get `404` (not a redirect), so
-  neither host reveals what lives on the other. Behind a trusted proxy
-  (`ARTIFACTSD_TRUST_PROXY`) the gate honors `X-Forwarded-Host`.
+  neither host reveals what lives on the other. The gate honors
+  `X-Forwarded-Host` only from peers in `ARTIFACTSD_TRUSTED_PROXIES`.
 - The admin **session cookie is host-only** (no `Domain` attribute) and is set
   during the OIDC callback, which runs on the admin host — so the cookie is
   never even sent to the public origin. That is the structural boundary.

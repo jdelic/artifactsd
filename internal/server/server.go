@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jdelic/artifactsd/internal/clientip"
+
 	"github.com/jdelic/artifactsd/internal/admin"
 	"github.com/jdelic/artifactsd/internal/api"
 	"github.com/jdelic/artifactsd/internal/audit"
@@ -54,6 +56,7 @@ type Server struct {
 	access    *audit.AccessLogger
 	db        *store.DB
 	limiter   *ratelimit.Limiter
+	proxies   *clientip.Resolver
 	http      *http.Server
 	api       *api.Handler
 	serve     *serve.Handler
@@ -82,6 +85,13 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 		db:        opts.DB,
 		limiter:   ratelimit.New(opts.Config.Limits.AuthFailMax, opts.Config.Limits.AuthFailWindow),
 		oidcCache: opts.OIDCCache,
+	}
+	// Entries were validated at startup (config.Validate); a parse error here
+	// can only come from a hand-built Config and fails closed (trust nothing).
+	if r, err := clientip.New(opts.Config.Server.EffectiveTrustedProxies()); err == nil {
+		s.proxies = r
+	} else if opts.Logger != nil {
+		opts.Logger.Error("invalid trusted proxies; forwarded headers ignored", "error", err)
 	}
 	if s.oidcCache == nil {
 		s.oidcCache = auth.NewOIDCProviderCache(nil)
@@ -128,6 +138,7 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 			Audit:   audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),
 			Logger:  opts.Logger,
 			BaseURL: opts.Config.Server.BaseURL,
+			Proxies: s.proxies,
 		})
 	}
 	handler := opts.Handler
@@ -160,6 +171,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	s.logAdminMode()
+	s.logProxyMode()
 
 	errCh := make(chan error, 1)
 	go func() {

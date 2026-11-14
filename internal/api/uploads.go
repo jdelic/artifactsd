@@ -60,13 +60,24 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	metaJSON, ok := h.prepareMetadata(w, req.Metadata)
+	metaJSON, ok := h.prepareMetadata(w, r, req.Metadata)
 	if !ok {
 		return
 	}
+	// An omitted metadata document keeps the target file's metadata when the
+	// upload replaces a file (artifactsd-m9e.3).
+	supplied := len(req.Metadata) > 0 && string(req.Metadata) != "null"
+
 	doc, err := meta.FromJSON(metaJSON)
 	if err != nil {
 		h.internalServerError(w, "parse prepared metadata", err)
+		return
+	}
+	if !h.checkCapacity(w, r, c.ID, p) {
+		return
+	}
+	if err := h.store.CheckFilePath(r.Context(), c.ID, p); err != nil {
+		h.storeWriteError(w, "check target path", err)
 		return
 	}
 
@@ -78,7 +89,8 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	session := &store.UploadSession{
 		UploadID: uploadID, CollectionID: c.ID, TargetPath: p, Metadata: metaJSON,
-		ContentType: docContentType(doc), Status: store.UploadPending,
+		MetadataSupplied: supplied,
+		ContentType:      docContentType(doc), Status: store.UploadPending,
 		ExpiresAt: now.Add(h.cfg.Limits.UploadTTL),
 	}
 	if err := h.store.CreateUploadSession(r.Context(), session); err != nil {
@@ -97,11 +109,11 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 
 // putUpload streams a large-upload PUT to the session's target. No bearer
 // token is required: possession of the unguessable upload_id is the capability
-// (decision D2). The session is single-use: it is claimed atomically (a
-// conditional pending→completed transition) BEFORE the target node is written,
-// so two concurrent PUTs to the same upload URL can never both mutate the
-// target — the loser is rejected with 409 before touching any node, leaving
-// exactly one content body visible (artifactsd-ku3).
+// (decision D2). The session is single-use: claiming it (a conditional
+// pending→completed transition) and writing the node happen in one
+// transaction, so two concurrent PUTs to the same upload URL can never both
+// mutate the target (artifactsd-ku3), and a failed node write leaves the
+// session pending (artifactsd-m9e.13).
 func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.lookupUploadSession(w, r)
 	if !ok {
@@ -121,33 +133,18 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	refStr := string(ref)
 
-	// Claim the session first. The blob above is content-addressed and not yet
-	// referenced by any node, so storing it has no visible effect; committing the
-	// node only happens once this PUT has won the single-use race. A concurrent
-	// PUT that lost leaves an orphan blob (the same outcome as any aborted
-	// upload) but never overwrites the winner's node.
-	if err := h.store.CompleteUploadSession(r.Context(), session.UploadID, refStr, time.Now().UTC()); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusConflict, CodeConflict, "upload session already consumed")
-			return
-		}
-		h.internalServerError(w, "complete upload session", err)
-		return
-	}
-
 	c, err := h.store.GetCollection(r.Context(), session.CollectionID)
 	if err != nil {
 		h.internalServerError(w, "lookup session collection", err)
 		return
 	}
-	parentID, err := h.store.EnsureParentFolders(r.Context(), c.ID, session.TargetPath)
-	if err != nil {
-		h.storeWriteError(w, "materialize folders", err)
+	existing, err := h.store.GetNode(r.Context(), c.ID, session.TargetPath)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		h.internalServerError(w, "lookup target node", err)
 		return
 	}
-	existing, _ := h.store.GetNode(r.Context(), c.ID, session.TargetPath)
 	node := &store.Node{
-		CollectionID: c.ID, ParentID: parentID, Path: session.TargetPath, Name: lastSegment(session.TargetPath),
+		CollectionID: c.ID, Path: session.TargetPath, Name: lastSegment(session.TargetPath),
 		Kind: store.KindFile, BlobID: &refStr, Size: &size, ContentType: strPtrOrNil(contentType),
 		Checksum: &sum, Metadata: session.Metadata,
 	}
@@ -155,12 +152,20 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	if existing != nil {
 		status = http.StatusOK
 	}
-	if err := h.store.UpsertNode(r.Context(), node); err != nil {
-		h.storeWriteError(w, "upsert node", err)
-		return
-	}
-	if err := h.store.RecomputeNodeDenormalized(r.Context(), node.ID); err != nil {
-		h.internalServerError(w, "recompute node", err)
+
+	// Claim the session and write the node in one transaction
+	// (artifactsd-m9e.13). The blob above is content-addressed and not yet
+	// referenced, so storing it has no visible effect. If the node write fails
+	// (a kind conflict, the collection file cap, a DB error) the claim rolls
+	// back and the session stays pending for a retry. Of two concurrent PUTs
+	// exactly one commits; the loser gets 409 and never touches the node
+	// (artifactsd-ku3).
+	if err := h.store.CommitUpload(r.Context(), session.UploadID, node, time.Now().UTC()); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusConflict, CodeConflict, "upload session already consumed")
+			return
+		}
+		h.storeWriteError(w, "commit upload", err)
 		return
 	}
 

@@ -54,7 +54,12 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 	fs.StringVar(&c.Server.AdminHost, "admin-host", envStr(getenv, "ARTIFACTSD_ADMIN_HOST", ""), "isolate the admin UI on this host (separate-admin-origin topology; design/14 §10)")
 	fs.StringVar(&c.Server.DataDir, "data", envStr(getenv, "ARTIFACTSD_DATA_DIR", defaultDataDir), "data directory")
 	fs.BoolVar(&c.Server.AutoMigrate, "auto-migrate", envBool(getenv, "ARTIFACTSD_AUTO_MIGRATE", true), "apply pending migrations on boot")
-	fs.BoolVar(&c.Server.TrustProxy, "trust-proxy", envBool(getenv, "ARTIFACTSD_TRUST_PROXY", false), "trust X-Forwarded-* proxy headers")
+	var extraHeaders string
+	fs.StringVar(&extraHeaders, "extra-allowed-headers", envStr(getenv, "ARTIFACTSD_EXTRA_ALLOWED_HEADERS", ""),
+		"comma-separated response headers writers may additionally set via content.headers (applies to ALL writers)")
+	var trustedProxies string
+	fs.StringVar(&trustedProxies, "trusted-proxies", envStr(getenv, "ARTIFACTSD_TRUSTED_PROXIES", ""), "comma-separated proxy CIDRs/IPs whose X-Forwarded-* headers are honored")
+	fs.BoolVar(&c.Server.TrustProxy, "trust-proxy", envBool(getenv, "ARTIFACTSD_TRUST_PROXY", false), "DEPRECATED: use --trusted-proxies (true = trust loopback and private ranges)")
 	fs.StringVar(&c.Server.LogLevel, "log-level", envStr(getenv, "ARTIFACTSD_LOG_LEVEL", defaultLogLevel), "log level (debug|info|warn|error)")
 
 	// TLS flags.
@@ -71,6 +76,7 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 		return nil, err
 	}
 
+	c.Server.TrustedProxies = splitList(trustedProxies)
 	c.TLS.Mode = TLSMode(tlsMode)
 	c.TLS.ACMEDomains = splitList(acmeDomains)
 	if c.TLS.ACMECacheDir == "" {
@@ -110,6 +116,7 @@ func Load(args []string, getenv Getenv, out io.Writer) (*Config, error) {
 		return nil, err
 	}
 	c.Policy = dap
+	c.Policy.ExtraAllowedHeaders = splitList(extraHeaders)
 
 	// Limits: env-only (design/12 §4).
 	lim, err := loadLimits(getenv)

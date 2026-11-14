@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jdelic/artifactsd/internal/clientip"
+	"github.com/jdelic/artifactsd/internal/meta"
 )
 
 // Validate performs startup validation and fails fast, returning an error that
@@ -39,6 +42,12 @@ func (c *Config) Validate() error {
 		} else if base, err := url.Parse(c.Server.BaseURL); err == nil && base.Host != "" &&
 			strings.EqualFold(HostOnly(c.Server.AdminHost), HostOnly(base.Host)) {
 			add("admin-host %q must differ from the base-url host to isolate the admin origin", c.Server.AdminHost)
+		}
+	}
+
+	for _, e := range c.Server.TrustedProxies {
+		if _, err := clientip.ParsePrefix(e); err != nil {
+			add("trusted-proxies: %v", err)
 		}
 	}
 
@@ -124,6 +133,9 @@ func (c *Config) validateAdmin(add func(string, ...any)) {
 }
 
 func (c *Config) validatePolicy(add func(string, ...any)) {
+	if err := meta.ValidateExtraHeaders(c.Policy.ExtraAllowedHeaders); err != nil {
+		add("%v", err)
+	}
 	switch c.Policy.Visibility {
 	case VisibilityPublic, VisibilityPrivate:
 	default:

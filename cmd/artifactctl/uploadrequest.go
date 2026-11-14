@@ -35,6 +35,7 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 		allowUploaderAccess  bool
 		singleUse            bool
 		useSubmissionFolders bool
+		allowOverwrite       bool
 		maxFiles             int64
 		maxFileSize          string
 		expiry               expiryFlags
@@ -47,7 +48,12 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <collection>",
 		Short: "Create an upload request link for a collection",
-		Args:  exactArgs(1, "<collection>"),
+		Long: `Create an upload request link for a collection.
+
+Files uploaded through the link are PRIVATE unless you pass a visibility flag
+(--public, --unlisted, --protected). --allow-uploader-access requires --public
+or --unlisted.`,
+		Args: exactArgs(1, "<collection>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()
 			if err != nil {
@@ -60,6 +66,7 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 				AllowUploaderAccess:  allowUploaderAccess,
 				SingleUse:            singleUse,
 				UseSubmissionFolders: useSubmissionFolders,
+				AllowOverwrite:       allowOverwrite,
 			}
 			if label != "" {
 				req.Label = &label
@@ -108,6 +115,8 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 	f.BoolVar(&allowUploaderAccess, "allow-uploader-access", false, "show file URLs to uploaders (public/unlisted files only)")
 	f.BoolVar(&singleUse, "single-use", false, "auto-close the link after the first successful submission")
 	f.BoolVar(&useSubmissionFolders, "use-submission-folders", false, "store each submission in a unique subfolder")
+	f.BoolVar(&allowOverwrite, "allow-overwrite", false,
+		"let the link replace files it uploaded itself (never other files); any holder of the link can then replace another holder's file, so prefer --use-submission-folders for shared links")
 	f.Int64Var(&maxFiles, "max-files", 0, "maximum total files that may be uploaded (0 = unlimited)")
 	f.StringVar(&maxFileSize, "max-file-size", "", "per-file size limit, e.g. 10MB, 500KB")
 	expiry.register(f)
@@ -280,6 +289,7 @@ func (a *app) renderUploadRequest(ur *apiclient.UploadRequest, textMsg string) e
 		a.printf("label:      %s\n", *ur.Label)
 	}
 	a.printf("single_use: %v\n", ur.SingleUse)
+	a.printf("overwrite:  %v\n", ur.AllowOverwrite)
 	a.printf("uploaded:   %d files\n", ur.FilesUploaded)
 	if ur.ExpiresAt != nil {
 		a.printf("expires:    %s\n", *ur.ExpiresAt)

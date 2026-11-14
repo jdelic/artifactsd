@@ -77,7 +77,7 @@
         </label>
       </div>
 
-      <label class="nc-form-wide">Headers (one "Name: value" per line) {{template "nc_info" "Extra HTTP response headers sent with this object, one per line as 'Name: value'."}}
+      <label class="nc-form-wide">Headers (one "Name: value" per line) {{template "nc_info" "Extra HTTP response headers sent with this object, one per line as 'Name: value'. Only allowlisted headers are accepted (e.g. Cache-Control, Content-Disposition, Content-Security-Policy, Link, Vary, Access-Control-*, most X-*)."}}
         <textarea name="headers" rows="3" cols="50">{{.Headers}}</textarea>
       </label>
       <button class="nc-button" type="submit" data-shortcut="s">Save</button>

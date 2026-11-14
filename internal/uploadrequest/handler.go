@@ -5,7 +5,9 @@ package uploadrequest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/blob"
+	"github.com/jdelic/artifactsd/internal/clientip"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/internal/paths"
@@ -42,6 +45,9 @@ type Deps struct {
 	Audit   *audit.Recorder
 	Logger  interface{ Error(string, ...any) }
 	BaseURL string
+	// Proxies resolves the client address from trusted-proxy headers; nil
+	// ignores forwarded headers.
+	Proxies *clientip.Resolver
 }
 
 // Handler serves /r/{request_id}.
@@ -52,13 +58,14 @@ type Handler struct {
 	audit   *audit.Recorder
 	log     interface{ Error(string, ...any) }
 	baseURL string
+	proxies *clientip.Resolver
 }
 
 // New builds the public upload handler.
-func New(d Deps) *Handler {
+func New(d Deps) *Handler { //nolint:gocritic // Deps is built once at construction
 	return &Handler{
 		store: d.Store, blob: d.Blob, cfg: d.Config, audit: d.Audit,
-		log: d.Logger, baseURL: d.BaseURL,
+		log: d.Logger, baseURL: d.BaseURL, proxies: d.Proxies,
 	}
 }
 
@@ -73,6 +80,8 @@ func (h *Handler) Routes() http.Handler {
 
 // templateData is the data passed to upload.html.
 type templateData struct {
+	// Nonce authorizes the page's inline <script> and <style> under its CSP.
+	Nonce            string
 	Label            string
 	Description      string
 	MaxFileSize      int64
@@ -91,7 +100,13 @@ func (h *Handler) serveForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	nonce, err := newNonce()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	data := templateData{
+		Nonce:       nonce,
 		Label:       strVal(ur.Label),
 		Description: strVal(ur.Description),
 	}
@@ -105,8 +120,26 @@ func (h *Handler) serveForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	hdr := w.Header()
+	hdr.Set("Content-Type", "text/html; charset=utf-8")
+	// The page runs on the main origin: allow only its own nonce'd script and
+	// style, XHR back to this origin, and nothing else (artifactsd-m9e.8).
+	hdr.Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+
+		"'; style-src 'nonce-"+nonce+"'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	// The URL is a capability; never leak it in a Referer.
+	hdr.Set("Referrer-Policy", "no-referrer")
 	_, _ = w.Write(buf.Bytes())
+}
+
+// newNonce returns a fresh 128-bit CSP nonce (URL-safe base64, which the CSP
+// nonce grammar allows and html/template leaves unescaped).
+func newNonce() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }
 
 // serveStatus returns the JSON status of an upload request (GET /r/{request_id}/status).
@@ -144,6 +177,9 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "invalid file_metadata in upload request")
 		return
 	}
+	// Links created before visibility defaulted to private may store none;
+	// their files are private too (artifactsd-m9e.24).
+	applyDefaultVisibility(fileMeta)
 	metaJSON, err := fileMeta.JSON()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "encoding file_metadata")
@@ -157,19 +193,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := clientIP(r)
-
-	ct := r.Header.Get("Content-Type")
-	mediaType, _, _ := mime.ParseMediaType(ct)
-
-	type uploadedFile struct {
-		Filename string  `json:"filename"`
-		Path     string  `json:"path"`
-		Size     int64   `json:"size"`
-		URL      *string `json:"url,omitempty"`
-	}
-	var uploaded []uploadedFile
-	var totalBytes int64
+	ip := h.proxies.ClientIPString(r)
 
 	c, err := h.store.GetCollection(r.Context(), ur.CollectionID)
 	if err != nil {
@@ -179,152 +203,69 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	processFile := func(filename string, reader io.Reader) error {
-		// Enforce per-file size limit.
-		lr := &io.LimitedReader{R: reader, N: maxPerFile + 1}
-		ref, size, sum, err := h.blob.Put(ctx, lr)
-		if err != nil {
-			return fmt.Errorf("storing blob for %q: %w", filename, err)
-		}
-		if size > maxPerFile {
-			// Blob already stored but over-size; leave for GC — same pattern as API upload.
-			return &oversizeError{filename: filename}
-		}
-
-		// Determine logical path: {target_folder}[/{submission_id}]/{filename}
-		var segments []string
-		if ur.TargetFolder != "" {
-			segments = append(segments, ur.TargetFolder)
-		}
-		if ur.UseSubmissionFolders {
-			segments = append(segments, submissionID)
-		}
-		segments = append(segments, sanitizeFilename(filename))
-		nodePath := strings.Join(segments, "/")
-
-		// Infer content type from filename extension.
-		nodeCT := mime.TypeByExtension(path.Ext(filename))
-
-		refStr := string(ref)
-		parentID, err := h.ensureParents(ctx, c.ID, nodePath)
-		if err != nil {
-			return fmt.Errorf("materializing folders for %q: %w", filename, err)
-		}
-		node := &store.Node{
-			CollectionID: c.ID, ParentID: parentID, Path: nodePath,
-			Name: path.Base(nodePath), Kind: store.KindFile,
-			BlobID: &refStr, Size: &size, Checksum: &sum,
-			Metadata: metaJSON,
-		}
-		if nodeCT != "" {
-			node.ContentType = &nodeCT
-		}
-		if err := h.store.UpsertNode(ctx, node); err != nil {
-			return fmt.Errorf("upserting node for %q: %w", filename, err)
-		}
-		if err := h.store.RecomputeNodeDenormalized(ctx, node.ID); err != nil {
-			return fmt.Errorf("recomputing node for %q: %w", filename, err)
-		}
-
-		totalBytes += size
-
-		// Build public URL if uploader access is enabled and visibility allows it.
-		var fileURL *string
-		if ur.AllowUploaderAccess {
-			if vis := effectiveVisibility(fileMeta); vis == meta.VisibilityPublic || vis == meta.VisibilityUnlisted {
-				u := strings.TrimRight(h.baseURL, "/") + "/c/" + c.Name + "/" + paths.EscapeURL(nodePath)
-				fileURL = &u
-			}
-		}
-		uploaded = append(uploaded, uploadedFile{
-			Filename: filename,
-			Path:     nodePath,
-			Size:     size,
-			URL:      fileURL,
-		})
-		return nil
+	// Phase 1 — receive: stream every file to the blob store and validate the
+	// request as a whole. Nothing is linked into the tree yet, so a rejected
+	// request leaves only unreferenced blobs, which the janitor collects.
+	rc := &receiver{
+		h: h, ur: ur, ctx: ctx, maxPerFile: maxPerFile, submissionID: submissionID,
+		collectionID: c.ID, metaJSON: metaJSON, seen: map[string]bool{},
+		remaining: -1,
+	}
+	// Fail-fast quota only when every file is necessarily new: with
+	// allow_overwrite a replacement does not count, so the commit decides.
+	if ur.MaxFiles != nil && *ur.MaxFiles > 0 && !ur.AllowOverwrite {
+		rc.remaining = *ur.MaxFiles - ur.FilesUploaded
 	}
 
-	if mediaType == "multipart/form-data" {
-		r.Body = http.MaxBytesReader(w, r.Body, maxPerFile*int64(maxBodyFiles+1))
-		mr, err := r.MultipartReader()
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, "invalid multipart body")
+	if err := rc.receiveBody(w, r); err != nil {
+		var he *httpError
+		if errors.As(err, &he) {
+			writeJSONError(w, he.status, he.msg)
 			return
 		}
-		for {
-			part, err := mr.NextPart()
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				writeJSONError(w, http.StatusBadRequest, "reading multipart: "+err.Error())
-				return
-			}
-			formName := part.FormName()
-			if formName != "file" && formName != "files" && part.FileName() == "" {
-				_ = part.Close()
-				continue
-			}
-			filename := part.FileName()
-			if filename == "" {
-				filename = "file"
-			}
-			if err := processFile(filename, part); err != nil {
-				var oe *oversizeError
-				if errors.As(err, &oe) {
-					writeJSONError(w, http.StatusRequestEntityTooLarge, "file "+oe.filename+" exceeds the size limit")
-					return
-				}
-				if h.log != nil {
-					h.log.Error("upload request: process file", "error", err)
-				}
-				writeJSONError(w, http.StatusInternalServerError, "uploading "+filename)
-				return
-			}
-			_ = part.Close()
+		if h.log != nil {
+			h.log.Error("upload request: receive", "error", err)
 		}
-	} else {
-		// Single-file raw body upload.
-		filename := filenameFromDisposition(r.Header.Get("Content-Disposition"))
-		if filename == "" {
-			filename = "file"
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxPerFile+1)
-		if err := processFile(filename, r.Body); err != nil {
-			var oe *oversizeError
-			if errors.As(err, &oe) {
-				writeJSONError(w, http.StatusRequestEntityTooLarge, "file exceeds the size limit")
-				return
-			}
-			if h.log != nil {
-				h.log.Error("upload request: process raw file", "error", err)
-			}
-			writeJSONError(w, http.StatusInternalServerError, "uploading file")
-			return
-		}
+		writeJSONError(w, http.StatusInternalServerError, "uploading files")
+		return
 	}
-
-	if len(uploaded) == 0 {
+	if len(rc.files) == 0 {
 		writeJSONError(w, http.StatusBadRequest, "no files received")
 		return
 	}
 
-	// Commit the submission atomically (increments counter, auto-closes if single_use).
+	if beforeCommitHook != nil {
+		beforeCommitHook()
+	}
+
+	// Phase 2 — commit: one transaction re-checks the link's state and quota,
+	// links every file and records the submission; any failure rolls back all.
+	nodes := make([]*store.Node, len(rc.files))
+	for i, f := range rc.files {
+		nodes[i] = f.node
+	}
 	sub := &store.UploadRequestSubmission{
 		UploadRequestID: ur.ID,
 		SubmissionID:    submissionID,
-		FileCount:       int64(len(uploaded)),
-		TotalBytes:      totalBytes,
 		ClientIP:        &ip,
 	}
-	if err := h.store.CommitUploadRequestSubmission(ctx, sub, ur.SingleUse, time.Now().UTC()); err != nil {
+	if err := h.store.CommitUploadRequestFiles(ctx, sub, nodes, ur.SingleUse, time.Now().UTC()); err != nil {
 		switch {
 		case errors.Is(err, store.ErrUploadRequestNotActive):
-			// Race: became inactive between lookupActive and CommitSubmission.
 			writeJSONError(w, http.StatusGone, "upload link is no longer active")
 		case errors.Is(err, store.ErrUploadRequestQuotaExceeded):
 			writeJSONError(w, http.StatusConflict, "upload link has reached its file limit")
+		case errors.Is(err, store.ErrUploadRequestFileExists):
+			var fe *store.FileExistsError
+			name := "the target"
+			if errors.As(err, &fe) {
+				name = path.Base(fe.Path)
+			}
+			writeJSONError(w, http.StatusConflict, "a file named "+name+" already exists")
+		case errors.Is(err, store.ErrCollectionFull):
+			writeJSONError(w, http.StatusConflict, "the collection has reached its file limit")
+		case errors.Is(err, store.ErrKindConflict):
+			writeJSONError(w, http.StatusConflict, "a file or folder in the target path conflicts with the upload")
 		default:
 			if h.log != nil {
 				h.log.Error("upload request: commit submission", "error", err)
@@ -340,11 +281,181 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		Target: c.Name + " " + ur.RequestID + " sub:" + submissionID,
 	})
 
+	type uploadedFile struct {
+		Filename string  `json:"filename"`
+		Path     string  `json:"path"`
+		Size     int64   `json:"size"`
+		URL      *string `json:"url,omitempty"`
+	}
+	uploaded := make([]uploadedFile, 0, len(rc.files))
+	for _, f := range rc.files {
+		// Return a URL only when uploader access is enabled and the file is
+		// actually reachable anonymously (effective visibility, ancestors).
+		var fileURL *string
+		if ur.AllowUploaderAccess && h.publicURLAllowed(ctx, c, f.node.Path, fileMeta) {
+			u := strings.TrimRight(h.baseURL, "/") + "/c/" + c.Name + "/" + paths.EscapeURL(f.node.Path)
+			fileURL = &u
+		}
+		uploaded = append(uploaded, uploadedFile{
+			Filename: f.filename,
+			Path:     f.node.Path,
+			Size:     *f.node.Size,
+			URL:      fileURL,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"submission_id":   submissionID,
 		"files":           uploaded,
 		"uploader_access": ur.AllowUploaderAccess,
 	})
+}
+
+// beforeCommitHook, when set (tests only), runs between the receive and commit
+// phases of an upload.
+var beforeCommitHook func()
+
+// httpError is a receive-phase rejection with the status to answer.
+type httpError struct {
+	status int
+	msg    string
+}
+
+func (e *httpError) Error() string { return e.msg }
+
+// receivedFile is one file streamed to the blob store, awaiting commit.
+type receivedFile struct {
+	filename string
+	node     *store.Node
+}
+
+// receiver runs the receive phase of one upload request.
+type receiver struct {
+	h            *Handler
+	ur           *store.UploadRequest
+	ctx          context.Context //nolint:containedctx // scoped to one request
+	maxPerFile   int64
+	submissionID string
+	collectionID int64
+	metaJSON     json.RawMessage
+	// remaining is how many more files the link accepts (-1 = unlimited).
+	remaining int64
+	seen      map[string]bool
+	files     []*receivedFile
+}
+
+// receiveBody reads a multipart form (one file per part) or a raw body (one
+// file) into r.files.
+func (rc *receiver) receiveBody(w http.ResponseWriter, r *http.Request) error {
+	mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mediaType != "multipart/form-data" {
+		filename := filenameFromDisposition(r.Header.Get("Content-Disposition"))
+		if filename == "" {
+			filename = "file"
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, rc.maxPerFile+1)
+		return rc.receive(filename, r.Body)
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, rc.maxPerFile*int64(maxBodyFiles+1))
+	mr, err := r.MultipartReader()
+	if err != nil {
+		return &httpError{http.StatusBadRequest, "invalid multipart body"}
+	}
+	for {
+		p, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			var mbe *http.MaxBytesError
+			if errors.As(err, &mbe) {
+				return &httpError{http.StatusRequestEntityTooLarge, "request body too large"}
+			}
+			return &httpError{http.StatusBadRequest, "reading multipart: " + err.Error()}
+		}
+		formName := p.FormName()
+		if formName != "file" && formName != "files" && p.FileName() == "" {
+			_ = p.Close()
+			continue
+		}
+		filename := p.FileName()
+		if filename == "" {
+			filename = "file"
+		}
+		err = rc.receive(filename, p)
+		_ = p.Close()
+		if err != nil {
+			return err
+		}
+	}
+}
+
+// receive validates one file against the request-wide limits, then streams it
+// to the blob store.
+func (rc *receiver) receive(filename string, rd io.Reader) error {
+	if len(rc.files) >= maxBodyFiles {
+		return &httpError{http.StatusBadRequest, fmt.Sprintf("too many files in one request (max %d)", maxBodyFiles)}
+	}
+	// Fail fast once the request is known to exceed the link's quota, before
+	// reading any more of the body.
+	if rc.remaining >= 0 && int64(len(rc.files)) >= rc.remaining {
+		return &httpError{http.StatusConflict, "upload link has reached its file limit"}
+	}
+
+	// Logical path: {target_folder}[/{submission_id}]/{filename}
+	var segments []string
+	if rc.ur.TargetFolder != "" {
+		segments = append(segments, rc.ur.TargetFolder)
+	}
+	if rc.ur.UseSubmissionFolders {
+		segments = append(segments, rc.submissionID)
+	}
+	segments = append(segments, sanitizeFilename(filename))
+	nodePath := strings.Join(segments, "/")
+	if rc.seen[nodePath] {
+		return &httpError{http.StatusBadRequest, "two files in this request have the same name: " + path.Base(nodePath)}
+	}
+	rc.seen[nodePath] = true
+
+	// Advisory early refusal of an occupied path, before storing any bytes;
+	// the commit transaction re-checks authoritatively (artifactsd-m9e.1).
+	existing, err := rc.h.store.GetNode(rc.ctx, rc.collectionID, nodePath)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return fmt.Errorf("checking %q: %w", nodePath, err)
+	case !rc.ur.AllowOverwrite || existing.Kind != store.KindFile ||
+		existing.UploadRequestID == nil || *existing.UploadRequestID != rc.ur.ID:
+		return &httpError{http.StatusConflict, "a file named " + path.Base(nodePath) + " already exists"}
+	}
+
+	lr := &io.LimitedReader{R: rd, N: rc.maxPerFile + 1}
+	ref, size, sum, err := rc.h.blob.Put(rc.ctx, lr)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			return &httpError{http.StatusRequestEntityTooLarge, "file " + filename + " exceeds the size limit"}
+		}
+		return fmt.Errorf("storing blob for %q: %w", filename, err)
+	}
+	if size > rc.maxPerFile {
+		// The blob is stored but unreferenced; the janitor collects it.
+		return &httpError{http.StatusRequestEntityTooLarge, "file " + filename + " exceeds the size limit"}
+	}
+
+	refStr := string(ref)
+	node := &store.Node{
+		CollectionID: rc.collectionID, Path: nodePath,
+		Name: path.Base(nodePath), Kind: store.KindFile,
+		BlobID: &refStr, Size: &size, Checksum: &sum,
+		Metadata: rc.metaJSON,
+	}
+	if ct := mime.TypeByExtension(path.Ext(filename)); ct != "" {
+		node.ContentType = &ct
+	}
+	rc.files = append(rc.files, &receivedFile{filename: filename, node: node})
+	return nil
 }
 
 // --- status view -----------------------------------------------------------
@@ -384,46 +495,6 @@ func (h *Handler) lookupActive(w http.ResponseWriter, r *http.Request) (*store.U
 	return ur, true
 }
 
-// ensureParents materializes folder nodes for each ancestor of p, returning
-// the immediate parent node ID (nil at collection root). Mirrors
-// api.Handler.ensureParents (design/15 §4).
-func (h *Handler) ensureParents(ctx context.Context, collectionID int64, p string) (*int64, error) {
-	segs := strings.Split(p, "/")
-	if len(segs) == 1 {
-		return nil, nil
-	}
-	var parentID *int64
-	prefix := ""
-	for _, seg := range segs[:len(segs)-1] {
-		if prefix == "" {
-			prefix = seg
-		} else {
-			prefix += "/" + seg
-		}
-		existing, err := h.store.GetNode(ctx, collectionID, prefix)
-		if err == nil {
-			if existing.Kind != store.KindFolder {
-				return nil, store.ErrKindConflict
-			}
-			parentID = &existing.ID
-			continue
-		}
-		if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
-		}
-		folder := &store.Node{
-			CollectionID: collectionID, ParentID: parentID, Path: prefix,
-			Name: path.Base(prefix), Kind: store.KindFolder, Metadata: json.RawMessage(`{}`),
-		}
-		if err := h.store.UpsertNode(ctx, folder); err != nil {
-			return nil, err
-		}
-		id := folder.ID
-		parentID = &id
-	}
-	return parentID, nil
-}
-
 // acceptsJSON returns true when the client prefers a JSON response over HTML.
 func acceptsJSON(r *http.Request) bool {
 	accept := r.Header.Get("Accept")
@@ -439,29 +510,11 @@ func acceptsJSON(r *http.Request) bool {
 	return false
 }
 
-func effectiveVisibility(doc *meta.Document) string {
-	if doc == nil || doc.Access == nil || doc.Access.Visibility == nil {
-		return meta.VisibilityPublic
-	}
-	return *doc.Access.Visibility
-}
-
 func strVal(s *string) string {
 	if s == nil {
 		return ""
 	}
 	return *s
-}
-
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return strings.SplitN(xff, ",", 2)[0]
-	}
-	addr := r.RemoteAddr
-	if i := strings.LastIndex(addr, ":"); i >= 0 {
-		return addr[:i]
-	}
-	return addr
 }
 
 func sanitizeFilename(name string) string {
@@ -499,13 +552,6 @@ func humanBytes(n int64) string {
 	default:
 		return fmt.Sprintf("%d B", n)
 	}
-}
-
-// oversizeError signals that a single file exceeded the per-file size limit.
-type oversizeError struct{ filename string }
-
-func (e *oversizeError) Error() string {
-	return "file " + e.filename + " exceeds size limit"
 }
 
 // --- JSON helpers (no import from api package to avoid cycles) -------------

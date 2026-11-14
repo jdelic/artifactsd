@@ -95,8 +95,11 @@ All collection-relative paths pass `cleanPath`:
   GC; sufficient for a single-process deployment.
 - **Upload size**: `limits.max_upload_size` enforced by a `http.MaxBytesReader`
   wrapper; streaming uploads are checked incrementally → `413`.
-- **Per-collection file count**: `limits.max_file_count_per_collection`
-  enforced on upload → `409`/`403`.
+- **Per-collection file count**: `ARTIFACTSD_MAX_FILES_PER_COLLECTION` (files
+  only, folders excluded) enforced in `store.upsertNode` for every new file
+  node → `409` (artifactsd-m9e.11). Handlers also pre-check before reading the
+  body (`CheckCollectionCapacity`). Atomic inside the upload-link commit
+  transaction; small overshoot under concurrency is accepted for token paths.
 
 ## 6. Transport security (SPEC §17, decision D4)
 
@@ -104,8 +107,13 @@ All collection-relative paths pass `cleanPath`:
   (Let's Encrypt) from the first release** (`golang.org/x/crypto/acme/autocert`),
   selected by env/flags ([12](12-config.md)).
 - Operable behind a reverse proxy without TLS (plain HTTP listener). Honor
-  `X-Forwarded-For`/`X-Forwarded-Proto` only when `trust_proxy` is set, to avoid
-  IP spoofing of the rate limiter and access logs.
+  `X-Forwarded-For`/`-Host`/`-Proto` only when the TCP peer is in
+  `ARTIFACTSD_TRUSTED_PROXIES` (CIDR list; artifactsd-m9e.20), to avoid IP
+  spoofing of the rate limiter and access logs and forged host/scheme.
+  `X-Forwarded-For` is read right to left, skipping trusted hops; the first
+  untrusted address is the client (`internal/clientip`). An unparseable entry
+  stops the walk at the last good address. The boolean `trust_proxy` is a
+  deprecated alias for loopback + private ranges.
 - Secure cookies for the admin session (HttpOnly, Secure when TLS, SameSite).
 
 ## 7. Audit & logging (SPEC §17, decisions F5 / N6 / 12factor)
