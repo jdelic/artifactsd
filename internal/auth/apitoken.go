@@ -142,7 +142,7 @@ func (a *Authenticator) Middleware(required Scope, onError ErrorResponder) func(
 			}
 			if !principal.Scopes.Satisfies(required) {
 				status, code, msg := statusFor(ErrInsufficientScope)
-				onError(w, r, status, code, msg)
+				onError(w, r, status, code, msg+": requires "+string(required))
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), principal)))

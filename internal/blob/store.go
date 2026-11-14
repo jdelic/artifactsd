@@ -12,11 +12,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -70,6 +72,14 @@ type Lister interface {
 	ListRefs(ctx context.Context) ([]Ref, error)
 }
 
+// Ager is an optional capability reporting when a blob was last written. The
+// janitor leaves unreferenced blobs younger than its grace period alone: an
+// upload stores its blob before the node that references it, so a fresh
+// unreferenced blob is usually in flight, not orphaned (artifactsd-m9e.10).
+type Ager interface {
+	ModTime(ctx context.Context, ref Ref) (time.Time, error)
+}
+
 // TempSweeper is an optional capability for blob stores with a filesystem
 // staging area that can accumulate orphaned temp files after a crash
 // mid-upload (design/07 §6, design/08 §5).
@@ -89,6 +99,18 @@ type Scrubber interface {
 type FSStore struct {
 	blobsDir string // <data>/blobs
 	tmpDir   string // <data>/tmp
+	// refLocks serialize, per content hash, publishing or re-using a blob in
+	// Put against RemoveIfUnused, so a dedupe hit can never re-use a blob the
+	// janitor is about to unlink (artifactsd-7tl.5). Sharded: two refs may
+	// share a lock, which only costs a little contention.
+	refLocks [64]sync.Mutex
+}
+
+// refLock returns the lock guarding ref's file.
+func (s *FSStore) refLock(ref Ref) *sync.Mutex {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(ref))
+	return &s.refLocks[h.Sum32()%uint32(len(s.refLocks))]
 }
 
 var _ Store = (*FSStore)(nil)
@@ -154,9 +176,21 @@ func (s *FSStore) Put(ctx context.Context, r io.Reader) (Ref, int64, string, err
 		return "", 0, "", err
 	}
 
+	// Publish or re-use under the ref's lock (see RemoveIfUnused).
+	lock := s.refLock(ref)
+	lock.Lock()
+	defer lock.Unlock()
 	if _, statErr := os.Stat(final); statErr == nil {
-		// Already stored — dedupe; temp removed by deferred cleanup.
-		return ref, size, sum, nil
+		// Already stored — dedupe; temp removed by deferred cleanup. Refresh
+		// the mtime so the janitor's grace period protects the re-used blob
+		// until its new node is written (it may be an orphan about to be
+		// collected). If it vanished in between, store our copy instead.
+		now := time.Now()
+		if err := os.Chtimes(final, now, now); err == nil {
+			return ref, size, sum, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", 0, "", fmt.Errorf("blob: refreshing mtime: %w", err)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o750); err != nil {
 		return "", 0, "", fmt.Errorf("blob: creating shard dir: %w", err)
@@ -165,6 +199,74 @@ func (s *FSStore) Put(ctx context.Context, r io.Reader) (Ref, int64, string, err
 		return "", 0, "", fmt.Errorf("blob: rename into place: %w", err)
 	}
 	return ref, size, sum, nil
+}
+
+// RemoveResult is the outcome of RemoveIfUnused.
+type RemoveResult int
+
+const (
+	// Removed: the blob was unlinked.
+	Removed RemoveResult = iota
+	// TooYoung: the blob was written or re-used after the cutoff; kept.
+	TooYoung
+	// InUse: unused reported false; kept.
+	InUse
+)
+
+// ConditionalRemover is an optional capability: unlink a blob only if it is
+// older than a cutoff and still unused, atomically with respect to Put of the
+// same content (artifactsd-7tl.5).
+type ConditionalRemover interface {
+	RemoveIfUnused(ctx context.Context, ref Ref, cutoff time.Time, unused func() (bool, error)) (RemoveResult, error)
+}
+
+// RemoveIfUnused unlinks ref when its mtime is before cutoff and unused()
+// reports true, all under ref's lock. A concurrent Put of the same content
+// therefore either refreshed the mtime first (the blob is kept as too young)
+// or runs after the unlink and stores a fresh copy. unused is called with the
+// lock held, so it must not call Put. A missing blob counts as removed.
+func (s *FSStore) RemoveIfUnused(_ context.Context, ref Ref, cutoff time.Time, unused func() (bool, error)) (RemoveResult, error) {
+	p, err := s.path(ref)
+	if err != nil {
+		return InUse, err
+	}
+	lock := s.refLock(ref)
+	lock.Lock()
+	defer lock.Unlock()
+	fi, err := os.Stat(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Removed, nil
+	}
+	if err != nil {
+		return InUse, err
+	}
+	if !fi.ModTime().Before(cutoff) {
+		return TooYoung, nil
+	}
+	ok, err := unused()
+	if err != nil {
+		return InUse, err
+	}
+	if !ok {
+		return InUse, nil
+	}
+	if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return InUse, err
+	}
+	return Removed, nil
+}
+
+// ModTime returns when the blob was last written or re-used (see Ager).
+func (s *FSStore) ModTime(_ context.Context, ref Ref) (time.Time, error) {
+	p, err := s.path(ref)
+	if err != nil {
+		return time.Time{}, err
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return fi.ModTime(), nil
 }
 
 // Open returns a seekable reader for the blob.

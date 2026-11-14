@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/durations"
 )
 
@@ -30,8 +31,21 @@ func (d *Document) ValidateWith(p *Policy) error {
 		}
 		if d.Access.Auth != nil {
 			entries := *d.Access.Auth
+			if len(entries) > maxAuthEntries {
+				add("access.auth has %d entries (max %d)", len(entries), maxAuthEntries)
+			}
+			basicUsers := map[string]bool{}
 			for i := range entries {
-				validateAuthEntry(i, &entries[i], add)
+				if entries[i].Type != AuthBasic || entries[i].Username == "" {
+					continue
+				}
+				if basicUsers[entries[i].Username] {
+					add("auth[%d] (basic) duplicate username %q", i, entries[i].Username)
+				}
+				basicUsers[entries[i].Username] = true
+			}
+			for i := range entries {
+				validateAuthEntry(p, i, &entries[i], add)
 			}
 		}
 	}
@@ -52,11 +66,14 @@ func (d *Document) ValidateWith(p *Policy) error {
 	return fmt.Errorf("invalid metadata: %s", strings.Join(probs, "; "))
 }
 
-func validateAuthEntry(i int, e *AuthEntry, add func(string, ...any)) {
+func validateAuthEntry(p *Policy, i int, e *AuthEntry, add func(string, ...any)) {
 	switch e.Type {
 	case AuthBearer:
 		if e.Token == "" && e.TokenHash == "" {
 			add("auth[%d] (bearer) requires token or token_hash", i)
+		}
+		if e.TokenHash != "" && !isSHA256Hex(e.TokenHash) {
+			add("auth[%d] (bearer) token_hash must be 64 lowercase hex characters", i)
 		}
 	case AuthBasic:
 		if e.Username == "" {
@@ -65,9 +82,20 @@ func validateAuthEntry(i int, e *AuthEntry, add func(string, ...any)) {
 		if e.Password == "" && e.PasswordHash == "" {
 			add("auth[%d] (basic) requires password or password_hash", i)
 		}
+		// Verification runs with the hash's own cost parameters, so they are
+		// bounded on write (artifactsd-m9e.9).
+		if e.PasswordHash != "" {
+			if err := auth.ValidateHash(e.PasswordHash); err != nil {
+				add("auth[%d] (basic) password_hash: %v", i, err)
+			}
+		}
 	case AuthOIDC:
 		if e.Issuer == "" {
 			add("auth[%d] (oidc) requires issuer", i)
+		} else if !p.OIDCIssuerAllowed(e.Issuer) {
+			// The server fetches discovery documents from the issuer URL, so
+			// only operator-approved issuers may be named (artifactsd-m9e.21).
+			add("auth[%d] (oidc) issuer %q is not allowed (ARTIFACTSD_OIDC_ALLOWED_ISSUERS)", i, e.Issuer)
 		}
 		// Audience (aud) must be verified so a token minted for another client at
 		// the same issuer cannot satisfy this entry. Require an explicit audience
@@ -102,4 +130,21 @@ func validVisibility(v string) bool {
 	default:
 		return false
 	}
+}
+
+// maxAuthEntries caps access.auth (artifactsd-m9e.9).
+const maxAuthEntries = 16
+
+// isSHA256Hex reports whether s is 64 lowercase hex characters.
+func isSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

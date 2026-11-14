@@ -256,7 +256,11 @@ func (h *Handler) collectSitemapURLs(ctx context.Context, collection string) []s
 	now := time.Now()
 	var urls []sitemapURL
 	for _, c := range cols {
-		layers := []*meta.Document{docOf(c.Metadata)}
+		doc, err := parseDoc(c.Metadata)
+		if err != nil {
+			continue // unreadable metadata: leave it out (fail closed)
+		}
+		layers := []*meta.Document{doc}
 		eff := meta.Resolve(h.defaults(), layers...)
 		expired := c.ExpiresAt != nil && !now.Before(*c.ExpiresAt)
 		// A private or expired collection can serve no public file; skip it
@@ -281,7 +285,11 @@ func (h *Handler) walkSitemap(ctx context.Context, c *store.Collection, parentID
 		return
 	}
 	for _, ch := range children {
-		layers := append(append([]*meta.Document{}, parentLayers...), docOf(ch.Metadata))
+		doc, err := parseDoc(ch.Metadata)
+		if err != nil {
+			continue // unreadable metadata: leave the subtree out (fail closed)
+		}
+		layers := append(append([]*meta.Document{}, parentLayers...), doc)
 		eff := meta.Resolve(h.defaults(), layers...)
 		expiry := meta.Earliest(parentExpiry, ch.ExpiresAt)
 		expired := expiry != nil && !now.Before(*expiry)

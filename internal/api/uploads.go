@@ -90,6 +90,7 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 	session := &store.UploadSession{
 		UploadID: uploadID, CollectionID: c.ID, TargetPath: p, Metadata: metaJSON,
 		MetadataSupplied: supplied,
+		ContentTrusted:   isAdmin(r),
 		ContentType:      docContentType(doc), Status: store.UploadPending,
 		ExpiresAt: now.Add(h.cfg.Limits.UploadTTL),
 	}
@@ -152,6 +153,16 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	if existing != nil {
 		status = http.StatusOK
 	}
+	// A non-admin session's metadata must not drop an admin's sandbox
+	// decision on the file it replaces (artifactsd-7tl.2).
+	if session.MetadataSupplied && !session.ContentTrusted && existing != nil && existing.Kind == store.KindFile {
+		if doc, err := meta.FromJSON(node.Metadata); err == nil {
+			keepAdminSandbox(doc, existing.Metadata)
+			if out, err := doc.JSON(); err == nil {
+				node.Metadata = out
+			}
+		}
+	}
 
 	// Claim the session and write the node in one transaction
 	// (artifactsd-m9e.13). The blob above is content-addressed and not yet
@@ -165,6 +176,11 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, CodeConflict, "upload session already consumed")
 			return
 		}
+		if errors.Is(err, store.ErrUploadSessionExpired) {
+			// Same answer as a session found expired up front.
+			writeError(w, http.StatusNotFound, CodeNotFound, "upload session does not exist")
+			return
+		}
 		h.storeWriteError(w, "commit upload", err)
 		return
 	}
@@ -173,7 +189,9 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	_ = h.audit.Record(r.Context(), &audit.Entry{
 		Action: audit.ActionUploadComplete, Actor: audit.ActorUpload, Target: c.Name + "/" + session.TargetPath,
 	})
-	writeJSON(w, status, h.toFileView(c.Name, node))
+	fv := h.toFileView(c.Name, node)
+	fv.Warnings = h.sandboxWarnings(r.Context(), c, node)
+	writeJSON(w, status, fv)
 }
 
 // getUploadStatus reports a session's lifecycle state. Like the PUT, this is a

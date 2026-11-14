@@ -59,7 +59,7 @@ func TestCrawlCollection_FiltersAndDepth(t *testing.T) {
 	put("draft.txt", "wip", "") // crawlable defaults false
 	put("assets/logo.png", "img", "")
 
-	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/assets/meta",
+	if rec := h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/assets?meta",
 		[]byte(`{"crawl":{"crawlable":true}}`), nil); rec.Code != http.StatusOK {
 		t.Fatalf("patch assets folder = %d (%s)", rec.Code, rec.Body)
 	}
@@ -119,7 +119,7 @@ func TestCrawlCollection_PathScopesToSubtree(t *testing.T) {
 	h := newHarness(t)
 	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
 	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/assets/logo.png", []byte("img"), nil)
-	h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/assets/meta",
+	h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/assets?meta",
 		[]byte(`{"crawl":{"crawlable":true}}`), nil)
 
 	rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/crawl?path=assets", nil, nil)
@@ -141,7 +141,7 @@ func TestCrawlCollection_PrivateAncestorHidesDescendants(t *testing.T) {
 	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
 	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/secret/data.txt",
 		[]byte("x"), map[string]string{metadataHeader: base64urlNoPad(`{"crawl":{"crawlable":true}}`)})
-	h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/secret/meta",
+	h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/secret?meta",
 		[]byte(`{"access":{"visibility":"private"},"crawl":{"crawlable":true}}`), nil)
 
 	// Even admin scope, even unlimited depth (the default): a private ancestor
@@ -162,7 +162,7 @@ func TestCrawlCollection_PrivateBaseIs404(t *testing.T) {
 	h := newHarness(t)
 	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
 	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/secret/data.txt", []byte("x"), nil)
-	h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/secret/meta",
+	h.do(t, h.token, http.MethodPatch, "/api/v1/collections/demo/folders/secret?meta",
 		[]byte(`{"access":{"visibility":"private"}}`), nil)
 
 	if rec := h.do(t, h.token, http.MethodGet, "/api/v1/collections/demo/crawl?path=secret", nil, nil); rec.Code != http.StatusNotFound {

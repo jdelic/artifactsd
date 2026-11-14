@@ -5,7 +5,6 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -39,7 +38,7 @@ var listingTemplate = template.Must(template.New("listing").Funcs(template.FuncM
 <h1>Index of /{{.Collection}}/{{.Path}}</h1>
 <ul>
 {{- range .Entries}}
-<li><a href="{{escapeURL .Name}}{{if eq .Type "folder"}}/{{end}}">{{.Name}}{{if eq .Type "folder"}}/{{end}}</a></li>
+<li><a href="./{{escapeURL .Name}}{{if eq .Type "folder"}}/{{end}}">{{.Name}}{{if eq .Type "folder"}}/{{end}}</a></li>
 {{- else}}
 <li><em>(empty)</em></li>
 {{- end}}
@@ -55,11 +54,20 @@ var listingTemplate = template.Must(template.New("listing").Funcs(template.FuncM
 // highest precedence, bypassing the private non-disclosure guard exactly like
 // serveShareFile (design/14 §1/§5) — see that function's comment for why.
 func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *store.Collection, dirPath string, dirNode *store.Node, sh *store.Share) {
-	layers, expiry, ancestorPrivate, chainIDs := h.resolveChain(r.Context(), coll, dirPath)
+	layers, expiry, ancestorPrivate, chainIDs, err := h.resolveChain(r.Context(), coll, dirPath)
+	if err != nil {
+		h.serverError(w, "resolve metadata chain", err)
+		return
+	}
 	acc := accessTargets{collectionID: coll.ID, nodeIDs: chainIDs}
 	if sh != nil {
 		acc.shareRowID = sh.ID
-		layers = append(layers, docOf(sh.Metadata))
+		shareDoc, err := parseDoc(sh.Metadata)
+		if err != nil {
+			h.serverError(w, "share metadata", err)
+			return
+		}
+		layers = append(layers, shareDoc)
 		expiry = meta.Earliest(expiry, sh.ExpiresAt)
 		ancestorPrivate = false
 	}
@@ -72,6 +80,7 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 	decision := policy.Decide(policy.Input{
 		Effective: eff, Expired: expired, AncestorPrivate: ancestorPrivate,
 		IsDirectory: true, Request: r, OIDC: h.oidc,
+		ViewerLogin: h.viewerLogin, Viewer: h.viewerIdentity(r),
 	})
 
 	switch decision.Outcome {
@@ -81,11 +90,15 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	case policy.Forbidden:
-		http.Error(w, "forbidden", http.StatusForbidden)
+		forbidden(w, decision)
 	case policy.RedirectOIDC:
-		http.Redirect(w, r, "/auth/oidc/login?return_to="+url.QueryEscape(r.URL.Path), http.StatusFound)
+		redirectToViewerLogin(w, r)
 	case policy.Serve:
+		if redirectToSlash(w, r) {
+			return
+		}
 		h.recordAccess(r.Context(), acc)
+		privateCaching(w, &decision)
 		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, expiry, sh != nil)
 	case policy.NotFound:
 		// Decide returns NotFound here for one of: private/under-private-
@@ -114,7 +127,7 @@ func (h *Handler) resolveDirNode(w http.ResponseWriter, r *http.Request, coll *s
 		http.NotFound(w, r)
 		return "", nil, false
 	}
-	node, err := h.store.GetNode(r.Context(), coll.ID, p)
+	node, err := h.getNode(r.Context(), coll.ID, p)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && node.Kind != store.KindFolder) {
 		http.NotFound(w, r)
 		return "", nil, false
@@ -133,13 +146,18 @@ func (h *Handler) serveIndexOrNotFound(w http.ResponseWriter, r *http.Request, c
 	if dirPath != "" {
 		indexPath = dirPath + "/index.html"
 	}
-	node, err := h.store.GetNode(r.Context(), coll.ID, indexPath)
+	node, err := h.getNode(r.Context(), coll.ID, indexPath)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && node.Kind != store.KindFile) {
 		http.NotFound(w, r)
 		return
 	}
 	if err != nil {
 		h.serverError(w, "lookup index", err)
+		return
+	}
+	// The folder is public (non-private checks passed) and has an index:
+	// serve it at the slash URL so its relative links resolve.
+	if redirectToSlash(w, r) {
 		return
 	}
 	if sh != nil {
@@ -185,7 +203,11 @@ func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *st
 		if childExpiry := meta.Earliest(dirExpiry, c.ExpiresAt); childExpiry != nil && !now.Before(*childExpiry) {
 			continue // expired: never disclosed, matching the direct-fetch 404
 		}
-		childLayers := append(append([]*meta.Document{}, layers...), docOf(c.Metadata))
+		childDoc, err := parseDoc(c.Metadata)
+		if err != nil {
+			continue // unreadable metadata: never disclose the entry
+		}
+		childLayers := append(append([]*meta.Document{}, layers...), childDoc)
 		childEff := meta.Resolve(h.defaults(), childLayers...)
 		hidePrivate := childEff.Visibility == meta.VisibilityPrivate && !sharePrivateBypass
 		if hidePrivate || childEff.Visibility == meta.VisibilityUnlisted {
@@ -227,4 +249,22 @@ func wantsJSONListing(r *http.Request) bool {
 	}
 	accept := r.Header.Get("Accept")
 	return strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html")
+}
+
+// redirectToSlash redirects a directory request whose URL lacks the trailing
+// slash to the slash form, keeping the query, and reports whether it did.
+// Relative links in a listing or an index.html resolve against the request
+// URL, so without the slash they would point into the parent folder
+// (artifactsd-7tl.6). Callers only use it once access has been granted, so a
+// redirect never discloses a folder that would otherwise 404.
+func redirectToSlash(w http.ResponseWriter, r *http.Request) bool {
+	if strings.HasSuffix(r.URL.Path, "/") {
+		return false
+	}
+	target := r.URL.EscapedPath() + "/"
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
+	return true
 }

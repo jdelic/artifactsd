@@ -26,6 +26,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /collections/{name}/tree", http.HandlerFunc(h.collectionTree))
 	mux.Handle("POST /collections/{name}/upload/begin", http.HandlerFunc(h.beginUpload))
 	mux.Handle("POST /collections/{name}/delete-file/{path...}", http.HandlerFunc(h.deleteFile))
+	mux.Handle("POST /collections/{name}/approve-content/{path...}", http.HandlerFunc(h.approveContent))
 	mux.Handle("POST /collections/{name}/delete-folder/{path...}", http.HandlerFunc(h.deleteFolder))
 
 	mux.Handle("GET /collections/{name}/meta", http.HandlerFunc(h.editMetadata))

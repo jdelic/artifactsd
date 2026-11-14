@@ -451,3 +451,53 @@ func TestTrustedProxies(t *testing.T) {
 		t.Errorf("default = %v, want none", got)
 	}
 }
+
+func TestOIDCAllowedIssuers(t *testing.T) {
+	load := func(env map[string]string) (*Config, error) {
+		base := map[string]string{"ARTIFACTSD_BASE_URL": "https://x.example.com", "ARTIFACTSD_DATA_DIR": t.TempDir()}
+		for k, v := range env {
+			base[k] = v
+		}
+		return LoadAndValidate(nil, func(k string) string { return base[k] }, nil)
+	}
+	c, err := load(map[string]string{
+		"ARTIFACTSD_OIDC_ALLOWED_ISSUERS": "https://a.example.com, http://127.0.0.1:9000, http://localhost:9",
+		"ARTIFACTSD_OIDC_ISSUER":          "https://own.example.com",
+		"ARTIFACTSD_OIDC_CLIENT_ID":       "c", "ARTIFACTSD_OIDC_CLIENT_SECRET": "s",
+		"ARTIFACTSD_ADMIN_GROUP": "*",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := c.EffectiveOIDCIssuers()
+	if len(got) != 4 || got[3] != "https://own.example.com" {
+		t.Errorf("EffectiveOIDCIssuers = %v", got)
+	}
+	if !c.MetaPolicy().OIDCIssuerAllowed("https://own.example.com/") {
+		t.Error("own issuer not allowed by MetaPolicy")
+	}
+	for _, bad := range []string{"http://idp.example.com", "idp.example.com", "ftp://x"} {
+		if _, err := load(map[string]string{"ARTIFACTSD_OIDC_ALLOWED_ISSUERS": bad}); err == nil {
+			t.Errorf("issuer %q accepted", bad)
+		}
+	}
+	c, err = load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.MetaPolicy().OIDCIssuerAllowed("https://a.example.com") {
+		t.Error("default config allows object OIDC issuers")
+	}
+}
+
+func TestAdminBasicPasswordHashBounds(t *testing.T) {
+	env := map[string]string{
+		"ARTIFACTSD_BASE_URL": "https://x.example.com", "ARTIFACTSD_DATA_DIR": t.TempDir(),
+		"ARTIFACTSD_ADMIN_BASIC_USER":          "admin",
+		"ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH": "$argon2id$v=19$m=262144,t=40,p=1$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	}
+	if _, err := LoadAndValidate(nil, func(k string) string { return env[k] }, nil); err == nil ||
+		!strings.Contains(err.Error(), "ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH") {
+		t.Errorf("out-of-bounds admin hash: err = %v, want a config error", err)
+	}
+}

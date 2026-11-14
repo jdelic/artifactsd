@@ -9,6 +9,7 @@ import (
 
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/auth"
+	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
@@ -89,6 +90,12 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "create share", err)
 		return
 	}
+	if doc, err := meta.FromJSON(metaJSON); err == nil {
+		if err := h.vouchIfUnsandboxed(r, doc, c.ID, targetPath); err != nil {
+			h.internalServerError(w, "trust content", err)
+			return
+		}
+	}
 	_ = h.audit.Record(r.Context(), &audit.Entry{
 		Action: audit.ActionShareCreate, Actor: actor(r), Target: c.Name + " " + shareID,
 	})
@@ -128,13 +135,17 @@ func (h *Handler) patchShare(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	merged, ok := h.mergeMetadata(w, r, sh.Metadata)
+	merged, patch, ok := h.mergeMetadata(w, r, sh.Metadata)
 	if !ok {
 		return
 	}
 	sh.Metadata = merged
 	if err := h.store.UpdateShare(r.Context(), sh); err != nil {
 		h.internalServerError(w, "update share", err)
+		return
+	}
+	if err := h.vouchIfUnsandboxed(r, patch, sh.CollectionID, sh.TargetPath); err != nil {
+		h.internalServerError(w, "trust content", err)
 		return
 	}
 	sh, err := h.store.GetShare(r.Context(), sh.ShareID)

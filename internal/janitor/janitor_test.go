@@ -84,6 +84,7 @@ func TestJanitor_ExpiresFile(t *testing.T) {
 	j, st, bs, ctx := newTestJanitor(t)
 	c := mustCollection(t, st, ctx, "demo", nil)
 	n := mustFileNode(t, st, bs, ctx, c.ID, "a.txt", "hello", past(t))
+	pastGrace(j)
 
 	result, err := j.RunOnce(ctx)
 	if err != nil {
@@ -135,6 +136,7 @@ func TestJanitor_DedupedBlobSurvivesUntilLastRef(t *testing.T) {
 	if err := st.UpsertNode(ctx, n2); err != nil {
 		t.Fatalf("UpsertNode: %v", err)
 	}
+	pastGrace(j)
 	if _, err := j.RunOnce(ctx); err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
@@ -147,6 +149,7 @@ func TestJanitor_ExpiresCollectionCascade(t *testing.T) {
 	j, st, bs, ctx := newTestJanitor(t)
 	c := mustCollection(t, st, ctx, "demo", past(t))
 	n := mustFileNode(t, st, bs, ctx, c.ID, "a.txt", "hello", nil) // node itself not expired
+	pastGrace(j)
 
 	result, err := j.RunOnce(ctx)
 	if err != nil {
@@ -270,6 +273,7 @@ func TestJanitor_Reconcile(t *testing.T) {
 		t.Fatalf("chtimes: %v", err)
 	}
 
+	pastGrace(j)
 	sum, err := j.Reconcile(ctx)
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)

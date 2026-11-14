@@ -91,7 +91,7 @@ func oidcReq(token string) *http.Request {
 
 func TestOIDCVerifier_AnyAuthenticated(t *testing.T) {
 	mi := newMockIssuer(t)
-	cache := NewOIDCProviderCache(mi.server.Client())
+	cache := NewOIDCProviderCache(mi.server.Client()).WithAllowedIssuers([]string{mi.url})
 	v := NewOIDCVerifier(&OIDCConfig{Issuer: mi.url, Audience: "artifactsd", AnyAuthenticated: true}, cache)
 
 	claims := mi.baseClaims("artifactsd")
@@ -107,7 +107,7 @@ func TestOIDCVerifier_AnyAuthenticated(t *testing.T) {
 
 func TestOIDCVerifier_GroupWhitelist(t *testing.T) {
 	mi := newMockIssuer(t)
-	cache := NewOIDCProviderCache(mi.server.Client())
+	cache := NewOIDCProviderCache(mi.server.Client()).WithAllowedIssuers([]string{mi.url})
 	v := NewOIDCVerifier(&OIDCConfig{Issuer: mi.url, Audience: "artifactsd", AllowedGroups: []string{"staff"}}, cache)
 
 	claims := mi.baseClaims("artifactsd")
@@ -125,7 +125,7 @@ func TestOIDCVerifier_GroupWhitelist(t *testing.T) {
 
 func TestOIDCVerifier_SubjectWhitelist(t *testing.T) {
 	mi := newMockIssuer(t)
-	cache := NewOIDCProviderCache(mi.server.Client())
+	cache := NewOIDCProviderCache(mi.server.Client()).WithAllowedIssuers([]string{mi.url})
 	v := NewOIDCVerifier(&OIDCConfig{Issuer: mi.url, Audience: "artifactsd", AllowedSubjects: []string{"alice@example.com"}}, cache)
 
 	claims := mi.baseClaims("artifactsd")
@@ -142,7 +142,7 @@ func TestOIDCVerifier_SubjectWhitelist(t *testing.T) {
 
 func TestOIDCVerifier_RejectsBadToken(t *testing.T) {
 	mi := newMockIssuer(t)
-	cache := NewOIDCProviderCache(mi.server.Client())
+	cache := NewOIDCProviderCache(mi.server.Client()).WithAllowedIssuers([]string{mi.url})
 	v := NewOIDCVerifier(&OIDCConfig{Issuer: mi.url, Audience: "artifactsd", AnyAuthenticated: true}, cache)
 
 	t.Run("wrong audience", func(t *testing.T) {
@@ -177,7 +177,7 @@ func TestOIDCVerifier_RejectsBadToken(t *testing.T) {
 // InsecureSkipAudienceCheck flag restores the skip behavior.
 func TestOIDCVerifier_EmptyAudienceFailsClosed(t *testing.T) {
 	mi := newMockIssuer(t)
-	cache := NewOIDCProviderCache(mi.server.Client())
+	cache := NewOIDCProviderCache(mi.server.Client()).WithAllowedIssuers([]string{mi.url})
 
 	// Empty audience, no opt-out: a perfectly valid token is still rejected,
 	// because aud verification is not skipped just because Audience is unset.

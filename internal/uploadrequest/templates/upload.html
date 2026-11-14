@@ -110,7 +110,7 @@ progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
           const heading = document.createElement('strong');
           heading.textContent = 'Files uploaded successfully!';
           const nodes = [heading];
-          if (data.files && data.uploader_access) {
+          if (data.files && (data.uploader_access || data.files.some(f => f.warning))) {
             const ul = document.createElement('ul');
             data.files.forEach(f => {
               const li = document.createElement('li');
@@ -124,6 +124,12 @@ progress{width:100%;height:6px;border-radius:3px;margin-top:0.5rem;display:none}
                 li.appendChild(a);
               } else {
                 li.textContent = name;
+              }
+              if (typeof f.warning === 'string' && f.warning) {
+                const note = document.createElement('div');
+                note.className = 'hint';
+                note.textContent = f.warning;
+                li.appendChild(note);
               }
               ul.appendChild(li);
             });

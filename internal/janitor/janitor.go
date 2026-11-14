@@ -78,13 +78,16 @@ func (j *Janitor) WithClock(now func() time.Time) *Janitor {
 // Summary reports one pass's results (design/08 §8); it is also the JSON body
 // returned by POST /api/v1/maintenance/cleanup.
 type Summary struct {
-	NodesDeleted          int      `json:"nodes_deleted"`
-	CollectionsDeleted    int      `json:"collections_deleted"`
-	SharesDeleted         int      `json:"shares_deleted"`
-	UploadSessionsExpired int      `json:"upload_sessions_expired"`
-	UploadRequestsExpired int      `json:"upload_requests_expired"`
-	BlobsDeleted          int      `json:"blobs_deleted"`
-	Errors                []string `json:"errors,omitempty"`
+	NodesDeleted          int `json:"nodes_deleted"`
+	CollectionsDeleted    int `json:"collections_deleted"`
+	SharesDeleted         int `json:"shares_deleted"`
+	UploadSessionsExpired int `json:"upload_sessions_expired"`
+	UploadRequestsExpired int `json:"upload_requests_expired"`
+	BlobsDeleted          int `json:"blobs_deleted"`
+	// BlobsDeferred are unreferenced blobs younger than the grace period; a
+	// later Reconcile collects them (artifactsd-m9e.10).
+	BlobsDeferred int      `json:"blobs_deferred,omitempty"`
+	Errors        []string `json:"errors,omitempty"`
 }
 
 // RunOnce performs a single expiry sweep: delete expired nodes, collections,
@@ -127,9 +130,11 @@ func (j *Janitor) RunOnce(ctx context.Context) (any, error) {
 
 // ReconcileSummary reports one Reconcile pass's results (design/08 §5/§8).
 type ReconcileSummary struct {
-	OrphanBlobsDeleted int      `json:"orphan_blobs_deleted"`
-	TempFilesRemoved   int      `json:"temp_files_removed"`
-	Errors             []string `json:"errors,omitempty"`
+	OrphanBlobsDeleted int `json:"orphan_blobs_deleted"`
+	// OrphanBlobsDeferred are unreferenced blobs younger than the grace period.
+	OrphanBlobsDeferred int      `json:"orphan_blobs_deferred,omitempty"`
+	TempFilesRemoved    int      `json:"temp_files_removed"`
+	Errors              []string `json:"errors,omitempty"`
 }
 
 // Reconcile performs the heavier, less-frequent sweep that RunOnce skips: a
@@ -146,19 +151,14 @@ func (j *Janitor) Reconcile(ctx context.Context) (*ReconcileSummary, error) {
 			sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: list blob refs: %v", err))
 		}
 		for _, ref := range refs {
-			n, err := j.store.BlobRefCount(ctx, string(ref))
-			if err != nil {
-				sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: refcount blob %s: %v", ref, err))
-				continue
+			switch res, err := j.collectBlob(ctx, ref); {
+			case err != nil:
+				sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: collect orphan blob %s: %v", ref, err))
+			case res == blob.Removed:
+				sum.OrphanBlobsDeleted++
+			case res == blob.TooYoung:
+				sum.OrphanBlobsDeferred++
 			}
-			if n > 0 {
-				continue
-			}
-			if err := j.blob.Delete(ctx, ref); err != nil {
-				sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: unlink orphan blob %s: %v", ref, err))
-				continue
-			}
-			sum.OrphanBlobsDeleted++
 		}
 	}
 
@@ -397,22 +397,19 @@ func (j *Janitor) expireUploadRequests(ctx context.Context, now time.Time, sum *
 // than assuming the caller's deletion was the last reference.
 func (j *Janitor) gcBlobs(ctx context.Context, refs []string, sum *Summary) {
 	for _, ref := range refs {
-		n, err := j.store.BlobRefCount(ctx, ref)
-		if err != nil {
-			sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: refcount blob %s: %v", ref, err))
-			continue
-		}
-		if n > 0 {
-			continue
-		}
-		if err := j.blob.Delete(ctx, blob.Ref(ref)); err != nil {
+		switch res, err := j.collectBlob(ctx, blob.Ref(ref)); {
+		case err != nil:
 			if j.log != nil {
 				j.log.Warn("janitor: blob unlink failed; will retry next pass", "ref", ref, "error", err)
 			}
 			sum.Errors = append(sum.Errors, fmt.Sprintf("janitor: unlink blob %s: %v", ref, err))
-			continue
+		case res == blob.Removed:
+			sum.BlobsDeleted++
+		case res == blob.TooYoung:
+			// Possibly re-used by an in-flight upload; Reconcile collects it
+			// once it is older than the grace period.
+			sum.BlobsDeferred++
 		}
-		sum.BlobsDeleted++
 	}
 }
 
@@ -430,4 +427,62 @@ func (j *Janitor) collectionName(ctx context.Context, id int64, cache map[int64]
 	}
 	cache[id] = name
 	return name
+}
+
+// minBlobGrace is the lower bound of the unreferenced-blob grace period.
+const minBlobGrace = time.Hour
+
+// blobGrace is how long an unreferenced blob is kept: at least as long as an
+// upload session may live, and never under an hour (artifactsd-m9e.10).
+func (j *Janitor) blobGrace() time.Duration {
+	return max(j.uploadTTL, minBlobGrace)
+}
+
+// collectHook, when set (tests only), runs inside collectBlob's critical
+// section, after the age and refcount checks and before the unlink.
+var collectHook func(ref blob.Ref)
+
+// collectBlob deletes ref if no node references it and it is older than the
+// grace period (artifactsd-m9e.10). With a blob.ConditionalRemover the age
+// check, the refcount check and the unlink happen under the store's per-ref
+// lock, so a deduplicating upload can't revive the blob in between
+// (artifactsd-7tl.5). Other stores fall back to unsynchronized checks.
+func (j *Janitor) collectBlob(ctx context.Context, ref blob.Ref) (blob.RemoveResult, error) {
+	unused := func() (bool, error) {
+		n, err := j.store.BlobRefCount(ctx, string(ref))
+		if collectHook != nil {
+			collectHook(ref)
+		}
+		return n == 0, err
+	}
+	if cr, ok := j.blob.(blob.ConditionalRemover); ok {
+		return cr.RemoveIfUnused(ctx, ref, j.now().Add(-j.blobGrace()), unused)
+	}
+	ok, err := unused()
+	if err != nil || !ok {
+		return blob.InUse, err
+	}
+	if j.blobTooYoung(ctx, ref) {
+		return blob.TooYoung, nil
+	}
+	if err := j.blob.Delete(ctx, ref); err != nil {
+		return blob.InUse, err
+	}
+	return blob.Removed, nil
+}
+
+// blobTooYoung reports whether an unreferenced blob is within the grace
+// period, i.e. may belong to an upload that has stored its bytes but not yet
+// written its node, or be a dedupe hit for one. Stores without blob.Ager, and
+// stat errors, are treated as old enough (the previous behavior).
+func (j *Janitor) blobTooYoung(ctx context.Context, ref blob.Ref) bool {
+	ager, ok := j.blob.(blob.Ager)
+	if !ok {
+		return false
+	}
+	mt, err := ager.ModTime(ctx, ref)
+	if err != nil {
+		return false
+	}
+	return j.now().Sub(mt) < j.blobGrace()
 }

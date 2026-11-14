@@ -42,3 +42,34 @@ func TestParseScopes(t *testing.T) {
 		t.Error("expected error for invalid JSON")
 	}
 }
+
+// TestScopeSet_DeleteScopes: delete is an explicit permission (artifactsd-m9e.25).
+func TestScopeSet_DeleteScopes(t *testing.T) {
+	cases := []struct {
+		have     []Scope
+		required Scope
+		want     bool
+	}{
+		{[]Scope{ScopeCollectionsWrite}, ScopeCollectionsDelete, false},
+		{[]Scope{ScopeCollectionsDelete}, ScopeCollectionsDelete, true},
+		{[]Scope{ScopeCollectionsDelete}, ScopeCollectionsRead, true},
+		{[]Scope{ScopeCollectionsDelete}, ScopeCollectionsWrite, false},
+		{[]Scope{ScopeSharesWrite}, ScopeSharesDelete, false},
+		{[]Scope{ScopeSharesDelete}, ScopeSharesRead, true},
+		{[]Scope{ScopeSharesDelete}, ScopeSharesWrite, false},
+		{[]Scope{ScopeSharesDelete}, ScopeCollectionsDelete, false},
+		{[]Scope{ScopeAdmin}, ScopeCollectionsDelete, true},
+		{[]Scope{ScopeAdmin}, ScopeSharesDelete, true},
+		{[]Scope{ScopeCollectionsWrite}, ScopeCollectionsRead, true},
+	}
+	for _, c := range cases {
+		if got := NewScopeSet(c.have...).Satisfies(c.required); got != c.want {
+			t.Errorf("%v satisfies %s = %v, want %v", c.have, c.required, got, c.want)
+		}
+	}
+	for _, sc := range []Scope{ScopeCollectionsDelete, ScopeSharesDelete} {
+		if !IsKnownScope(sc) {
+			t.Errorf("%s not a known scope", sc)
+		}
+	}
+}

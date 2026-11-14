@@ -285,3 +285,39 @@ func TestSweepTemp(t *testing.T) {
 		t.Error("fresh temp file was removed")
 	}
 }
+
+// TestPut_DedupeRefreshesMtime: storing content identical to an existing blob
+// refreshes its mtime, so the janitor's grace period protects the re-used blob
+// (artifactsd-m9e.10).
+func TestPut_DedupeRefreshesMtime(t *testing.T) {
+	s, err := NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	ref, _, _, err := s.Put(ctx, strings.NewReader("same bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.path(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if mt, _ := s.ModTime(ctx, ref); time.Since(mt) < 47*time.Hour {
+		t.Fatalf("backdating failed: %v", mt)
+	}
+	if _, _, _, err := s.Put(ctx, strings.NewReader("same bytes")); err != nil {
+		t.Fatal(err)
+	}
+	mt, err := s.ModTime(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(mt) > time.Minute {
+		t.Errorf("dedupe did not refresh mtime: %v", mt)
+	}
+}

@@ -564,3 +564,19 @@ body {
   font-size: 0.85em;
   color: var(--nc-grey);
 }
+
+/* Sandbox state badges (artifactsd-7tl.9). */
+.nc-sandbox-off,
+.nc-sandbox-pending {
+  margin-left: 0.5em;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+.nc-sandbox-off {
+  color: var(--nc-yellow);
+}
+.nc-sandbox-pending {
+  color: var(--nc-yellow);
+  border: 1px solid var(--nc-yellow);
+  padding: 0 4px;
+}

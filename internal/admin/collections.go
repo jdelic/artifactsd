@@ -6,6 +6,7 @@ import (
 
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/paths"
+	"github.com/jdelic/artifactsd/internal/sandbox"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 )
@@ -22,6 +23,8 @@ type collectionRow struct {
 	// effective one (artifactsd-17c). Both empty when it never expires.
 	Expires     string
 	ExpiresRule string
+	// Sandbox is the collection's own sandbox state (artifactsd-7tl.9).
+	Sandbox string
 }
 
 // collectionsPanelData backs the "collections_panel" partial, shared by the
@@ -142,6 +145,7 @@ func (h *Handler) loadCollectionsPanel(r *http.Request, errMsg string) (collecti
 			CreatedAt:  c.CreatedAt.UTC().Format("2006-01-02 15:04"),
 		}
 		row.ShareURL, row.Shared = wholeShare[c.Name]
+		row.Sandbox = string(sandbox.CollectionState(h.cfg.Policy.Sandbox, c.Metadata))
 		if e := h.store.CollectionExpiry(c); e.At != nil {
 			row.Expires, _ = expiryCell(e)
 			row.ExpiresRule = e.Source.Rule

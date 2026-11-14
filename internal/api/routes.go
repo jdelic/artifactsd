@@ -16,14 +16,15 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /api/v1/collections/{c}", h.requireScope(auth.ScopeCollectionsRead, h.getCollection))
 	mux.Handle("GET /api/v1/collections/{c}/meta", h.requireScope(auth.ScopeCollectionsRead, h.getCollectionMeta))
 	mux.Handle("PATCH /api/v1/collections/{c}/meta", h.requireScope(auth.ScopeCollectionsWrite, h.patchCollectionMeta))
-	mux.Handle("DELETE /api/v1/collections/{c}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteCollection))
+	mux.Handle("DELETE /api/v1/collections/{c}", h.requireScope(auth.ScopeCollectionsDelete, h.deleteCollection))
 
 	// Files (design/04 §3). Go's ServeMux requires {path...} to be the final
-	// segment, so the ".../meta" sub-resource is dispatched in code by suffix.
+	// segment, so metadata is addressed with the ?meta query parameter
+	// (artifactsd-m9e.23) rather than a path suffix.
 	mux.Handle("PUT /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.putFile))
 	mux.Handle("GET /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsRead, h.getFile))
 	mux.Handle("PATCH /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFile))
-	mux.Handle("DELETE /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteFile))
+	mux.Handle("DELETE /api/v1/collections/{c}/files/{path...}", h.requireScope(auth.ScopeCollectionsDelete, h.deleteFile))
 
 	// Large uploads (design/04 §5). Beginning a session requires a write-scoped
 	// token; the upload_id-keyed routes are pure capability endpoints (decision
@@ -38,7 +39,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /api/v1/collections/{c}/tree", h.requireScope(auth.ScopeCollectionsRead, h.tree))
 	mux.Handle("GET /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsRead, h.getFolder))
 	mux.Handle("PATCH /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.patchFolder))
-	mux.Handle("DELETE /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsWrite, h.deleteFolder))
+	mux.Handle("DELETE /api/v1/collections/{c}/folders/{path...}", h.requireScope(auth.ScopeCollectionsDelete, h.deleteFolder))
 
 	// Crawl API (design/04 §7, design/05 §5).
 	mux.Handle("GET /api/v1/crawl", h.requireScope(auth.ScopeCollectionsRead, h.crawlRoot))
@@ -49,7 +50,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /api/v1/collections/{c}/shares", h.requireScope(auth.ScopeSharesRead, h.listShares))
 	mux.Handle("GET /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesRead, h.getShare))
 	mux.Handle("PATCH /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.patchShare))
-	mux.Handle("DELETE /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesWrite, h.deleteShare))
+	mux.Handle("DELETE /api/v1/shares/{share_id}", h.requireScope(auth.ScopeSharesDelete, h.deleteShare))
 
 	// Upload request links (design/15, admin-scoped).
 	mux.Handle("POST /api/v1/upload-requests", h.requireScope(auth.ScopeAdmin, h.createUploadRequest))

@@ -14,7 +14,7 @@
       <tr><th>Name</th><th>Visibility</th><th>Created</th><th>Expires</th><th></th></tr>
       {{range .Collections}}
       <tr>
-        <td><a href="{{$.AdminPath}}/collections/{{.Name}}/tree">{{.Name}}</a></td>
+        <td><a href="{{$.AdminPath}}/collections/{{.Name}}/tree">{{.Name}}</a>{{template "sandbox_badge" .Sandbox}}</td>
         <td>{{.Visibility}}</td>
         <td>{{.CreatedAt}}</td>
         <td>{{if .Expires}}{{.Expires}}{{if .ExpiresRule}}<span class="nc-expiry-source">{{.ExpiresRule}}</span>{{end}}{{else}}—{{end}}</td>

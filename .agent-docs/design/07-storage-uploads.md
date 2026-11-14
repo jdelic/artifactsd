@@ -22,7 +22,9 @@ data/tmp/<random>                    # in-progress writes
 - `Put` streams to `data/tmp/<rand>`, hashing as it writes, fsyncs, then renames
   to the final sharded path (atomic on same filesystem). Returns the
   `sha256:<hex>` ref.
-- Identical content dedupes naturally (same hash → same file). The `nodes` row
+- Identical content dedupes naturally (same hash → same file). A dedupe hit
+  refreshes the blob's mtime so the janitor's grace period (design/08 §5)
+  protects it until the new node is written. The `nodes` row
   maps logical path → `blob_id`.
 - `Delete` is reference-counted: only unlink when no `nodes.blob_id` references
   the hash (checked under the janitor; see [08](08-expiry-janitor.md)).
@@ -72,7 +74,9 @@ Two-step to avoid buffering huge bodies through the JSON API:
    - Streams to a temp blob with size limit + hashing.
    - On success: `store.CommitUpload` claims the session (pending →
      completed) and writes the node (parent folders, upsert, denormalized
-     columns) in ONE transaction (artifactsd-m9e.13). If the node write fails
+     columns) in ONE transaction (artifactsd-m9e.13). The session must be pending
+     **and unexpired at commit time** (a session that expires while the body
+     streams is answered like an expired one, 404; artifactsd-7tl.3). If the node write fails
      (kind conflict, collection file cap, DB error) the claim rolls back and
      the session stays `pending`, so the client can retry or abort. Of two
      concurrent PUTs exactly one commits (artifactsd-ku3).

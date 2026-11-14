@@ -109,3 +109,24 @@ func TestFilterHeaders(t *testing.T) {
 		t.Errorf("CRLF value served: %v", got)
 	}
 }
+
+func TestValidateWith_OIDCIssuerAllowlist(t *testing.T) {
+	p, err := NewPolicy(PolicyOptions{AllowedOIDCIssuers: []string{"https://idp.example.com/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := func(issuer string) *Document {
+		auth := []AuthEntry{{Type: AuthOIDC, Issuer: issuer, Audience: "a", AnyAuthenticated: true}}
+		return &Document{Access: &Access{Auth: &auth}}
+	}
+	if err := doc("https://idp.example.com").ValidateWith(p); err != nil {
+		t.Errorf("allowlisted issuer (slash-normalized): %v", err)
+	}
+	if err := doc("http://169.254.169.254/latest").ValidateWith(p); err == nil || !strings.Contains(err.Error(), "is not allowed") {
+		t.Errorf("unlisted issuer: err = %v", err)
+	}
+	empty, _ := NewPolicy(PolicyOptions{})
+	if err := doc("https://idp.example.com").ValidateWith(empty); err == nil {
+		t.Error("empty allowlist accepted an oidc entry")
+	}
+}

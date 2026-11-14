@@ -21,6 +21,18 @@ import (
 // DefaultCookieName is the admin session cookie name.
 const DefaultCookieName = "artifactsd_admin"
 
+// ViewerCookieName is the cookie of a viewer session: a person signed in via
+// OIDC to open OIDC-protected objects, never an admin (artifactsd-m9e.22).
+const ViewerCookieName = "artifactsd_viewer"
+
+// Purposes domain-separate the MACs of managers sharing one key, so a value
+// signed for one purpose never verifies for another (a viewer cookie can't be
+// replayed as an admin cookie, or vice versa).
+const (
+	PurposeAdmin  = "admin"
+	PurposeViewer = "viewer"
+)
+
 // ErrNoSession is returned when no (valid) session cookie is present.
 var ErrNoSession = errors.New("session: no session")
 
@@ -37,6 +49,7 @@ type Manager struct {
 	key        []byte
 	cookieName string
 	secure     bool
+	purpose    string
 }
 
 // NewManager builds a session manager. secure sets the cookie Secure flag (true
@@ -45,7 +58,15 @@ func NewManager(key []byte, cookieName string, secure bool) *Manager {
 	if cookieName == "" {
 		cookieName = DefaultCookieName
 	}
-	return &Manager{key: key, cookieName: cookieName, secure: secure}
+	return &Manager{key: key, cookieName: cookieName, secure: secure, purpose: PurposeAdmin}
+}
+
+// WithPurpose returns a copy of m that signs for purpose under cookieName.
+func (m *Manager) WithPurpose(purpose, cookieName string) *Manager {
+	c := *m
+	c.purpose = purpose
+	c.cookieName = cookieName
+	return &c
 }
 
 // GenerateKey returns a 32-byte random signing key.
@@ -111,6 +132,8 @@ func (m *Manager) Decode(value string) (*Identity, error) {
 
 func (m *Manager) mac(b64 string) []byte {
 	h := hmac.New(sha256.New, m.key)
+	h.Write([]byte(m.purpose))
+	h.Write([]byte{0})
 	h.Write([]byte(b64))
 	return h.Sum(nil)
 }

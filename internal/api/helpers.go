@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/meta"
+	"github.com/jdelic/artifactsd/internal/sandbox"
+	"github.com/jdelic/artifactsd/internal/store"
 )
 
 const (
@@ -99,56 +102,128 @@ func (h *Handler) prepareMetadata(w http.ResponseWriter, r *http.Request, raw js
 }
 
 // mergeMetadata decodes a patch document from the body, validates+hashes it, and
-// merges it onto the existing stored metadata, returning the storage JSON.
-func (h *Handler) mergeMetadata(w http.ResponseWriter, r *http.Request, existing json.RawMessage) (json.RawMessage, bool) {
+// merges it onto the existing stored metadata, returning the storage JSON and
+// the patch itself.
+func (h *Handler) mergeMetadata(w http.ResponseWriter, r *http.Request, existing json.RawMessage) (json.RawMessage, *meta.Document, bool) {
 	var raw json.RawMessage
 	if !decodeJSON(w, r, &raw) {
-		return nil, false
+		return nil, nil, false
 	}
 	patch, err := meta.FromJSON(raw)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
-		return nil, false
+		return nil, nil, false
 	}
 	if err = patch.ValidateWith(h.metaPolicy); err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
-		return nil, false
+		return nil, nil, false
 	}
 	if !requireSandboxPrivilege(w, r, patch) {
-		return nil, false
+		return nil, nil, false
 	}
 	if err = patch.HashSecrets(); err != nil {
 		h.internalServerError(w, "hash secrets", err)
-		return nil, false
+		return nil, nil, false
 	}
 
 	base, err := meta.FromJSON(existing)
 	if err != nil {
 		h.internalServerError(w, "parse existing metadata", err)
-		return nil, false
+		return nil, nil, false
 	}
 	base.Merge(patch)
 	out, err := base.JSON()
 	if err != nil {
 		h.internalServerError(w, "encode metadata", err)
-		return nil, false
+		return nil, nil, false
 	}
-	return out, true
+	return out, patch, true
 }
 
-// requireSandboxPrivilege rejects (403) a metadata document that turns the
-// content sandbox off unless the caller holds an admin-scoped token
-// (artifactsd-m9e.4). Unsandboxed HTML runs with full same-origin power, so
-// write scope must not be enough to serve it. Setting sandbox true or leaving
-// it unset is always allowed. Every metadata helper calls it, so no handler can
-// forget.
+// requireSandboxPrivilege rejects (403) a metadata document that sets
+// content.sandbox — to true or false — unless the caller holds an admin-scoped
+// token (artifactsd-m9e.4, artifactsd-7tl.2). Unsandboxed HTML runs with full
+// same-origin power, so only admins decide where the sandbox applies. A
+// document that leaves sandbox unset is always allowed. Every metadata helper
+// calls it, so no handler can forget.
 func requireSandboxPrivilege(w http.ResponseWriter, r *http.Request, doc *meta.Document) bool {
-	if doc == nil || doc.Content == nil || doc.Content.Sandbox == nil || *doc.Content.Sandbox {
+	if sandboxSetting(doc) == nil || isAdmin(r) {
 		return true
 	}
-	if p := auth.PrincipalFromContext(r.Context()); p != nil && p.Scopes.Has(auth.ScopeAdmin) {
-		return true
-	}
-	writeError(w, http.StatusForbidden, CodeForbidden, "content.sandbox=false requires an admin-scoped token")
+	writeError(w, http.StatusForbidden, CodeForbidden, "content.sandbox can only be set with an admin-scoped token")
 	return false
+}
+
+// sandboxSetting returns the document's content.sandbox, or nil when unset.
+func sandboxSetting(doc *meta.Document) *bool {
+	if doc == nil || doc.Content == nil {
+		return nil
+	}
+	return doc.Content.Sandbox
+}
+
+// setsSandboxOff reports whether doc explicitly sets content.sandbox=false.
+func setsSandboxOff(doc *meta.Document) bool {
+	sb := sandboxSetting(doc)
+	return sb != nil && !*sb
+}
+
+// vouchIfUnsandboxed records an admin's decision to unsandbox: when doc sets
+// content.sandbox=false, the files currently at or below prefix are marked
+// trusted, so they are served unsandboxed without being re-uploaded
+// (artifactsd-7tl.2). Only admins can reach this (requireSandboxPrivilege).
+func (h *Handler) vouchIfUnsandboxed(r *http.Request, doc *meta.Document, collectionID int64, prefix string) error {
+	if !setsSandboxOff(doc) || !isAdmin(r) {
+		return nil
+	}
+	return h.store.TrustContent(r.Context(), collectionID, prefix)
+}
+
+// keepAdminSandbox copies the existing document's content.sandbox into doc
+// when doc leaves it unset: a non-admin replacing an object's metadata must
+// not drop a sandbox decision only an admin may make (artifactsd-7tl.2).
+func keepAdminSandbox(doc *meta.Document, existing json.RawMessage) {
+	if sandboxSetting(doc) != nil {
+		return
+	}
+	old, err := meta.FromJSON(existing)
+	if err != nil || sandboxSetting(old) == nil {
+		return
+	}
+	if doc.Content == nil {
+		doc.Content = &meta.Content{}
+	}
+	v := *old.Content.Sandbox
+	doc.Content.Sandbox = &v
+}
+
+// addSandboxState annotates a metadata view's effective map with how the
+// object is served: sandbox_state (sandboxed | unsandboxed |
+// awaiting_approval) and, while awaiting approval, sandbox_note
+// (artifactsd-7tl.9).
+func addSandboxState(effective map[string]any, isFile, trusted bool) sandbox.State {
+	eff, _ := effective["sandbox"].(bool)
+	st := sandbox.For(eff, isFile, trusted)
+	effective["sandbox_state"] = st
+	if st == sandbox.AwaitingApproval {
+		effective["sandbox_note"] = sandbox.AwaitingApprovalNote
+	}
+	return st
+}
+
+// sandboxWarnings returns the warnings for a file just written: when the
+// sandbox is turned off where it lives but its new content is untrusted, it
+// is served sandboxed until an admin re-approves it (artifactsd-7tl.9).
+func (h *Handler) sandboxWarnings(ctx context.Context, c *store.Collection, n *store.Node) []string {
+	if n.ContentTrusted {
+		return nil
+	}
+	effective, _, _, err := h.metaView(ctx, c, n.Path)
+	if err != nil {
+		return nil
+	}
+	if addSandboxState(effective, true, false) == sandbox.AwaitingApproval {
+		return []string{"served sandboxed until an admin re-approves it: " + sandbox.AwaitingApprovalNote}
+	}
+	return nil
 }

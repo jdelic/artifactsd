@@ -55,7 +55,7 @@ type Content struct {
 	// (inherit the default) is distinct from an explicit false (trusted content
 	// served on its real origin) or true. Set false only for content you trust:
 	// it regains same-origin powers on the shared admin/artifact origin.
-	Sandbox *bool `json:"sandbox,omitempty" yaml:"sandbox,omitempty" jsonschema:"Serve active content inside a CSP sandbox (default true); set false only for trusted content. false requires an admin token"`
+	Sandbox *bool `json:"sandbox,omitempty" yaml:"sandbox,omitempty" jsonschema:"Serve active content inside a CSP sandbox (default true); set false only for trusted content. Only admins can set this"`
 }
 
 // Access holds visibility, directory listing, and the auth requirement list.
@@ -85,7 +85,7 @@ type AuthEntry struct {
 	HasPassword  bool   `json:"has_password,omitempty" yaml:"-" jsonschema:"Read-only: whether a password is configured"`
 
 	// oidc
-	Issuer          string   `json:"issuer,omitempty" yaml:"issuer,omitempty" jsonschema:"OIDC issuer URL"`
+	Issuer          string   `json:"issuer,omitempty" yaml:"issuer,omitempty" jsonschema:"OIDC issuer URL; must be on the server's allowlist (ARTIFACTSD_OIDC_ALLOWED_ISSUERS or its own ARTIFACTSD_OIDC_ISSUER)"`
 	Audience        string   `json:"audience,omitempty" yaml:"audience,omitempty" jsonschema:"Required ID-token audience"`
 	AllowedSubjects []string `json:"allowed_subjects,omitempty" yaml:"allowed_subjects,omitempty" jsonschema:"Subjects (sub or email) granted access"`
 	AllowedGroups   []string `json:"allowed_groups,omitempty" yaml:"allowed_groups,omitempty" jsonschema:"Groups granted access, read from group_claim"`

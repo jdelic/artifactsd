@@ -14,7 +14,7 @@ func registerTools(s *Server) {
 	}, s.createCollection)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_put_text",
-		Description: "Upload a small text artifact (e.g. an HTML report or JSON file) inline.",
+		Description: "Upload a small text artifact (e.g. an HTML report or JSON file) inline. If the result has warnings, tell the user: e.g. content written where an admin turned the sandbox off is served sandboxed until an admin re-approves it.",
 	}, s.putText)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_begin_upload",
@@ -34,7 +34,7 @@ func registerTools(s *Server) {
 	}, s.deleteArtifact)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_list_tree",
-		Description: "List a collection's files and folders (the admin view: all visibility levels, unfiltered by crawl policy).",
+		Description: "List a collection's files and folders (the admin view: all visibility levels, unfiltered by crawl policy). Items carry sandbox=unsandboxed when an admin turned the sandbox off, or awaiting_approval when such content was changed by a non-admin and is served sandboxed until an admin re-approves it.",
 	}, s.listTree)
 	gosdk.AddTool(s.MCP, &gosdk.Tool{
 		Name:        "artifact_get_public_url",

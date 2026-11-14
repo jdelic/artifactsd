@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"path"
 	"strings"
@@ -30,6 +31,9 @@ type fileView struct {
 	URL         string  `json:"url"`
 	UpdatedAt   string  `json:"updated_at"`
 	ExpiresAt   *string `json:"expires_at,omitempty"`
+	// Warnings tells the writer how the file will be served when that may be
+	// surprising (artifactsd-7tl.9).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
@@ -68,9 +72,14 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 		if contentType == "" && keep.ContentType != nil {
 			contentType = *keep.ContentType
 		}
-	} else if metaJSON, err = doc.JSON(); err != nil {
-		h.internalServerError(w, "encode metadata", err)
-		return
+	} else {
+		if supplied && existing != nil && existing.Kind == store.KindFile && !isAdmin(r) {
+			keepAdminSandbox(doc, existing.Metadata)
+		}
+		if metaJSON, err = doc.JSON(); err != nil {
+			h.internalServerError(w, "encode metadata", err)
+			return
+		}
 	}
 	if !h.checkCapacity(w, r, c.ID, p) {
 		return
@@ -97,6 +106,7 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	node := &store.Node{
 		CollectionID: c.ID, ParentID: parentID, Path: p, Name: lastSegment(p), Kind: store.KindFile,
 		BlobID: &refStr, Size: &size, ContentType: strPtrOrNil(contentType), Checksum: &sum, Metadata: metaJSON,
+		ContentTrusted: isAdmin(r),
 	}
 	status := http.StatusCreated
 	if existing != nil {
@@ -113,14 +123,25 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	node, _ = h.store.GetNodeByID(r.Context(), node.ID)
 
 	_ = h.audit.Record(r.Context(), &audit.Entry{Action: audit.ActionFilePut, Actor: actor(r), Target: c.Name + "/" + p})
-	writeJSON(w, status, h.toFileView(c.Name, node))
+	fv := h.toFileView(c.Name, node)
+	fv.Warnings = h.sandboxWarnings(r.Context(), c, node)
+	writeJSON(w, status, fv)
 }
 
-// getFile dispatches GET to either a metadata read (".../meta" suffix) or a
-// file download.
+// wantsMeta reports whether the request addresses an object's metadata: the
+// "meta" query parameter is present, with any value (artifactsd-m9e.23). It
+// replaces the old ".../meta" path suffix, which was ambiguous for a file whose
+// path really ends in "/meta".
+func wantsMeta(r *http.Request) bool { return r.URL.Query().Has("meta") }
+
+// errMetaQueryRequired is the 400 for routes that only address metadata.
+const errMetaQueryRequired = "add ?meta to address metadata"
+
+// getFile serves the file's metadata with ?meta, else downloads the file —
+// for any path, including one ending in "/meta".
 func (h *Handler) getFile(w http.ResponseWriter, r *http.Request) {
-	if mp, isMeta := strings.CutSuffix(r.PathValue("path"), "/meta"); isMeta {
-		h.serveFileMeta(w, r, mp)
+	if wantsMeta(r) {
+		h.serveFileMeta(w, r, r.PathValue("path"))
 		return
 	}
 	h.downloadFile(w, r)
@@ -136,6 +157,11 @@ func (h *Handler) downloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc, err := h.blob.Open(r.Context(), blob.Ref(*node.BlobID))
+	if errors.Is(err, fs.ErrNotExist) {
+		// A node pointing at a missing blob (artifactsd-m9e.10).
+		h.internalServerError(w, fmt.Sprintf("dangling blob reference (node %d, blob %s)", node.ID, *node.BlobID), err)
+		return
+	}
 	if err != nil {
 		h.internalServerError(w, "open blob", err)
 		return
@@ -177,24 +203,30 @@ func (h *Handler) serveFileMeta(w http.ResponseWriter, r *http.Request, filePath
 		return
 	}
 	own := redactMetadata(node.Metadata)
-	effective, chain, sources := h.metaView(r.Context(), c, node.Path)
+	effective, chain, sources, err := h.metaView(r.Context(), c, node.Path)
+	if err != nil {
+		h.internalServerError(w, "resolve metadata view", err)
+		return
+	}
+	isFile := node.Kind == store.KindFile
+	addSandboxState(effective, isFile, !isFile || node.ContentTrusted)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": node.Path, "own": own, "effective": effective, "chain": chain, "sources": sources,
 	})
 }
 
-// patchFile requires the ".../meta" suffix (only metadata is patchable).
+// patchFile merges file metadata; it requires ?meta (only metadata is
+// patchable).
 func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
-	mp, isMeta := strings.CutSuffix(r.PathValue("path"), "/meta")
-	if !isMeta {
-		writeError(w, http.StatusBadRequest, CodeBadRequest, "PATCH applies to .../meta only")
+	if !wantsMeta(r) {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, errMetaQueryRequired)
 		return
 	}
-	node, _, ok := h.resolveFile(w, r, mp)
+	node, c, ok := h.resolveFile(w, r, r.PathValue("path"))
 	if !ok {
 		return
 	}
-	merged, ok := h.mergeMetadata(w, r, node.Metadata)
+	merged, patch, ok := h.mergeMetadata(w, r, node.Metadata)
 	if !ok {
 		return
 	}
@@ -205,6 +237,10 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), node.ID); err != nil {
 		h.internalServerError(w, "recompute node", err)
+		return
+	}
+	if err := h.vouchIfUnsandboxed(r, patch, c.ID, node.Path); err != nil {
+		h.internalServerError(w, "trust content", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": node.Path, "own": redactMetadata(merged)})
@@ -282,8 +318,6 @@ func (h *Handler) resolveFile(w http.ResponseWriter, r *http.Request, rawPath st
 	return node, c, true
 }
 
-// uploadMetadata parses the optional Artifactsd-Metadata header, validating and
-// hashing its secrets.
 // uploadMetadata decodes the optional Artifactsd-Metadata header. supplied is
 // false when the header is absent: the caller then keeps an existing file's
 // metadata (artifactsd-m9e.3). An explicit "e30" ({}) is supplied and resets.
@@ -382,7 +416,7 @@ type chainEntry struct {
 // metaView resolves inheritance for a node path ("" = the collection itself)
 // into a serializable effective view plus its provenance: the layer chain and
 // a property → layer-label source map (`artifactctl meta explain`).
-func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath string) (effective map[string]any, chain []chainEntry, sources map[string]string) {
+func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath string) (effective map[string]any, chain []chainEntry, sources map[string]string, err error) {
 	defaults := meta.Defaults{
 		Visibility:       string(h.cfg.Policy.Visibility),
 		DirectoryListing: h.cfg.Policy.DirectoryListing,
@@ -422,8 +456,13 @@ func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath st
 				prefix += "/" + seg
 			}
 			n, err := h.store.GetNode(ctx, c.ID, prefix)
+			if errors.Is(err, store.ErrNotFound) {
+				continue // un-materialized ancestor
+			}
 			if err != nil {
-				continue
+				// Don't present an effective view that silently lacks a layer
+				// (artifactsd-m9e.14).
+				return nil, nil, nil, fmt.Errorf("lookup %q: %w", prefix, err)
 			}
 			label := "folder " + prefix
 			scope := "folder"
@@ -469,7 +508,7 @@ func (h *Handler) metaView(ctx context.Context, c *store.Collection, nodePath st
 		effective["expires_at"] = earliest.UTC().Format(time.RFC3339)
 		sources["expires_at"] = expirySource
 	}
-	return effective, chain, sources
+	return effective, chain, sources, nil
 }
 
 func docOrNil(raw json.RawMessage) *meta.Document {

@@ -341,7 +341,7 @@ footer pattern from [09 §1](09-admin-ui.md)).
      (400) and the link's remaining `max_files` quota (409, fail fast without
      reading further parts) are enforced here.
   2. *Commit*: `store.CommitUploadRequestFiles` runs ONE transaction that
-     re-reads the request row (not active → 410, over quota → 409), materializes
+     re-reads the request row (not active **or expired by commit time** → 410, over quota → 409), materializes
      parent folders, upserts every node, inserts the submission row and bumps
      `files_uploaded` (closing the link when `single_use`). Any failure rolls
      back everything: a rejected request never leaves a visible file. Blobs of

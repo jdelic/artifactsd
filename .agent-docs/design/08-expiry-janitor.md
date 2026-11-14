@@ -63,7 +63,8 @@ Within a transaction where practical:
 2. Collect candidate `blob_id`s.
 3. Delete DB rows (cascade handles descendants).
 4. For each candidate blob, GC if now unreferenced (`blob.Delete` with refcount
-   check).
+   check) **and older than the blob grace period** (§5); a younger blob is
+   left for a later Reconcile and counted as `blobs_deferred`, not an error.
 5. Insert `audit_logs` row(s): `action=expiry.delete`, actor=`janitor`, target,
    details (reason: `expires_at`/`delete_after_*`, size freed).
 
@@ -77,6 +78,20 @@ unlink failure is logged and retried next pass.
   blob refs with zero referencing nodes and unlink. To bound cost, maintain
   deletions' candidate set from §4 rather than full scans; a full reconcile runs
   at startup and on a long interval.
+- **Grace period** (artifactsd-m9e.10): uploads write the blob first and the
+  node that references it afterwards, and a dedupe hit re-uses a blob that may
+  itself be an unreferenced orphan. Both Reconcile and the post-expiry GC
+  therefore skip unreferenced blobs whose mtime is newer than
+  `max(ARTIFACTSD_UPLOAD_TTL, 1h)` (`blob.Ager`); `FSStore.Put` refreshes the
+  mtime on a dedupe hit (falling back to writing its own copy if the blob
+  vanished meanwhile). A node that nevertheless points at a missing blob is
+  logged as "dangling blob reference" with node id and ref (still 500).
+- **No check-then-act race** (artifactsd-7tl.5): the age check, the refcount
+  check and the unlink run under a per-content-hash lock in the blob store
+  (`FSStore.RemoveIfUnused`), and `FSStore.Put` publishes or re-uses (mtime
+  refresh) a blob under the same lock. A deduplicating upload therefore either
+  refreshes the blob before the janitor looks (kept as too young) or finds it
+  gone and stores a fresh copy — never a node pointing at an unlinked file.
 - **Temp files:** remove `data/tmp/*` older than the upload TTL.
 - **Upload sessions:** `status=pending AND expires_at <= now` → `expired`,
   temp blob removed.

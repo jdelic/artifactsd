@@ -11,10 +11,19 @@ Steps:
    re-validating it stays within the share's subtree.
 2. **Existence/expiry.** Load node; if absent or effective-expired → **404**.
 3. **Resolve effective metadata** ([03](03-metadata-policy.md)); for `/s`,
-   include the share layer (highest precedence).
+   include the share layer (highest precedence). **Fail closed**
+   (artifactsd-m9e.14): only a missing (un-materialized) ancestor is skipped;
+   any other lookup error, or a stored document (collection, ancestor, file or
+   share) that does not parse, answers **500** — dropping a layer could drop a
+   private/auth requirement. Directory listings and the sitemap omit entries
+   whose own metadata does not parse.
 4. **Policy decision** ([03 §5](03-metadata-policy.md)): 401 / 403 / 404 / serve.
 5. **Directory vs file.**
    - Trailing slash or folder target → directory request.
+     A folder target **without** the trailing slash is answered `301` to the
+     slash URL (query kept) once access is granted, so relative links in a
+     listing or an `index.html` resolve inside the folder; denied requests keep
+     their 404/401 (artifactsd-7tl.6).
      - If `directory_listing` true & permitted → render listing (HTML for
        browsers via `Accept`, or `?format=json`).
      - Else, try an index document (`index.html`) if present; otherwise 404.

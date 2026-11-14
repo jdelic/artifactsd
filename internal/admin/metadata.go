@@ -177,7 +177,15 @@ func (h *Handler) saveMetaDoc(ctx context.Context, c *store.Collection, p string
 	if err != nil {
 		return err
 	}
-	return h.saveOwnMetadata(ctx, c, p, out)
+	if err := h.saveOwnMetadata(ctx, c, p, out); err != nil {
+		return err
+	}
+	// Saving sandbox=false here is an admin confirming that the content
+	// currently at or below p may run unsandboxed (artifactsd-7tl.2).
+	if doc.Content != nil && doc.Content.Sandbox != nil && !*doc.Content.Sandbox {
+		return h.store.TrustContent(ctx, c.ID, p)
+	}
+	return nil
 }
 
 // loadOwnMetadata returns the raw metadata JSON owned by the collection

@@ -152,9 +152,12 @@ const OIDCCallbackPath = "/auth/oidc/callback"
 
 // OIDC holds OpenID Connect settings for admin login.
 type OIDC struct {
-	Issuer       string
-	ClientID     string
-	ClientSecret string
+	Issuer string
+	// AllowedIssuers are additional issuers object metadata may name in oidc
+	// auth entries (ARTIFACTSD_OIDC_ALLOWED_ISSUERS); see EffectiveOIDCIssuers.
+	AllowedIssuers []string
+	ClientID       string
+	ClientSecret   string
 	// RedirectURL is the full absolute URL the provider redirects back to after
 	// login. It is sent verbatim as the OAuth2 redirect_uri in both the
 	// authorization request and the token exchange, so it must (a) resolve to
@@ -209,12 +212,31 @@ type DefaultPolicy struct {
 	ExtraAllowedHeaders []string
 }
 
-// MetaPolicy builds the metadata policy (header allowlist extensions) handed
-// to validation and serving. The configuration is validated at startup, so an
-// error here only comes from a hand-built Config; callers fall back to the
-// built-in defaults (a nil *meta.Policy) in that case.
-func (c *Config) MetaPolicy() (*meta.Policy, error) {
-	return meta.NewPolicy(meta.PolicyOptions{ExtraAllowedHeaders: c.Policy.ExtraAllowedHeaders})
+// MetaPolicy builds the metadata policy handed to validation and serving:
+// header allowlist extensions and the allowed OIDC issuers. It is never nil.
+// The configuration is validated at startup; should a hand-built Config carry
+// invalid extra headers, they are dropped (the stricter outcome).
+func (c *Config) MetaPolicy() *meta.Policy {
+	issuers := c.EffectiveOIDCIssuers()
+	p, err := meta.NewPolicy(meta.PolicyOptions{
+		ExtraAllowedHeaders: c.Policy.ExtraAllowedHeaders,
+		AllowedOIDCIssuers:  issuers,
+	})
+	if err != nil {
+		p, _ = meta.NewPolicy(meta.PolicyOptions{AllowedOIDCIssuers: issuers})
+	}
+	return p
+}
+
+// EffectiveOIDCIssuers is the object-OIDC issuer allowlist: the explicit
+// ARTIFACTSD_OIDC_ALLOWED_ISSUERS plus the server's own ARTIFACTSD_OIDC_ISSUER
+// when set (artifactsd-m9e.21). Empty disables object OIDC.
+func (c *Config) EffectiveOIDCIssuers() []string {
+	out := append([]string(nil), c.OIDC.AllowedIssuers...)
+	if c.OIDC.Issuer != "" {
+		out = append(out, c.OIDC.Issuer)
+	}
+	return out
 }
 
 // Limits holds size/rate/janitor/upload knobs (design/12 §4).

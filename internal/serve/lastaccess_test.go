@@ -143,3 +143,22 @@ func TestLastAccessUpdater_KindsIndependent(t *testing.T) {
 		t.Fatalf("share recomputes = %v, want [7]", store.shareRecomputes)
 	}
 }
+
+// TestLastAccessUpdater_PrunesStaleEntries: entries that no longer throttle
+// anything are dropped, so the map does not grow with every object ever served
+// (artifactsd-m9e.17).
+func TestLastAccessUpdater_PrunesStaleEntries(t *testing.T) {
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	u := newLastAccessUpdater(&fakeLastAccessStore{}, time.Minute, "private", nil).withClock(func() time.Time { return clock })
+	for i := range 1000 {
+		u.touch(context.Background(), int64(i))
+	}
+	if n := len(u.seen); n != 1000 {
+		t.Fatalf("seen = %d after 1000 touches", n)
+	}
+	clock = clock.Add(11 * time.Minute)
+	u.touch(context.Background(), 5000)
+	if n := len(u.seen); n != 1 {
+		t.Errorf("seen = %d after the prune interval, want 1", n)
+	}
+}

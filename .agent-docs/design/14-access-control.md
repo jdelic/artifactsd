@@ -45,6 +45,47 @@ verify on username miss). **Unauthenticated/invalid → 401
 `WWW-Authenticate: Basic`** so browsers show the native login dialog.
 
 ### 2.3 OIDC
+
+**Browser login for objects** (artifactsd-m9e.22). Before this, a browser hitting
+an OIDC-protected object was sent to the *admin* login (whose `return_to` only
+allows admin paths) and the object's verifier only read `Authorization: Bearer`,
+so a person could never open it. Now:
+- **Viewer session.** Cookie `artifactsd_viewer` (HttpOnly, SameSite=Lax, Secure
+  as admin, Path=/, 8 h), signed with the admin key but a different MAC
+  *purpose* (`session.Manager.WithPurpose`), so viewer and admin cookies can
+  never be swapped. It carries `{sub, email, groups}` and never satisfies
+  `adminGate`; `/api/v1` ignores cookies.
+- **Flow purpose.** `/auth/oidc/login?purpose=view&return_to=/c/…|/s/…`
+  (strictly validated: same-site path, no `//`, backslash, control chars or
+  scheme/host → else 400). The flow cookie records the purpose; the callback of
+  a view flow sets only the viewer cookie and returns to the object. The redirect
+  URI of view flows is `<base_url>/auth/oidc/callback`.
+- **Host isolation.** With `ARTIFACTSD_ADMIN_HOST`, view flows run (login and
+  callback) only on the public host, admin flows only on the admin host.
+- **Policy.** Only oidc entries naming the server's issuer and client
+  (audience = client id, or skip-audience) are *eligible*: a viewer session is
+  evaluated against them (group rules only when the entry's `group_claim` is the
+  claim read at login, `ARTIFACTSD_ADMIN_GROUP_CLAIM`); browsers are redirected to
+  the viewer login only for eligible entries; a signed-in but non-admitted viewer
+  gets 403. Other issuers stay Bearer-only (401, no redirect).
+- **Caching.** Credentialed responses: `Cache-Control: private` unless the author
+  set one, `Vary: Cookie, Authorization`.
+- **Accepted risk.** An *unsandboxed* artifact (`content.sandbox: false`, which
+  only admins can set) shares the origin and can make requests that carry the
+  viewer cookie, i.e. read other OIDC-protected objects the viewer may see.
+
+**Issuer allowlist** (artifactsd-m9e.21): an oidc entry makes the server fetch
+`<issuer>/.well-known/openid-configuration` and the JWKS it points to, so an
+arbitrary issuer is blind SSRF. Only issuers in `ARTIFACTSD_OIDC_ALLOWED_ISSUERS`
+∪ {`ARTIFACTSD_OIDC_ISSUER`} may be named (exact match, one trailing slash
+ignored; empty ⇒ object OIDC disabled). Enforced at write time
+(`meta.Document.ValidateWith(policy)` → 400), at serve time (`compileVerifiers`
+skips the entry → normal challenge, fail closed; WARN once per issuer) and inside
+`OIDCProviderCache.provider` (never discovers a non-allowed issuer). The cache
+negatively caches failed discovery for 60 s, deduplicates concurrent
+discoveries, and its HTTP client has a 10 s timeout and refuses cross-host
+redirects.
+
 ```yaml
 - type: oidc
   issuer: https://accounts.example.com
@@ -113,6 +154,13 @@ completion), size limits. See [07](07-storage-uploads.md).
 ## 7. Admin authentication & authorization (decisions A1, D1)
 
 - **Admin UI is OIDC-gated** and additionally may use basic/htaccess.
+- **Authenticated but not an admin → 403** (artifactsd-m9e.16). The OIDC
+  callback only sets the session cookie for an identity `isAdmin` accepts;
+  anyone else gets a plain 403 ("Signed in as X, but this account is not
+  authorized for the admin UI.") and no cookie, because redirecting back to the
+  IdP would loop forever under SSO. A still-valid session whose identity is no
+  longer an admin (config changed) is likewise answered 403 and the cookie is
+  cleared. Logins are audited as `admin.login` / `admin.login_denied`.
 - **Authorization for admin is an any-of predicate** over two independent
   mechanisms — an identity is an admin if it satisfies **either**:
   - **Subject/email allowlist** (`ARTIFACTSD_ADMIN_SUBJECTS`, comma-separated):
@@ -220,12 +268,37 @@ artifact metadata. Tradeoff: a sandboxed page has a `null` origin, so it loses
 its own-origin storage/cookies and presents `Origin: null` to third-party APIs
 (only `*`-CORS APIs work) — trusted interactive content opts out with
 `content.sandbox: false`, regaining the real origin. **Only admin-scoped
-principals may set `content.sandbox: false`** (artifactsd-m9e.4): in the
+principals may set `content.sandbox`, in either direction** (artifactsd-m9e.4,
+artifactsd-7tl.2): in the
 single-domain topology an unsandboxed HTML artifact can drive the admin UI of
 any admin who opens it, so write scope must not be enough. The check lives in
 the API's metadata helpers (`requireSandboxPrivilege`), covering collection,
 folder, file, share and large-upload metadata; upload-request `file_metadata`
 and the admin UI are admin-only already.
+**Content trust** (artifactsd-7tl.2): the flag alone isn't enough — a writer could
+replace the *bytes* of an admin-unsandboxed file, or add files under an
+unsandboxed folder, collection or share. So each file records whether its current
+bytes are trusted (`nodes.content_trusted`, migration 0007), and serving applies
+the sandbox CSP to untrusted content regardless of `content.sandbox`.
+- **Trusted** when an admin-scoped principal wrote the bytes (API PUT, a large
+  upload begun by an admin, the admin UI), or when an admin sets
+  `sandbox: false` on the file or on a folder, collection or share covering it:
+  that marks the files *currently* at or below it trusted, so an admin can
+  unsandbox existing content without a re-upload (`Store.TrustContent`; the
+  admin UI's metadata save counts when it saves `sandbox: false`).
+- **Untrusted** when a non-admin token or an upload link writes or replaces the
+  bytes. It stays sandboxed until an admin sets `sandbox: false` again.
+- Users can't change `content.sandbox` at all (403), and a non-admin metadata
+  replacement keeps the stored admin value. Metadata-only PATCHes keep trust.
+- Files existing before the migration count as trusted.
+- **Visibility** (artifactsd-7tl.9, `internal/sandbox`): writes return a warning
+  when they land awaiting approval (API `warnings`, upload-link per-file
+  `warning` shown on the upload page, CLI stderr, MCP tool result); metadata
+  views report `sandbox_state` (+ `sandbox_note`); the tree API, `artifactctl
+  tree` and MCP `artifact_list_tree` mark items; the admin UI shows a
+  "sandbox off" badge on collections, folders and files and an "awaiting
+  approval" badge with a one-click **Approve unsandboxed** action
+  (`content.approve` audit entry).
 
 **Defense in depth on the admin side.** Every admin response sets
 `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,

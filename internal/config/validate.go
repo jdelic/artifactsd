@@ -3,11 +3,13 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/clientip"
 	"github.com/jdelic/artifactsd/internal/meta"
 )
@@ -129,12 +131,22 @@ func (c *Config) validateAdmin(add func(string, ...any)) {
 		if c.Admin.BasicPassword == "" && c.Admin.BasicPasswordHash == "" {
 			add("admin basic fallback requires ARTIFACTSD_ADMIN_BASIC_PASSWORD or ..._HASH")
 		}
+		if c.Admin.BasicPasswordHash != "" {
+			if err := auth.ValidateHash(c.Admin.BasicPasswordHash); err != nil {
+				add("ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH: %v (generate one with `artifactsd hash-password`)", err)
+			}
+		}
 	}
 }
 
 func (c *Config) validatePolicy(add func(string, ...any)) {
 	if err := meta.ValidateExtraHeaders(c.Policy.ExtraAllowedHeaders); err != nil {
 		add("%v", err)
+	}
+	for _, iss := range c.OIDC.AllowedIssuers {
+		if err := validIssuerURL(iss); err != nil {
+			add("oidc-allowed-issuers: %v", err)
+		}
 	}
 	switch c.Policy.Visibility {
 	case VisibilityPublic, VisibilityPrivate:
@@ -205,4 +217,28 @@ func checkWritableDir(dir string) error {
 	_ = f.Close()
 	_ = os.Remove(probe)
 	return nil
+}
+
+// validIssuerURL accepts an absolute https URL, or http only for a loopback
+// host (tests and local development).
+func validIssuerURL(s string) error {
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || !u.IsAbs() {
+		return fmt.Errorf("issuer %q must be an absolute URL", s)
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		host := u.Hostname()
+		if host == "localhost" {
+			return nil
+		}
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			return nil
+		}
+		return fmt.Errorf("issuer %q must use https (http is allowed only for loopback hosts)", s)
+	default:
+		return fmt.Errorf("issuer %q must be an https URL", s)
+	}
 }
