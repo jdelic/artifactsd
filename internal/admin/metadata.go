@@ -422,13 +422,13 @@ func buildExpiry(expiresAt, deleteAfterCreation, deleteAfterLastAccess string) *
 		return nil
 	}
 	return &meta.Expiry{
-		ExpiresAt:             ptrIfSet(expiresAt),
-		DeleteAfterCreation:   ptrIfSet(deleteAfterCreation),
-		DeleteAfterLastAccess: ptrIfSet(deleteAfterLastAccess),
+		ExpiresAt:             nilIfEmpty(expiresAt),
+		DeleteAfterCreation:   nilIfEmpty(deleteAfterCreation),
+		DeleteAfterLastAccess: nilIfEmpty(deleteAfterLastAccess),
 	}
 }
 
-func ptrIfSet(s string) *string {
+func nilIfEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}

@@ -178,7 +178,7 @@ type sitemapRefXML struct {
 func renderURLSet(urls []sitemapURL) []byte {
 	doc := urlsetXML{NS: sitemapNS, URLs: make([]urlXML, 0, len(urls))}
 	for _, u := range urls {
-		doc.URLs = append(doc.URLs, urlXML{Loc: u.loc, LastMod: lastmodStr(u.lastmod)})
+		doc.URLs = append(doc.URLs, urlXML{Loc: u.loc, LastMod: formatLastmod(u.lastmod)})
 	}
 	return marshalSitemap(doc)
 }
@@ -195,7 +195,7 @@ func renderSitemapIndex(urls []sitemapURL, self string, pages int) []byte {
 		}
 		doc.Sitemaps = append(doc.Sitemaps, sitemapRefXML{
 			Loc:     self + "?page=" + strconv.Itoa(p),
-			LastMod: lastmodStr(latestLastmod(urls[start:end])),
+			LastMod: formatLastmod(latestLastmod(urls[start:end])),
 		})
 	}
 	return marshalSitemap(doc)
@@ -211,7 +211,7 @@ func marshalSitemap(doc any) []byte {
 	return append([]byte(xml.Header), append(body, '\n')...)
 }
 
-func lastmodStr(t time.Time) string {
+func formatLastmod(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}

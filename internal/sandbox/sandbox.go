@@ -35,9 +35,9 @@ const AwaitingApprovalNote = "the sandbox is turned off here, but this content w
 	"since an admin approved it, so it is served sandboxed until an admin re-approves it " +
 	"(by setting content.sandbox=false again)"
 
-// For returns the state of an object whose effective content.sandbox is
+// StateOf returns the state of an object whose effective content.sandbox is
 // effSandbox. trusted applies to files only (folders and collections pass true).
-func For(effSandbox, isFile, trusted bool) State {
+func StateOf(effSandbox, isFile, trusted bool) State {
 	switch {
 	case effSandbox:
 		return Sandboxed
@@ -48,17 +48,17 @@ func For(effSandbox, isFile, trusted bool) State {
 	}
 }
 
-// ForNodes computes the state of every node of one collection in a single
+// NodeStates computes the state of every node of one collection in a single
 // pass: defaultSandbox is the server default, collMeta the collection's own
 // metadata, and nodes all of the collection's nodes (any order). Unparseable
 // metadata is treated as setting nothing.
-func ForNodes(defaultSandbox bool, collMeta []byte, nodes []*store.Node) map[string]State {
+func NodeStates(defaultSandbox bool, collMeta []byte, nodes []*store.Node) map[string]State {
 	own := make(map[string]*bool, len(nodes))
 	for _, n := range nodes {
-		own[n.Path] = setting(n.Metadata)
+		own[n.Path] = ownSandbox(n.Metadata)
 	}
 	base := defaultSandbox
-	if v := setting(collMeta); v != nil {
+	if v := ownSandbox(collMeta); v != nil {
 		base = *v
 	}
 	out := make(map[string]State, len(nodes))
@@ -76,7 +76,7 @@ func ForNodes(defaultSandbox bool, collMeta []byte, nodes []*store.Node) map[str
 			}
 		}
 		isFile := n.Kind == store.KindFile
-		out[n.Path] = For(eff, isFile, !isFile || n.ContentTrusted)
+		out[n.Path] = StateOf(eff, isFile, !isFile || n.ContentTrusted)
 	}
 	return out
 }
@@ -85,13 +85,13 @@ func ForNodes(defaultSandbox bool, collMeta []byte, nodes []*store.Node) map[str
 // the server default).
 func CollectionState(defaultSandbox bool, collMeta []byte) State {
 	eff := defaultSandbox
-	if v := setting(collMeta); v != nil {
+	if v := ownSandbox(collMeta); v != nil {
 		eff = *v
 	}
-	return For(eff, false, true)
+	return StateOf(eff, false, true)
 }
 
-func setting(raw []byte) *bool {
+func ownSandbox(raw []byte) *bool {
 	d, err := meta.FromJSON(raw)
 	if err != nil || d == nil || d.Content == nil {
 		return nil

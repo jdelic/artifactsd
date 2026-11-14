@@ -6,7 +6,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
-func TestForNodes(t *testing.T) {
+func TestNodeStates(t *testing.T) {
 	file := func(p, md string, trusted bool) *store.Node {
 		return &store.Node{Path: p, Kind: store.KindFile, Metadata: []byte(md), ContentTrusted: trusted}
 	}
@@ -24,7 +24,7 @@ func TestForNodes(t *testing.T) {
 		folder("spa-other", `{}`),
 		file("spa-other/y.html", `{}`, false),
 	}
-	got := ForNodes(true, []byte(`{}`), nodes)
+	got := NodeStates(true, []byte(`{}`), nodes)
 	want := map[string]State{
 		"spa": Unsandboxed, "spa/ok.html": Unsandboxed, "spa/new.html": AwaitingApproval,
 		"spa/locked": Sandboxed, "spa/locked/x.html": Sandboxed, "plain.html": Sandboxed,
@@ -36,7 +36,7 @@ func TestForNodes(t *testing.T) {
 		}
 	}
 	// A collection-level opt-out applies everywhere not overridden.
-	got = ForNodes(true, []byte(`{"content":{"sandbox":false}}`), nodes)
+	got = NodeStates(true, []byte(`{"content":{"sandbox":false}}`), nodes)
 	if got["plain.html"] != Unsandboxed || got["spa-other/y.html"] != AwaitingApproval || got["spa/locked/x.html"] != Sandboxed {
 		t.Errorf("collection opt-out: %v", got)
 	}

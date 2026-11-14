@@ -17,7 +17,7 @@ func (h *Handler) Routes() http.Handler {
 	// Cross-collection overviews reachable from the top nav (artifactsd-rmn/0ab).
 	mux.Handle("GET /files", http.HandlerFunc(h.allFiles))
 	mux.Handle("GET /shares", http.HandlerFunc(h.allShares))
-	mux.Handle("POST /shares/{share_id}/revoke", http.HandlerFunc(h.revokeShareGlobal))
+	mux.Handle("POST /shares/{share_id}/revoke", http.HandlerFunc(h.revokeShareFromList))
 
 	mux.Handle("GET /collections", http.HandlerFunc(h.collectionsList))
 	mux.Handle("POST /collections", http.HandlerFunc(h.createCollection))
@@ -41,8 +41,8 @@ func (h *Handler) Routes() http.Handler {
 
 	// Upload request links (design/15).
 	mux.Handle("GET /upload-requests", http.HandlerFunc(h.allUploadRequests))
-	mux.Handle("POST /upload-requests", http.HandlerFunc(h.createUploadRequestAdmin))
-	mux.Handle("POST /upload-requests/{request_id}/revoke", http.HandlerFunc(h.revokeUploadRequestAdmin))
+	mux.Handle("POST /upload-requests", http.HandlerFunc(h.createUploadRequest))
+	mux.Handle("POST /upload-requests/{request_id}/revoke", http.HandlerFunc(h.revokeUploadRequest))
 
 	mux.Handle("GET /tokens", http.HandlerFunc(h.tokensList))
 	mux.Handle("POST /tokens", http.HandlerFunc(h.createToken))

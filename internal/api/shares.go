@@ -91,7 +91,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if doc, err := meta.FromJSON(metaJSON); err == nil {
-		if err := h.vouchIfUnsandboxed(r, doc, c.ID, targetPath); err != nil {
+		if err := h.trustIfSandboxOff(r, doc, c.ID, targetPath); err != nil {
 			h.internalServerError(w, "trust content", err)
 			return
 		}
@@ -144,7 +144,7 @@ func (h *Handler) patchShare(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "update share", err)
 		return
 	}
-	if err := h.vouchIfUnsandboxed(r, patch, sh.CollectionID, sh.TargetPath); err != nil {
+	if err := h.trustIfSandboxOff(r, patch, sh.CollectionID, sh.TargetPath); err != nil {
 		h.internalServerError(w, "trust content", err)
 		return
 	}

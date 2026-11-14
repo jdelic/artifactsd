@@ -146,7 +146,7 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	node := &store.Node{
 		CollectionID: c.ID, Path: session.TargetPath, Name: lastSegment(session.TargetPath),
-		Kind: store.KindFile, BlobID: &refStr, Size: &size, ContentType: strPtrOrNil(contentType),
+		Kind: store.KindFile, BlobID: &refStr, Size: &size, ContentType: nilIfEmpty(contentType),
 		Checksum: &sum, Metadata: session.Metadata,
 	}
 	status := http.StatusCreated

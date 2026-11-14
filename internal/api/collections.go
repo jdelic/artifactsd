@@ -172,7 +172,7 @@ func (h *Handler) patchCollectionMeta(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "recompute collection", err)
 		return
 	}
-	if err := h.vouchIfUnsandboxed(r, patch, c.ID, ""); err != nil {
+	if err := h.trustIfSandboxOff(r, patch, c.ID, ""); err != nil {
 		h.internalServerError(w, "trust content", err)
 		return
 	}

@@ -98,7 +98,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "recompute folder", err)
 		return
 	}
-	if err := h.vouchIfUnsandboxed(r, patch, c.ID, p); err != nil {
+	if err := h.trustIfSandboxOff(r, patch, c.ID, p); err != nil {
 		h.internalServerError(w, "trust content", err)
 		return
 	}
@@ -166,7 +166,7 @@ func (h *Handler) tree(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "list nodes", err)
 		return
 	}
-	states := sandbox.ForNodes(h.cfg.Policy.Sandbox, c.Metadata, nodes)
+	states := sandbox.NodeStates(h.cfg.Policy.Sandbox, c.Metadata, nodes)
 	items := make([]treeNode, 0, len(nodes))
 	for _, n := range nodes {
 		if !underBase(n.Path, base) {
