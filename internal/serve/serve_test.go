@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -770,9 +771,59 @@ func TestServe_ListingLinksEscapeNames(t *testing.T) {
 	}
 	for _, m := range hrefs {
 		href := html.UnescapeString(m[1])
-		got := h.get("/c/demo/"+href, nil)
+		got := h.get(resolveHref(t, "/c/demo/", href), nil)
 		if got.Code != http.StatusOK || !strings.HasPrefix(got.Body.String(), "body of ") {
 			t.Errorf("following href %q = %d %q", href, got.Code, got.Body)
+		}
+	}
+}
+
+// resolveHref resolves a listing href against the listing's URL path the way a
+// browser does, returning the request URI to fetch.
+func resolveHref(t *testing.T, base, href string) string {
+	t.Helper()
+	b, err := url.Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := url.Parse(href)
+	if err != nil {
+		t.Fatalf("href %q: %v", href, err)
+	}
+	return b.ResolveReference(ref).RequestURI()
+}
+
+// Names containing a colon must not turn into "#ZgotmplZ" (html/template's
+// unsafe-scheme marker): listing links are prefixed with "./" so they can never
+// parse as a scheme (artifactsd-m9e.12).
+func TestServe_ListingLinksWithColons(t *testing.T) {
+	h := newHarness(t)
+	c := h.collection(t, "demo", `{"access":{"visibility":"public","directory_listing":true}}`)
+	h.file(t, c, "foo:bar.txt", "body of foo:bar", `{}`, "text/plain")
+	h.file(t, c, "a:b/inner.txt", "inner", `{}`, "text/plain")
+	h.file(t, c, "javascript:alert(1)", "body of js", `{}`, "text/plain")
+
+	rec := h.get("/c/demo/", nil)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || strings.Contains(body, "ZgotmplZ") {
+		t.Fatalf("listing = %d, body:\n%s", rec.Code, body)
+	}
+	for _, want := range []string{`href="./foo:bar.txt"`, `href="./a:b/"`, `href="./javascript:alert%281%29"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("listing lacks %s:\n%s", want, body)
+		}
+	}
+	for _, m := range regexp.MustCompile(`<a href="([^"]+)"`).FindAllStringSubmatch(body, -1) {
+		href := html.UnescapeString(m[1])
+		target := resolveHref(t, "/c/demo/", href)
+		if !strings.HasPrefix(target, "/c/demo/") {
+			t.Errorf("href %q escapes the collection: %s", href, target)
+		}
+		if strings.HasSuffix(target, "/") {
+			continue
+		}
+		if got := h.get(target, nil); got.Code != http.StatusOK {
+			t.Errorf("following %q (%s) = %d", href, target, got.Code)
 		}
 	}
 }

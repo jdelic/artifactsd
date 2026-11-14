@@ -39,7 +39,7 @@ var listingTemplate = template.Must(template.New("listing").Funcs(template.FuncM
 <h1>Index of /{{.Collection}}/{{.Path}}</h1>
 <ul>
 {{- range .Entries}}
-<li><a href="{{escapeURL .Name}}{{if eq .Type "folder"}}/{{end}}">{{.Name}}{{if eq .Type "folder"}}/{{end}}</a></li>
+<li><a href="./{{escapeURL .Name}}{{if eq .Type "folder"}}/{{end}}">{{.Name}}{{if eq .Type "folder"}}/{{end}}</a></li>
 {{- else}}
 <li><em>(empty)</em></li>
 {{- end}}
