@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func testOpts(component systemdComponent, user bool, runtime string) *systemdOpts {
+func testOpts(component systemdComponent, user bool, runtime string) *systemdOpts { //nolint:gocritic // test helper; copies are fine
 	return &systemdOpts{
 		component:   component,
 		user:        user,
@@ -96,7 +96,7 @@ func TestRenderSystemdUnit_MCPPodmanUser(t *testing.T) {
 	unit := renderSystemdUnit(testOpts(mcpComponent, true, "podman"))
 	mustContain(
 		t, unit,
-		"ExecStart=/usr/local/bin/podman run --rm --name artifactsd-mcp --env-file %E/artifactsd/artifactsd-mcp.env -p 8081:8081 "+defaultImage+" mcp",
+		"ExecStart=/usr/local/bin/podman run --rm --name artifactsd-mcp --env-file %E/artifactsd/artifactsd-mcp.env -p 127.0.0.1:8081:8081 "+defaultImage+" mcp --listen :8081",
 		"WantedBy=default.target",
 	)
 	// podman has no daemon, and the user manager can't depend on system units.
@@ -177,10 +177,13 @@ func TestSystemdCommand_InstallUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read env skeleton: %v", err)
 	}
-	mustContain(t, string(skel), "ARTIFACTSD_BASE_URL", "ARTIFACTSD_MCP_TOKEN")
+	mustContain(t, string(skel), "ARTIFACTSD_BASE_URL", "holds no API token")
+	if strings.Contains(string(skel), "ARTIFACTSD_MCP_TOKEN") {
+		t.Errorf("env skeleton still mentions ARTIFACTSD_MCP_TOKEN:\n%s", skel)
+	}
 
 	// A reinstall must not clobber an edited env file.
-	if err := os.WriteFile(envPath, []byte("ARTIFACTSD_MCP_TOKEN=real-secret\n"), 0o640); err != nil {
+	if err := os.WriteFile(envPath, []byte("ARTIFACTSD_BASE_URL=https://edited.example.com\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	out, _, err = execute(t, "", "systemd", "--mcp", "--user", "--runtime", "podman", "--install")
@@ -189,7 +192,7 @@ func TestSystemdCommand_InstallUser(t *testing.T) {
 	}
 	mustContain(t, out, "using existing env file:")
 	got, _ := os.ReadFile(envPath)
-	if string(got) != "ARTIFACTSD_MCP_TOKEN=real-secret\n" {
+	if string(got) != "ARTIFACTSD_BASE_URL=https://edited.example.com\n" {
 		t.Errorf("reinstall clobbered env file: %q", got)
 	}
 }

@@ -13,7 +13,11 @@ You reach it two ways — pick whichever your environment provides:
 
 - **`artifactctl`** CLI (over the HTTP API). Add `--output json` for parseable
   output: stdout is then a single JSON object.
-- **MCP tools** (`artifact_*`), if an artifactsd MCP server is configured.
+- **MCP tools** (`artifact_*`), if an artifactsd MCP server is configured. The
+  adapter has no credentials of its own: your MCP client must send your
+  artifactsd API token (`Authorization: Bearer $ARTIFACTSD_TOKEN`);
+  `artifactctl mcp config --client claude|codex|hermes --url <adapter-url>`
+  prints the client config.
 
 The model is `collection / folder / file`. A **collection** is the top-level
 namespace for one artifact tree. Files are served at

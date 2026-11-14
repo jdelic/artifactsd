@@ -6,14 +6,23 @@ API. **MCP is an adapter, not the canonical storage layer** (SPEC §3, §16).
 ## 1. Shape
 
 - A subcommand `artifactsd mcp` runs an MCP server over **Streamable HTTP** —
-  the single committed transport (decisions E4/N1). It is reachable over the
-  network so possibly-remote agents can use it (the whole point is
-  internet-accessible artifact publishing); we do **not** ship stdio and migrate
-  later. The MCP endpoint can run inside the main `artifactsd` process or as a
-  sidecar, both over HTTP.
+  the single committed transport (decisions E4/N1); we do **not** ship stdio.
+  It listens on loopback (`127.0.0.1:8081`) by default; reaching it from other
+  hosts requires a TLS-terminating proxy in front (it warns when listening
+  beyond loopback).
+- **Pass-through tokens** (artifactsd-m9e.18, owner decision 2026-11-13). The
+  adapter holds no credentials. Every MCP request must carry
+  `Authorization: Bearer <artifactsd API token>` (else `401`,
+  `WWW-Authenticate: Bearer realm="artifactsd-mcp"`, no `resource_metadata`, and
+  `/.well-known/oauth-*` answer 404 so clients don't switch to OAuth). The SDK's
+  per-session server factory builds an `apiclient.Client` with the token of the
+  initializing request, so tools act with exactly that token's scopes; the API
+  validates it. Each `Mcp-Session-Id` is bound to the hash of its token — a
+  request on that session with another token gets 401. The old `--token` /
+  `ARTIFACTSD_MCP_TOKEN` is a startup error. `artifactctl mcp config --client
+  claude|codex|hermes` prints client snippets reading `$ARTIFACTSD_TOKEN`.
 - Tools call the artifactsd HTTP API via `pkg/apiclient` — the same client the
-  CLI uses. The adapter holds a configured `base_url` + API token (from env/
-  config), so agents don't handle artifactsd auth directly.
+  CLI uses.
 - SDK: no operator preference (decision E3); use official
   `github.com/modelcontextprotocol/go-sdk` if stable at build time, else
   `mark3labs/mcp-go`.

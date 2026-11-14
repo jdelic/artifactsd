@@ -178,15 +178,17 @@ func TestMigrate_AppliesAndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestMCP_MissingTokenFails(t *testing.T) {
-	_, _, err := execute(t, "", "mcp", "--base-url", "https://x.example.com")
-	if err == nil || !strings.Contains(err.Error(), "token") {
-		t.Fatalf("expected a token validation error, got %v", err)
+// TestMCP_TokenFlagRejected: the adapter no longer holds a token; passing the
+// old flag is a startup error, not silently ignored (artifactsd-m9e.18).
+func TestMCP_TokenFlagRejected(t *testing.T) {
+	_, _, err := execute(t, "", "mcp", "--base-url", "https://x.example.com", "--token", "tok_abc")
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("expected the removed-token error, got %v", err)
 	}
 }
 
 func TestMCP_MissingBaseURLFails(t *testing.T) {
-	_, _, err := execute(t, "", "mcp", "--token", "tok_abc")
+	_, _, err := execute(t, "", "mcp", "--listen", "127.0.0.1:0")
 	if err == nil || !strings.Contains(err.Error(), "base-url") {
 		t.Fatalf("expected a base-url validation error, got %v", err)
 	}
@@ -196,7 +198,7 @@ func TestRunMCP_StartsAndShutsDown(t *testing.T) {
 	_, base := serveConfig(t) // just for a free loopback port
 	addr := strings.TrimPrefix(base, "http://")
 	m, err := config.LoadAndValidateMCP(
-		[]string{"--listen", addr, "--base-url", "https://x.example.com", "--token", "tok_abc"},
+		[]string{"--listen", addr, "--base-url", "https://x.example.com"},
 		func(string) string { return "" }, io.Discard,
 	)
 	if err != nil {

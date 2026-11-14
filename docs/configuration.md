@@ -299,10 +299,16 @@ TLS, or admin settings; it calls the management API as a client.
 
 | Setting | Flag | Env | Default |
 |---------|------|-----|---------|
-| MCP listen address | `--listen` | `ARTIFACTSD_MCP_LISTEN` | `:8081` |
+| MCP listen address | `--listen` | `ARTIFACTSD_MCP_LISTEN` | `127.0.0.1:8081` |
 | artifactsd API base URL | `--base-url` | `ARTIFACTSD_BASE_URL` | **(required)** |
-| Management API token | `--token` | `ARTIFACTSD_MCP_TOKEN` | **(required)** |
 | Log level | `--log-level` | `ARTIFACTSD_LOG_LEVEL` | `info` |
+
+The adapter holds **no API token**: each MCP client sends its own as
+`Authorization: Bearer <token>` (see [MCP → Running it](mcp.md#running-it)).
+The former `--token` / `ARTIFACTSD_MCP_TOKEN` setting was removed; the adapter
+refuses to start while it is set. Keep the default loopback listen address
+unless a TLS-terminating proxy sits in front: tokens travel to the adapter in
+clear text.
 
 `--base-url` means the same thing as for `serve` ("where is the artifactsd
 server"), but here it's the target the adapter calls. The separate default port

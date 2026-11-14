@@ -87,6 +87,7 @@ func newRootCmd(a *app) *cobra.Command {
 		a.newTokenCmd(),
 		a.newMaintenanceCmd(),
 		a.newSkillCmd(),
+		a.newMCPCmd(),
 		a.newVersionCmd(),
 	)
 	return root

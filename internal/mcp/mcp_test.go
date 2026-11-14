@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -46,19 +47,34 @@ type mcpHarness struct {
 func newMCPHarness(t *testing.T) *mcpHarness {
 	t.Helper()
 	ts := testserver.New(t)
-	client := apiclient.New(apiclient.Config{BaseURL: ts.BaseURL, Token: ts.AdminToken})
-	srv := New(Config{Client: client, BaseURL: ts.BaseURL})
-
-	httpSrv := httptest.NewServer(srv.Handler())
+	httpSrv := httptest.NewServer(New(Config{BaseURL: ts.BaseURL}).Handler())
 	t.Cleanup(httpSrv.Close)
+	return &mcpHarness{t: t, ts: ts, cs: connectMCP(t, httpSrv.URL, ts.AdminToken)}
+}
 
+// bearerTransport adds the client's own API token to every MCP request, the
+// way a configured MCP client does.
+type bearerTransport struct{ token string }
+
+func (b bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+b.token)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// connectMCP opens an MCP client session against endpoint with token.
+func connectMCP(t *testing.T, endpoint, token string) *gosdk.ClientSession {
+	t.Helper()
 	mc := gosdk.NewClient(&gosdk.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
-	cs, err := mc.Connect(context.Background(), &gosdk.StreamableClientTransport{Endpoint: httpSrv.URL}, nil)
+	cs, err := mc.Connect(context.Background(), &gosdk.StreamableClientTransport{
+		Endpoint:   endpoint,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: token}},
+	}, nil)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(func() { _ = cs.Close() })
-	return &mcpHarness{t: t, ts: ts, cs: cs}
+	return cs
 }
 
 // call invokes a tool and fails the test if the call errored at the protocol
@@ -319,17 +335,17 @@ func TestTools_NotFoundMapsToActionableError(t *testing.T) {
 	}
 }
 
-func TestNew_CarriesClientAndBaseURL(t *testing.T) {
+func TestNewServer_CarriesClientAndBaseURL(t *testing.T) {
 	c := apiclient.New(apiclient.Config{BaseURL: "https://x.example.com", Token: "tok_test"})
-	s := New(Config{Client: c, BaseURL: "https://x.example.com"})
+	s := newServer(c, "https://x.example.com")
 	if s.Client != c {
-		t.Error("New did not carry the configured apiclient.Client through to Server.Client")
+		t.Error("newServer did not carry the apiclient.Client through to Server.Client")
 	}
 	if s.BaseURL != "https://x.example.com" {
 		t.Errorf("BaseURL = %q", s.BaseURL)
 	}
 	if s.MCP == nil {
-		t.Error("New did not build an underlying MCP server")
+		t.Error("newServer did not build an underlying MCP server")
 	}
 }
 

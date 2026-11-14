@@ -7,26 +7,62 @@ everything it does is also reachable via the API and `artifactctl`.
 ## Running it
 
 ```console
-$ artifactsd mcp \
-    --listen :8081 \
-    --base-url https://artifacts.example.com \
-    --token tok_...
+$ artifactsd mcp --base-url https://artifacts.example.com
 ```
 
 The adapter is a thin HTTP-to-HTTP bridge: it serves MCP over **Streamable
-HTTP** and calls the artifactsd management API as a client, using the configured
-`--token`. Because it's network-reachable, possibly-remote agents can use it
-directly. It can run inside the main process or as a separate sidecar — its
-default port (`:8081`) differs from `serve` (`:8080`) so both can run on one
-host. See [Configuration → MCP adapter](configuration.md#mcp-adapter).
+HTTP** and calls the artifactsd management API as a client. **It stores no
+credentials.** Every MCP client must send its **own** artifactsd API token as
+`Authorization: Bearer <token>`; the adapter forwards that token, so each agent
+can do exactly what its token's scopes allow, and nothing more. A request
+without a token gets `401` (`WWW-Authenticate: Bearer realm="artifactsd-mcp"`);
+an invalid token surfaces as the API's `401` in the tool result. An MCP session
+is bound to the token that opened it.
 
-The token the adapter holds determines what agents can do through it: give it
-only the scopes you want exposed.
+1. Mint one token per agent with only the scopes it needs, e.g.
+   `artifactctl token create my-agent --scope collections:write`
+   (add `collections:delete` only if it must delete).
+2. Put it in the agent's environment as `ARTIFACTSD_TOKEN` — never paste the
+   value into a shared config file.
+3. Print the client config with
+   `artifactctl mcp config --client claude|codex|hermes --url <adapter-url>`:
+
+```console
+# Claude Code
+$ claude mcp add --transport http artifactsd http://127.0.0.1:8081/ \
+    --header "Authorization: Bearer $ARTIFACTSD_TOKEN"
+
+# Codex CLI (~/.codex/config.toml)
+[mcp_servers.artifactsd]
+url = "http://127.0.0.1:8081/"
+bearer_token_env_var = "ARTIFACTSD_TOKEN"
+
+# Hermes Agent (~/.hermes/config.yaml; ARTIFACTSD_TOKEN in ~/.hermes/.env)
+mcp_servers:
+  artifactsd:
+    url: http://127.0.0.1:8081/
+    headers:
+      Authorization: "Bearer ${ARTIFACTSD_TOKEN}"
+```
+
+The adapter serves no OAuth discovery documents (some clients ignore a
+configured `Authorization` header when a server advertises OAuth).
+
+It **listens on loopback (`127.0.0.1:8081`) by default**. Tokens travel to it in
+clear text, so to reach it from other machines put a TLS-terminating proxy in
+front and set `--listen` accordingly; the adapter logs a warning when it listens
+beyond loopback. Its default port differs from `serve` (`:8080`) so both can run
+on one host. See [Configuration → MCP adapter](configuration.md#mcp-adapter).
+
+> **Upgrading:** `--token` / `ARTIFACTSD_MCP_TOKEN` were removed. The adapter
+> refuses to start while either is set; unset it and configure your clients as
+> above.
 
 To run the adapter as a service, `artifactsd systemd --mcp [--user]
 [--runtime local|docker|podman] [--install]` generates (and optionally
 installs) a systemd unit for it — see
-[Installation → systemd service](installation.md#systemd-service).
+[Installation → systemd service](installation.md#systemd-service). Container
+units publish the port on host `127.0.0.1` only.
 
 ## Tools
 
