@@ -407,3 +407,26 @@ func TestUpsertNode_CollectionFileCap(t *testing.T) {
 		t.Errorf("CheckCollectionCapacity(new) = %v, want ErrCollectionFull", err)
 	}
 }
+
+// TestCommitUpload_RejectsExpiredSession: an upload session that expired while
+// its body was streaming cannot be committed (artifactsd-7tl.3).
+func TestCommitUpload_RejectsExpiredSession(t *testing.T) {
+	s, ctx := newStore(t)
+	c := mustCollection(t, s, ctx, "demo")
+	u := &UploadSession{UploadID: "upl_expiredcommit", CollectionID: c.ID, TargetPath: "late.txt", ExpiresAt: fixedNow.Add(-time.Second)}
+	if err := s.CreateUploadSession(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	ref := "sha256:abc"
+	n := &Node{CollectionID: c.ID, Path: "late.txt", Name: "late.txt", Kind: KindFile, BlobID: &ref, Metadata: []byte(`{}`)}
+	if err := s.CommitUpload(ctx, u.UploadID, n, fixedNow); !errors.Is(err, ErrUploadSessionExpired) {
+		t.Fatalf("commit of an expired session = %v, want ErrUploadSessionExpired", err)
+	}
+	if _, err := s.GetNode(ctx, c.ID, "late.txt"); !errors.Is(err, ErrNotFound) {
+		t.Error("expired session committed a file")
+	}
+	got, _ := s.GetUploadSession(ctx, u.UploadID)
+	if got.Status != UploadPending {
+		t.Errorf("session status = %q, want still pending (the janitor expires it)", got.Status)
+	}
+}

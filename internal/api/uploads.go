@@ -165,6 +165,11 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, CodeConflict, "upload session already consumed")
 			return
 		}
+		if errors.Is(err, store.ErrUploadSessionExpired) {
+			// Same answer as a session found expired up front.
+			writeError(w, http.StatusNotFound, CodeNotFound, "upload session does not exist")
+			return
+		}
 		h.storeWriteError(w, "commit upload", err)
 		return
 	}

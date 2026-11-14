@@ -214,17 +214,27 @@ func (s *Store) CommitUploadRequestFiles(
 	var filesUploaded int64
 	var maxFiles sql.NullInt64
 	var allowOverwrite bool
+	var expiresAt sql.NullString
 	if err := tx.QueryRowContext(
 		ctx,
-		`SELECT status, files_uploaded, max_files, allow_overwrite FROM upload_requests WHERE id = ?`,
+		`SELECT status, files_uploaded, max_files, allow_overwrite, expires_at FROM upload_requests WHERE id = ?`,
 		sub.UploadRequestID,
-	).Scan(&status, &filesUploaded, &maxFiles, &allowOverwrite); err != nil {
+	).Scan(&status, &filesUploaded, &maxFiles, &allowOverwrite, &expiresAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	}
 	if status != UploadRequestActive {
+		return ErrUploadRequestNotActive
+	}
+	// Expiry is re-checked here too: the link may have expired (or had its
+	// expiry moved) while the body was being received (artifactsd-7tl.3).
+	exp, err := parseTimePtr(expiresAt)
+	if err != nil {
+		return err
+	}
+	if exp != nil && !now.Before(*exp) {
 		return ErrUploadRequestNotActive
 	}
 

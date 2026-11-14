@@ -94,6 +94,25 @@ func (s *Store) CommitUpload(ctx context.Context, uploadID string, n *Node, at t
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// The session must still be pending AND unexpired at commit time: it may
+	// have expired while the body was streaming (artifactsd-7tl.3).
+	var expires string
+	err = tx.QueryRowContext(ctx,
+		`SELECT expires_at FROM upload_sessions WHERE upload_id = ? AND status = ?`,
+		uploadID, UploadPending).Scan(&expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	exp, err := parseTime(expires)
+	if err != nil {
+		return err
+	}
+	if !at.Before(exp) {
+		return ErrUploadSessionExpired
+	}
 	var metadataSupplied bool
 	err = tx.QueryRowContext(ctx,
 		`UPDATE upload_sessions SET status = ?, temp_blob_id = ?, completed_at = ?
@@ -174,3 +193,7 @@ func (s *Store) DeleteUploadSession(ctx context.Context, uploadID string) error 
 	}
 	return requireOne(res)
 }
+
+// ErrUploadSessionExpired is returned by CommitUpload when the session's
+// expiry has passed by commit time.
+var ErrUploadSessionExpired = errors.New("store: upload session expired")
