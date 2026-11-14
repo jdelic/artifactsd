@@ -48,7 +48,12 @@ func (a *app) newUploadRequestCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <collection>",
 		Short: "Create an upload request link for a collection",
-		Args:  exactArgs(1, "<collection>"),
+		Long: `Create an upload request link for a collection.
+
+Files uploaded through the link are PRIVATE unless you pass a visibility flag
+(--public, --unlisted, --protected). --allow-uploader-access requires --public
+or --unlisted.`,
+		Args: exactArgs(1, "<collection>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()
 			if err != nil {

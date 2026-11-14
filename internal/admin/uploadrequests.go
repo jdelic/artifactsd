@@ -14,6 +14,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 	"github.com/jdelic/artifactsd/internal/units"
+	"github.com/jdelic/artifactsd/internal/uploadrequest"
 )
 
 // uploadRequestRow is one row of the upload requests table.
@@ -158,6 +159,18 @@ func (h *Handler) createUploadRequestAdmin(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+
+	// Uploaded files default to private (artifactsd-m9e.24).
+	fileMeta, err := uploadrequest.PrepareFileMetadata(ur.FileMetadata, ur.AllowUploaderAccess)
+	if errors.Is(err, uploadrequest.ErrUploaderAccessNeedsVisibility) {
+		h.renderUploadRequestsPanel(w, r, "", "showing file URLs to uploaders requires public or unlisted visibility")
+		return
+	}
+	if err != nil {
+		http.Error(w, "preparing file metadata: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	ur.FileMetadata = fileMeta
 
 	if err := h.store.CreateUploadRequest(ctx, ur); err != nil {
 		h.renderUploadRequestsPanel(w, r, "", "creating upload request: "+err.Error())

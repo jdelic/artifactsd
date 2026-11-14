@@ -102,6 +102,17 @@ With `use_submission_folders = false` (default):
 {collection}/{target_folder}/{filename}
 ```
 
+**Visibility defaults to private** (artifactsd-m9e.24). An upload-link holder
+must not be able to publish arbitrary content on the operator's domain just by
+holding a link. When the link's `file_metadata` sets no `access.visibility`,
+`private` is written into it at creation (API and admin UI), so the stored link
+is self-describing; links created earlier are treated the same at upload time.
+`allow_uploader_access` returns a file URL only when the file's *effective*
+visibility (server defaults → collection → ancestor folders → file) is public or
+unlisted and neither the collection nor an ancestor folder is private. Creating
+a link with `allow_uploader_access` whose files would not be public or unlisted
+is rejected (400).
+
 If a node with the same name already exists, the upload is **refused with
 409** ("a file named X already exists") by default (artifactsd-m9e.1). A link
 holder is anonymous, unlike a `PUT` caller with a write-scoped token, so a link

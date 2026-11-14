@@ -149,6 +149,9 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "invalid file_metadata in upload request")
 		return
 	}
+	// Links created before visibility defaulted to private may store none;
+	// their files are private too (artifactsd-m9e.24).
+	applyDefaultVisibility(fileMeta)
 	metaJSON, err := fileMeta.JSON()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "encoding file_metadata")
@@ -258,13 +261,12 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	uploaded := make([]uploadedFile, 0, len(rc.files))
 	for _, f := range rc.files {
-		// Build a public URL if uploader access is enabled and visibility allows it.
+		// Return a URL only when uploader access is enabled and the file is
+		// actually reachable anonymously (effective visibility, ancestors).
 		var fileURL *string
-		if ur.AllowUploaderAccess {
-			if vis := effectiveVisibility(fileMeta); vis == meta.VisibilityPublic || vis == meta.VisibilityUnlisted {
-				u := strings.TrimRight(h.baseURL, "/") + "/c/" + c.Name + "/" + paths.EscapeURL(f.node.Path)
-				fileURL = &u
-			}
+		if ur.AllowUploaderAccess && h.publicURLAllowed(ctx, c, f.node.Path, fileMeta) {
+			u := strings.TrimRight(h.baseURL, "/") + "/c/" + c.Name + "/" + paths.EscapeURL(f.node.Path)
+			fileURL = &u
 		}
 		uploaded = append(uploaded, uploadedFile{
 			Filename: f.filename,
@@ -478,13 +480,6 @@ func acceptsJSON(r *http.Request) bool {
 		}
 	}
 	return false
-}
-
-func effectiveVisibility(doc *meta.Document) string {
-	if doc == nil || doc.Access == nil || doc.Access.Visibility == nil {
-		return meta.VisibilityPublic
-	}
-	return *doc.Access.Visibility
 }
 
 func strVal(s *string) string {

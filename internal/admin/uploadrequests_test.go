@@ -33,7 +33,7 @@ func TestCreateUploadRequestAdmin_AllFields(t *testing.T) {
 		"expires_in":             {"7d"},
 		"max_files":              {"50"},
 		"max_file_size":          {"10MB"},
-		"file_visibility":        {"private"},
+		"file_visibility":        {"unlisted"},
 		"single_use":             {"on"},
 		"use_submission_folders": {"on"},
 		"allow_uploader_access":  {"on"},
@@ -83,8 +83,36 @@ func TestCreateUploadRequestAdmin_AllFields(t *testing.T) {
 	if err := json.Unmarshal(ur.FileMetadata, &meta); err != nil {
 		t.Fatalf("file_metadata json: %v (%s)", err, ur.FileMetadata)
 	}
-	if meta.Access.Visibility != "private" {
-		t.Errorf("file_metadata = %s, want visibility private", ur.FileMetadata)
+	if meta.Access.Visibility != "unlisted" {
+		t.Errorf("file_metadata = %s, want visibility unlisted", ur.FileMetadata)
+	}
+}
+
+// TestCreateUploadRequestAdmin_DefaultsPrivate: without a visibility the link's
+// files are private, and uploader access then cannot be enabled.
+func TestCreateUploadRequestAdmin_DefaultsPrivate(t *testing.T) {
+	ha := newHarness(t)
+	col := &store.Collection{Name: "inbox", Metadata: []byte(`{}`)}
+	if err := ha.st.CreateCollection(context.Background(), col); err != nil {
+		t.Fatalf("create collection: %v", err)
+	}
+	id := &session.Identity{Subject: "u1", Email: "admin@example.com", Expiry: time.Now().Add(time.Hour)}
+	post := func(form url.Values) string {
+		r := withIdentity(httptest.NewRequest(http.MethodPost, "/upload-requests",
+			strings.NewReader(form.Encode())), id)
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		ha.h.ServeHTTP(rec, r)
+		return rec.Body.String()
+	}
+	post(url.Values{"collection": {"inbox"}})
+	urs, _ := ha.st.ListUploadRequests(context.Background(), &col.ID)
+	if len(urs) != 1 || !strings.Contains(string(urs[0].FileMetadata), `"visibility":"private"`) {
+		t.Fatalf("default link: %d links, metadata %s", len(urs), urs[0].FileMetadata)
+	}
+	body := post(url.Values{"collection": {"inbox"}, "file_visibility": {"private"}, "allow_uploader_access": {"on"}})
+	if !strings.Contains(body, "requires public or unlisted") {
+		t.Errorf("private + uploader access: want an error, body: %s", body)
 	}
 }
 

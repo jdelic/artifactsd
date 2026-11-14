@@ -10,6 +10,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/store"
+	"github.com/jdelic/artifactsd/internal/uploadrequest"
 )
 
 // uploadRequestView is the API representation of an upload request.
@@ -131,9 +132,19 @@ func (h *Handler) createUploadRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate and prepare file_metadata.
+	// Validate and prepare file_metadata; uploaded files default to private
+	// (artifactsd-m9e.24).
 	fileMetaJSON, ok := h.prepareMetadata(w, req.FileMetadata)
 	if !ok {
+		return
+	}
+	fileMetaJSON, err = uploadrequest.PrepareFileMetadata(fileMetaJSON, req.AllowUploaderAccess)
+	if errors.Is(err, uploadrequest.ErrUploaderAccessNeedsVisibility) {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		h.internalServerError(w, "prepare file metadata", err)
 		return
 	}
 

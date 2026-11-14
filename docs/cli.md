@@ -178,6 +178,8 @@ artifactctl upload-request submissions <request-id>
 ```
 
 The visibility/crawl flags set the metadata applied to every uploaded file.
+Without a visibility flag, uploaded files are **private**;
+`--allow-uploader-access` needs `--public` or `--unlisted`.
 Without `--use-submission-folders`, an upload whose name already exists is
 refused (409); `--allow-overwrite` lets the link replace only files it uploaded
 itself. `--max-file-size` takes human sizes (`10MB`, `500KiB`) — all units are

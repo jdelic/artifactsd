@@ -214,7 +214,11 @@ Create body (all fields except `collection` optional):
 ```
 
 The response includes the shareable `url` (`https://.../r/{request_id}`).
-`file_metadata` is applied to every uploaded file; `use_submission_folders`
+`file_metadata` is applied to every uploaded file. **Uploaded files are
+private** unless `file_metadata.access.visibility` says otherwise;
+`allow_uploader_access: true` requires `public` or `unlisted` (else `400`), and
+a URL is only returned when the file is actually reachable anonymously (no
+private collection or parent folder). `use_submission_folders`
 nests each submission under `{target_folder}/{submission_id}/`. Without
 submission folders, uploading a name that already exists is refused with `409`;
 `allow_overwrite: true` lets the link replace files **it uploaded itself** (never
