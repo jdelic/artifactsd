@@ -65,3 +65,83 @@ func pastGrace(j *Janitor) {
 	t := time.Now().Add(j.blobGrace() + time.Minute)
 	j.WithClock(func() time.Time { return t })
 }
+
+// TestReconcile_DedupeDuringCollection: an upload that re-uses an orphan blob
+// while the janitor is collecting it must end with the blob present and
+// referenced — the upload either refreshes the blob first or stores a fresh
+// copy after the unlink, never references a deleted file (artifactsd-7tl.5).
+func TestReconcile_DedupeDuringCollection(t *testing.T) {
+	j, st, bs, ctx := newTestJanitor(t)
+	c := mustCollection(t, st, ctx, "demo", nil)
+	ref, _, _, err := bs.Put(ctx, bytes.NewReader([]byte("shared bytes")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pastGrace(j) // the orphan is old enough to collect
+
+	done := make(chan struct{})
+	collectHook = func(r blob.Ref) {
+		if r != ref {
+			return
+		}
+		collectHook = nil
+		// The janitor has seen an old, unreferenced blob and is about to
+		// unlink it. A concurrent upload of the same bytes starts now.
+		go func() {
+			defer close(done)
+			mustFileNode(t, st, bs, ctx, c.ID, "reuse.txt", "shared bytes", nil)
+		}()
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	defer func() { collectHook = nil }()
+
+	if _, err := j.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	n, err := st.BlobRefCount(ctx, string(ref))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := bs.Exists(ctx, ref); n != 1 || !ok {
+		t.Errorf("after racing upload: refcount=%d exists=%v, want 1 and true", n, ok)
+	}
+}
+
+// TestRunOnce_DedupeDuringExpiryGC: the same race on the post-expiry GC path.
+func TestRunOnce_DedupeDuringExpiryGC(t *testing.T) {
+	j, st, bs, ctx := newTestJanitor(t)
+	c := mustCollection(t, st, ctx, "demo", nil)
+	old := mustFileNode(t, st, bs, ctx, c.ID, "old.txt", "shared bytes", past(t))
+	ref := blob.Ref(*old.BlobID)
+	pastGrace(j)
+
+	done := make(chan struct{})
+	collectHook = func(r blob.Ref) {
+		if r != ref {
+			return
+		}
+		collectHook = nil
+		go func() {
+			defer close(done)
+			mustFileNode(t, st, bs, ctx, c.ID, "new.txt", "shared bytes", nil)
+		}()
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	defer func() { collectHook = nil }()
+
+	if _, err := j.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	n, _ := st.BlobRefCount(ctx, string(ref))
+	if ok, _ := bs.Exists(ctx, ref); n != 1 || !ok {
+		t.Errorf("after racing upload: refcount=%d exists=%v, want 1 and true", n, ok)
+	}
+}
