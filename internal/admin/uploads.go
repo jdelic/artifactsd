@@ -77,8 +77,11 @@ func (h *Handler) beginUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC()
 	sess := &store.UploadSession{
+		// No metadata is supplied from the upload dialog: replacing a file
+		// keeps its metadata (artifactsd-m9e.3).
 		UploadID: uploadID, CollectionID: c.ID, TargetPath: p, Metadata: json.RawMessage(`{}`),
-		ContentType: strPtrOrNil(req.ContentType), Status: store.UploadPending,
+		MetadataSupplied: false,
+		ContentType:      strPtrOrNil(req.ContentType), Status: store.UploadPending,
 		ExpiresAt: now.Add(h.cfg.Limits.UploadTTL),
 	}
 	if err := h.store.CreateUploadSession(ctx, sess); err != nil {

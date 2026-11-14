@@ -57,7 +57,11 @@ Upload:
 - Body is the raw file bytes; `Content-Type` header sets `content.content_type`
   unless overridden by metadata.
 - Optional `Artifactsd-Metadata: <base64url(JSON)>` header carries a metadata
-  document alongside a binary body (SPEC §12.2).
+  document alongside a binary body (SPEC §12.2). **Keep unless sent**
+  (artifactsd-m9e.3): replacing a file without the header preserves its stored
+  metadata (and its content type when the request has none); a header replaces
+  it. `e30` (`{}`) explicitly resets. Large-upload sessions record
+  `metadata_supplied` (migration 0006) and apply the same rule at commit.
 - Enforces `limits.max_upload_size`; `413` if exceeded.
 - `path` is normalized & traversal-checked; parent folders are implied.
 - Response `201`/`200`:

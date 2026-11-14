@@ -71,8 +71,14 @@ DELETE /api/v1/collections/{c}/files/{path...}        delete           collectio
 **Upload (`PUT`)** — the body is the raw file bytes. The request `Content-Type`
 sets `content.content_type` unless metadata overrides it. To attach a full
 metadata document alongside a binary body, send it base64url-encoded in the
-`Artifactsd-Metadata` header. The path is normalized and traversal-checked;
-parent folders are implied. Oversized bodies get `413`. Response:
+`Artifactsd-Metadata` header. **Replacing an existing file without the header
+keeps its metadata** (visibility, auth, expiry, headers, …) and, when the
+request carries no usable `Content-Type`, its content type; sending the header
+replaces the stored metadata. `Artifactsd-Metadata: e30` (`{}`) is the explicit
+way to reset a file's metadata. The same rule applies to large uploads: a
+session begun without `metadata` keeps the replaced file's metadata. The path
+is normalized and traversal-checked; parent folders are implied. Oversized
+bodies get `413`. Response:
 
 ```json
 { "collection": "sales-demo-2026", "path": "report.pdf", "size": 18422,

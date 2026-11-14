@@ -51,7 +51,11 @@ data/tmp/<random>                    # in-progress writes
 6. Audit entry; return summary JSON.
 
 `Artifactsd-Metadata` header (base64url JSON) lets binary uploads carry a metadata
-document without a multipart body (SPEC §12.2).
+document without a multipart body (SPEC §12.2). Absent header on a replace →
+the existing metadata is kept; present → it replaces (artifactsd-m9e.3). Large
+uploads store `upload_sessions.metadata_supplied` and `CommitUpload` applies
+the same rule inside its transaction; the admin UI never supplies metadata, so
+its re-uploads always keep it.
 
 ## 3. Large uploads (SPEC §12.3)
 

@@ -64,6 +64,10 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// An omitted metadata document keeps the target file's metadata when the
+	// upload replaces a file (artifactsd-m9e.3).
+	supplied := len(req.Metadata) > 0 && string(req.Metadata) != "null"
+
 	doc, err := meta.FromJSON(metaJSON)
 	if err != nil {
 		h.internalServerError(w, "parse prepared metadata", err)
@@ -85,7 +89,8 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	session := &store.UploadSession{
 		UploadID: uploadID, CollectionID: c.ID, TargetPath: p, Metadata: metaJSON,
-		ContentType: docContentType(doc), Status: store.UploadPending,
+		MetadataSupplied: supplied,
+		ContentType:      docContentType(doc), Status: store.UploadPending,
 		ExpiresAt: now.Add(h.cfg.Limits.UploadTTL),
 	}
 	if err := h.store.CreateUploadSession(r.Context(), session); err != nil {

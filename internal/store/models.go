@@ -81,12 +81,16 @@ type UploadSession struct {
 	CollectionID int64
 	TargetPath   string
 	Metadata     json.RawMessage
-	ContentType  *string
-	Status       string
-	TempBlobID   *string
-	CreatedAt    time.Time
-	ExpiresAt    time.Time
-	CompletedAt  *time.Time
+	// MetadataSupplied is false when the session was begun without a metadata
+	// document: committing it over an existing file then keeps that file's
+	// metadata (and content type) instead of replacing it (artifactsd-m9e.3).
+	MetadataSupplied bool
+	ContentType      *string
+	Status           string
+	TempBlobID       *string
+	CreatedAt        time.Time
+	ExpiresAt        time.Time
+	CompletedAt      *time.Time
 }
 
 // APIToken is a management/admin credential; only the hash is stored.

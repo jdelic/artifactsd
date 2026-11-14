@@ -98,7 +98,9 @@ artifactctl rm [-r] <collection>/<path>
 ```
 
 - `put` infers content type from the file extension unless `--content-type` is
-  given.
+  given. Re-uploading a file **without** metadata flags keeps its existing
+  metadata; any metadata flag replaces the stored document with the one the
+  flags describe.
 - `--generate-bearer-token` creates a random token and prints it **once**;
   `--bearer-token <t>` takes an explicit value. With `--output json` the token
   is the `generated_bearer_token` field of the command's JSON object.
