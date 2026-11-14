@@ -55,7 +55,8 @@ func startAndServe(ctx context.Context, cfg *config.Config, stderr io.Writer) er
 		log.Info("migrations applied", "schema_version", version)
 	}
 
-	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation)
+	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation).
+		WithMaxFilesPerCollection(cfg.Limits.MaxFilesPerCollection)
 	// Deferred post-migration work (e.g. recomputing expires_at after a change
 	// to how it is derived) must finish before the janitor's first pass. Like
 	// Migrate above it runs to completion even if a shutdown signal arrives

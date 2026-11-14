@@ -278,3 +278,22 @@ func TestCollectionsList_ShowsExpiry(t *testing.T) {
 		t.Errorf("keep never expires and should show —:\n%s", keep)
 	}
 }
+
+func TestBeginUpload_CollectionFull(t *testing.T) {
+	ha := newFullHarness(t)
+	ha.st.WithMaxFilesPerCollection(1)
+	form := url.Values{"name": {"demo-run"}}
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	seedFile(t, ha, "demo-run", "one.txt", "1")
+
+	body, _ := json.Marshal(map[string]string{"path": "two.txt"})
+	rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/upload/begin", bytes.NewReader(body), "application/json")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "file limit (1)") {
+		t.Fatalf("begin upload in a full collection = %d (%s), want 409", rec.Code, rec.Body)
+	}
+	// Replacing the existing file is still allowed.
+	body, _ = json.Marshal(map[string]string{"path": "one.txt"})
+	if rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/upload/begin", bytes.NewReader(body), "application/json"); rec.Code != http.StatusCreated {
+		t.Errorf("begin upload replacing a file = %d (%s), want 201", rec.Code, rec.Body)
+	}
+}

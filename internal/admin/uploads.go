@@ -2,6 +2,8 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"path"
@@ -58,12 +60,21 @@ func (h *Handler) beginUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	ctx := r.Context()
+	if err := h.store.CheckCollectionCapacity(ctx, c.ID, p); errors.Is(err, store.ErrCollectionFull) {
+		writeJSONError(w, http.StatusConflict,
+			fmt.Sprintf("collection has reached its file limit (%d)", h.store.MaxFilesPerCollection()))
+		return
+	} else if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "checking collection capacity: "+err.Error())
+		return
+	}
+
 	uploadID, err := auth.GenerateUploadID()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "generating upload id: "+err.Error())
 		return
 	}
-	ctx := r.Context()
 	now := time.Now().UTC()
 	sess := &store.UploadSession{
 		UploadID: uploadID, CollectionID: c.ID, TargetPath: p, Metadata: json.RawMessage(`{}`),

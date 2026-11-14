@@ -220,6 +220,13 @@ set them through the metadata API/CLI.
 | Last-access update throttle | `ARTIFACTSD_ACCESS_UPDATE_THROTTLE` | `60s` |
 | Upload session TTL | `ARTIFACTSD_UPLOAD_TTL` | `1h` |
 
+`MAX_FILES_PER_COLLECTION` caps the number of **files** in one collection
+(folders do not count). Creating a new file beyond it is rejected with `409`
+on every write path (API `PUT`, large uploads, the admin UI and upload links);
+replacing an existing file is always allowed. On upload links the check is
+atomic with the write; for token-authenticated writers concurrent uploads may
+overshoot the cap by a few files.
+
 When more than `AUTH_FAIL_MAX` auth failures occur within `AUTH_FAIL_WINDOW`,
 further attempts are rate-limited (`429`). The janitor reaps expired objects and
 abandoned upload sessions every `JANITOR_INTERVAL`, `JANITOR_BATCH_SIZE` rows at

@@ -69,6 +69,9 @@ func (h *Handler) createUploadSession(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "parse prepared metadata", err)
 		return
 	}
+	if !h.checkCapacity(w, r, c.ID, p) {
+		return
+	}
 
 	uploadID, err := auth.GenerateUploadID()
 	if err != nil {

@@ -15,6 +15,10 @@ var ErrNotFound = errors.New("store: not found")
 // folder in place, and a node's parent must be a folder (artifactsd-2bw).
 var ErrKindConflict = errors.New("store: path kind conflict")
 
+// ErrCollectionFull is returned when creating a file would exceed the
+// per-collection file cap (WithMaxFilesPerCollection).
+var ErrCollectionFull = errors.New("store: collection has reached its file limit")
+
 // Clock returns the current time; injectable so tests can use a fixed clock.
 type Clock func() time.Time
 
@@ -23,6 +27,8 @@ type Clock func() time.Time
 type Store struct {
 	db  *DB
 	now Clock
+	// maxFilesPerCollection caps file nodes per collection (0 = unlimited).
+	maxFilesPerCollection int
 	// defaultDeleteAfterCreation is the server-wide default object expiry
 	// (ARTIFACTSD_DEFAULT_DELETE_AFTER_CREATION). When non-zero it is applied
 	// during denormalization to any collection/node whose own metadata sets no
@@ -40,6 +46,18 @@ func (s *Store) WithClock(c Clock) *Store {
 	s.now = c
 	return s
 }
+
+// WithMaxFilesPerCollection caps the number of file nodes per collection
+// (ARTIFACTSD_MAX_FILES_PER_COLLECTION). Creating a new file beyond it fails
+// with ErrCollectionFull; replacing a file and creating folders are unaffected.
+// Zero or negative disables the cap.
+func (s *Store) WithMaxFilesPerCollection(n int) *Store {
+	s.maxFilesPerCollection = n
+	return s
+}
+
+// MaxFilesPerCollection returns the configured cap (0 = unlimited).
+func (s *Store) MaxFilesPerCollection() int { return max(s.maxFilesPerCollection, 0) }
 
 // WithDefaultDeleteAfterCreation sets the server-wide default object expiry
 // applied during denormalization when an object sets no expiry of its own.

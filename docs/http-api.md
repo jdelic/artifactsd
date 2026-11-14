@@ -226,8 +226,11 @@ GET  /r/{request_id}/status    JSON status: active/closed/expired, counts
 ```
 
 Status codes: `200` upload accepted · `404` unknown link · `410` expired,
-closed, or revoked · `409` max-files quota reached · `413` over the per-link
-or server size limit.
+closed, or revoked · `409` max-files quota reached, collection file limit
+reached, or a path conflict · `400` duplicate file names in one request or more
+than 100 files · `413` over the per-link or server size limit. A rejected
+request stores none of its files: limits are checked for the whole request
+before any file becomes visible.
 
 ## Crawl API
 
@@ -268,6 +271,7 @@ not management endpoints.
 | Valid token, insufficient scope | `403` |
 | Unknown object, or private/expired on a public route | `404` |
 | Name or share conflict | `409` |
+| New file in a collection at `ARTIFACTSD_MAX_FILES_PER_COLLECTION` ("collection has reached its file limit (N)") | `409` |
 | Over `max_upload_size` | `413` |
 | Auth-failure rate limit tripped | `429` |
 

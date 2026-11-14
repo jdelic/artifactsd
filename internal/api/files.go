@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"path"
 	"strings"
@@ -49,6 +50,9 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 	metaJSON, err := doc.JSON()
 	if err != nil {
 		h.internalServerError(w, "encode metadata", err)
+		return
+	}
+	if !h.checkCapacity(w, r, c.ID, p) {
 		return
 	}
 
@@ -189,9 +193,36 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---------------------------------------------------------------
 
+// collectionFull answers 409 for a write that would exceed the per-collection
+// file cap.
+func (h *Handler) collectionFull(w http.ResponseWriter) {
+	writeError(w, http.StatusConflict, CodeConflict,
+		fmt.Sprintf("collection has reached its file limit (%d)", h.store.MaxFilesPerCollection()))
+}
+
+// checkCapacity rejects (409) a request that would create a new file in a full
+// collection, before its body is read. It is advisory: the node write checks
+// again.
+func (h *Handler) checkCapacity(w http.ResponseWriter, r *http.Request, collectionID int64, p string) bool {
+	err := h.store.CheckCollectionCapacity(r.Context(), collectionID, p)
+	if errors.Is(err, store.ErrCollectionFull) {
+		h.collectionFull(w)
+		return false
+	}
+	if err != nil {
+		h.internalServerError(w, "check collection capacity", err)
+		return false
+	}
+	return true
+}
+
 // storeWriteError maps a node-write error to a response: a file/folder tree
 // kind conflict (artifactsd-2bw) becomes a 409, anything else a 500.
 func (h *Handler) storeWriteError(w http.ResponseWriter, what string, err error) {
+	if errors.Is(err, store.ErrCollectionFull) {
+		h.collectionFull(w)
+		return
+	}
 	if errors.Is(err, store.ErrKindConflict) {
 		writeError(w, http.StatusConflict, CodeConflict,
 			"path conflicts with an existing file or folder of a different kind")

@@ -317,3 +317,38 @@ func TestAudit_AppendAndList(t *testing.T) {
 		t.Errorf("ListAudit = %+v", list)
 	}
 }
+
+func TestUpsertNode_CollectionFileCap(t *testing.T) {
+	s, ctx := newStore(t)
+	s = s.WithMaxFilesPerCollection(2)
+	c := mustCollection(t, s, ctx, "capped")
+	file := func(p string) *Node {
+		return &Node{CollectionID: c.ID, Path: p, Name: p, Kind: KindFile, Metadata: []byte(`{}`)}
+	}
+	if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, Path: "dir", Name: "dir", Kind: KindFolder}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"a", "b"} {
+		if err := s.UpsertNode(ctx, file(p)); err != nil {
+			t.Fatalf("upsert %s: %v", p, err)
+		}
+	}
+	if n, err := s.CountFiles(ctx, c.ID); err != nil || n != 2 {
+		t.Fatalf("CountFiles = %d, %v; want 2 (folders excluded)", n, err)
+	}
+	if err := s.UpsertNode(ctx, file("c")); !errors.Is(err, ErrCollectionFull) {
+		t.Errorf("third file: err = %v, want ErrCollectionFull", err)
+	}
+	if err := s.UpsertNode(ctx, file("a")); err != nil {
+		t.Errorf("replacing a file at the cap: %v", err)
+	}
+	if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, Path: "dir2", Name: "dir2", Kind: KindFolder}); err != nil {
+		t.Errorf("folder at the cap: %v", err)
+	}
+	if err := s.CheckCollectionCapacity(ctx, c.ID, "a"); err != nil {
+		t.Errorf("CheckCollectionCapacity(existing) = %v", err)
+	}
+	if err := s.CheckCollectionCapacity(ctx, c.ID, "new"); !errors.Is(err, ErrCollectionFull) {
+		t.Errorf("CheckCollectionCapacity(new) = %v, want ErrCollectionFull", err)
+	}
+}

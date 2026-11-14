@@ -78,7 +78,8 @@ func NewWithEnv(t *testing.T, env map[string]string) *Server {
 		_ = ln.Close()
 		t.Fatalf("testserver: migrate: %v", err)
 	}
-	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation)
+	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation).
+		WithMaxFilesPerCollection(cfg.Limits.MaxFilesPerCollection)
 
 	bs, err := blob.NewFSStore(cfg.Server.DataDir)
 	if err != nil {

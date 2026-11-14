@@ -77,8 +77,14 @@ func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
 
 // upsertNode is UpsertNode on q (the DB or a transaction).
 func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
-	if err := checkKindInvariants(ctx, q, n); err != nil {
+	exists, err := checkKindInvariants(ctx, q, n)
+	if err != nil {
 		return err
+	}
+	if !exists && n.Kind == KindFile {
+		if err := s.checkCapacity(ctx, q, n.CollectionID); err != nil {
+			return err
+		}
 	}
 
 	now := s.now()
@@ -87,7 +93,7 @@ func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
 	}
 	n.UpdatedAt = now
 
-	err := q.QueryRowContext(
+	err = q.QueryRowContext(
 		ctx,
 		`INSERT INTO nodes
 			(collection_id, parent_id, path, name, kind, blob_id, size, content_type,
@@ -116,35 +122,86 @@ func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
 }
 
 // checkKindInvariants verifies, before an upsert, that the parent is a folder
-// and that an existing node at the same path is not flipping kind (artifactsd-2bw).
-func checkKindInvariants(ctx context.Context, q querier, n *Node) error {
+// and that an existing node at the same path is not flipping kind
+// (artifactsd-2bw). It reports whether a node already exists at n's path.
+func checkKindInvariants(ctx context.Context, q querier, n *Node) (exists bool, err error) {
 	if n.ParentID != nil {
 		var parentKind string
 		err := q.QueryRowContext(ctx, `SELECT kind FROM nodes WHERE id = ?`, *n.ParentID).Scan(&parentKind)
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrKindConflict // parent vanished; treat as a structural conflict
+			return false, ErrKindConflict // parent vanished; treat as a structural conflict
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 		if parentKind != KindFolder {
-			return ErrKindConflict // a file cannot be a parent
+			return false, ErrKindConflict // a file cannot be a parent
 		}
 	}
 
 	var existingKind string
-	err := q.QueryRowContext(ctx,
+	err = q.QueryRowContext(ctx,
 		`SELECT kind FROM nodes WHERE collection_id = ? AND path = ?`, n.CollectionID, n.Path).Scan(&existingKind)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil // new path, no conflict
+		return false, nil // new path, no conflict
 	}
+	if err != nil {
+		return false, err
+	}
+	if existingKind != n.Kind {
+		return true, ErrKindConflict // file<->folder replacement is not allowed in place
+	}
+	return true, nil
+}
+
+// CountFiles returns the number of file nodes in a collection.
+func (s *Store) CountFiles(ctx context.Context, collectionID int64) (int, error) {
+	return countFiles(ctx, s.db.sql, collectionID)
+}
+
+func countFiles(ctx context.Context, q querier, collectionID int64) (int, error) {
+	var n int
+	err := q.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM nodes WHERE collection_id = ? AND kind = ?`, collectionID, KindFile).Scan(&n)
+	return n, err
+}
+
+// checkCapacity returns ErrCollectionFull when the collection already holds
+// the maximum number of files. Inside a transaction (the upload-link commit)
+// the check and the insert are atomic. On the token-authenticated paths, which
+// call UpsertNode outside a transaction, two concurrent creators can overshoot
+// the cap by a few files; that is acceptable for credentialed writers.
+func (s *Store) checkCapacity(ctx context.Context, q querier, collectionID int64) error {
+	limit := s.MaxFilesPerCollection()
+	if limit == 0 {
+		return nil
+	}
+	n, err := countFiles(ctx, q, collectionID)
 	if err != nil {
 		return err
 	}
-	if existingKind != n.Kind {
-		return ErrKindConflict // file<->folder replacement is not allowed in place
+	if n >= limit {
+		return ErrCollectionFull
 	}
 	return nil
+}
+
+// CheckCollectionCapacity is an early, advisory check for request handlers:
+// it returns ErrCollectionFull when creating a NEW file at path would exceed
+// the cap. Replacing an existing file is always allowed. The authoritative
+// check happens again when the node is written.
+func (s *Store) CheckCollectionCapacity(ctx context.Context, collectionID int64, path string) error {
+	if s.MaxFilesPerCollection() == 0 {
+		return nil
+	}
+	existing, err := s.GetNode(ctx, collectionID, path)
+	if err == nil && existing.Kind == KindFile {
+		return nil
+	}
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	return s.checkCapacity(ctx, s.db.sql, collectionID)
 }
 
 // GetNode returns a node by (collection, path).

@@ -222,6 +222,8 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusGone, "upload link is no longer active")
 		case errors.Is(err, store.ErrUploadRequestQuotaExceeded):
 			writeJSONError(w, http.StatusConflict, "upload link has reached its file limit")
+		case errors.Is(err, store.ErrCollectionFull):
+			writeJSONError(w, http.StatusConflict, "the collection has reached its file limit")
 		case errors.Is(err, store.ErrKindConflict):
 			writeJSONError(w, http.StatusConflict, "a file or folder in the target path conflicts with the upload")
 		default:
