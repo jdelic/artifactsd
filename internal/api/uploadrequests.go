@@ -10,6 +10,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/store"
+	"github.com/jdelic/artifactsd/internal/uploadrequest"
 )
 
 // uploadRequestView is the API representation of an upload request.
@@ -24,6 +25,7 @@ type uploadRequestView struct {
 	AllowUploaderAccess  bool            `json:"allow_uploader_access"`
 	SingleUse            bool            `json:"single_use"`
 	UseSubmissionFolders bool            `json:"use_submission_folders"`
+	AllowOverwrite       bool            `json:"allow_overwrite"`
 	MaxFiles             *int64          `json:"max_files,omitempty"`
 	MaxFileSize          *int64          `json:"max_file_size,omitempty"`
 	FilesUploaded        int64           `json:"files_uploaded"`
@@ -59,6 +61,7 @@ func (h *Handler) toUploadRequestView(collection string, ur *store.UploadRequest
 		AllowUploaderAccess:  ur.AllowUploaderAccess,
 		SingleUse:            ur.SingleUse,
 		UseSubmissionFolders: ur.UseSubmissionFolders,
+		AllowOverwrite:       ur.AllowOverwrite,
 		MaxFiles:             ur.MaxFiles,
 		MaxFileSize:          ur.MaxFileSize,
 		FilesUploaded:        ur.FilesUploaded,
@@ -86,9 +89,12 @@ type createUploadRequestBody struct {
 	AllowUploaderAccess  bool            `json:"allow_uploader_access"`
 	SingleUse            bool            `json:"single_use"`
 	UseSubmissionFolders bool            `json:"use_submission_folders"`
-	MaxFiles             *int64          `json:"max_files,omitempty"`
-	MaxFileSize          *int64          `json:"max_file_size,omitempty"`
-	ExpiresAt            *string         `json:"expires_at,omitempty"`
+	// AllowOverwrite lets the link replace files it uploaded itself; it can
+	// never replace files from any other writer (artifactsd-m9e.1).
+	AllowOverwrite bool    `json:"allow_overwrite"`
+	MaxFiles       *int64  `json:"max_files,omitempty"`
+	MaxFileSize    *int64  `json:"max_file_size,omitempty"`
+	ExpiresAt      *string `json:"expires_at,omitempty"`
 }
 
 // patchUploadRequestBody holds mutable fields for PATCH.
@@ -126,9 +132,19 @@ func (h *Handler) createUploadRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate and prepare file_metadata.
-	fileMetaJSON, ok := h.prepareMetadata(w, req.FileMetadata)
+	// Validate and prepare file_metadata; uploaded files default to private
+	// (artifactsd-m9e.24).
+	fileMetaJSON, ok := h.prepareMetadata(w, r, req.FileMetadata)
 	if !ok {
+		return
+	}
+	fileMetaJSON, err = uploadrequest.PrepareFileMetadata(fileMetaJSON, req.AllowUploaderAccess)
+	if errors.Is(err, uploadrequest.ErrUploaderAccessNeedsVisibility) {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		h.internalServerError(w, "prepare file metadata", err)
 		return
 	}
 
@@ -168,6 +184,7 @@ func (h *Handler) createUploadRequest(w http.ResponseWriter, r *http.Request) {
 		AllowUploaderAccess:  req.AllowUploaderAccess,
 		SingleUse:            req.SingleUse,
 		UseSubmissionFolders: req.UseSubmissionFolders,
+		AllowOverwrite:       req.AllowOverwrite,
 		MaxFiles:             req.MaxFiles,
 		MaxFileSize:          req.MaxFileSize,
 		ExpiresAt:            expiresAt,

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"path"
 	"strings"
@@ -41,14 +42,37 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc, ok := h.uploadMetadata(w, r)
+	doc, supplied, ok := h.uploadMetadata(w, r)
 	if !ok {
 		return
 	}
+	existing, err := h.store.GetNode(r.Context(), c.ID, p)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		h.internalServerError(w, "lookup node", err)
+		return
+	}
+	// Without a metadata header a re-upload keeps the file's metadata; with
+	// one, the header replaces it (artifactsd-m9e.3). Token-authenticated
+	// writers accept the small window between this read and the upsert.
+	var keep *store.Node
+	if !supplied && existing != nil && existing.Kind == store.KindFile {
+		keep = existing
+	}
+	var metaJSON json.RawMessage
 	contentType := resolveContentType(docContentType(doc), r)
-	metaJSON, err := doc.JSON()
-	if err != nil {
+	if keep != nil {
+		metaJSON = keep.Metadata
+		if kept, err := meta.FromJSON(keep.Metadata); err == nil {
+			contentType = resolveContentType(docContentType(kept), r)
+		}
+		if contentType == "" && keep.ContentType != nil {
+			contentType = *keep.ContentType
+		}
+	} else if metaJSON, err = doc.JSON(); err != nil {
 		h.internalServerError(w, "encode metadata", err)
+		return
+	}
+	if !h.checkCapacity(w, r, c.ID, p) {
 		return
 	}
 
@@ -69,7 +93,6 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, _ := h.store.GetNode(r.Context(), c.ID, p)
 	refStr := string(ref)
 	node := &store.Node{
 		CollectionID: c.ID, ParentID: parentID, Path: p, Name: lastSegment(p), Kind: store.KindFile,
@@ -189,9 +212,36 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---------------------------------------------------------------
 
+// collectionFull answers 409 for a write that would exceed the per-collection
+// file cap.
+func (h *Handler) collectionFull(w http.ResponseWriter) {
+	writeError(w, http.StatusConflict, CodeConflict,
+		fmt.Sprintf("collection has reached its file limit (%d)", h.store.MaxFilesPerCollection()))
+}
+
+// checkCapacity rejects (409) a request that would create a new file in a full
+// collection, before its body is read. It is advisory: the node write checks
+// again.
+func (h *Handler) checkCapacity(w http.ResponseWriter, r *http.Request, collectionID int64, p string) bool {
+	err := h.store.CheckCollectionCapacity(r.Context(), collectionID, p)
+	if errors.Is(err, store.ErrCollectionFull) {
+		h.collectionFull(w)
+		return false
+	}
+	if err != nil {
+		h.internalServerError(w, "check collection capacity", err)
+		return false
+	}
+	return true
+}
+
 // storeWriteError maps a node-write error to a response: a file/folder tree
 // kind conflict (artifactsd-2bw) becomes a 409, anything else a 500.
 func (h *Handler) storeWriteError(w http.ResponseWriter, what string, err error) {
+	if errors.Is(err, store.ErrCollectionFull) {
+		h.collectionFull(w)
+		return
+	}
 	if errors.Is(err, store.ErrKindConflict) {
 		writeError(w, http.StatusConflict, CodeConflict,
 			"path conflicts with an existing file or folder of a different kind")
@@ -234,30 +284,36 @@ func (h *Handler) resolveFile(w http.ResponseWriter, r *http.Request, rawPath st
 
 // uploadMetadata parses the optional Artifactsd-Metadata header, validating and
 // hashing its secrets.
-func (h *Handler) uploadMetadata(w http.ResponseWriter, r *http.Request) (*meta.Document, bool) {
+// uploadMetadata decodes the optional Artifactsd-Metadata header. supplied is
+// false when the header is absent: the caller then keeps an existing file's
+// metadata (artifactsd-m9e.3). An explicit "e30" ({}) is supplied and resets.
+func (h *Handler) uploadMetadata(w http.ResponseWriter, r *http.Request) (doc *meta.Document, supplied, ok bool) {
 	raw := r.Header.Get(metadataHeader)
 	if raw == "" {
-		return &meta.Document{}, true
+		return &meta.Document{}, false, true
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(raw, "="))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, "invalid "+metadataHeader+" encoding")
-		return nil, false
+		return nil, false, false
 	}
-	doc, err := meta.FromJSON(decoded)
+	doc, err = meta.FromJSON(decoded)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
-		return nil, false
+		return nil, false, false
 	}
-	if err := doc.Validate(); err != nil {
+	if err := doc.ValidateWith(h.metaPolicy); err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
-		return nil, false
+		return nil, false, false
+	}
+	if !requireSandboxPrivilege(w, r, doc) {
+		return nil, false, false
 	}
 	if err := doc.HashSecrets(); err != nil {
 		h.internalServerError(w, "hash secrets", err)
-		return nil, false
+		return nil, false, false
 	}
-	return doc, true
+	return doc, true, true
 }
 
 func (h *Handler) toFileView(collection string, n *store.Node) fileView {

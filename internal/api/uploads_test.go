@@ -168,3 +168,55 @@ func TestUploads_RequiresWriteScope(t *testing.T) {
 		t.Errorf("no-token begin = %d, want 401", rec.Code)
 	}
 }
+
+// TestUploads_FailedCommitKeepsSessionPending: when the node write fails (here
+// a kind conflict that appeared after the session was created), the session is
+// not consumed, so the client can retry once the conflict is gone.
+func TestUploads_FailedCommitKeepsSessionPending(t *testing.T) {
+	h := newHarness(t)
+	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
+	rec := h.do(t, h.token, http.MethodPost, "/api/v1/collections/demo/uploads", []byte(`{"path":"a/b.txt"}`), nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("begin = %d (%s)", rec.Code, rec.Body)
+	}
+	var sess uploadSessionView
+	_ = json.Unmarshal(rec.Body.Bytes(), &sess)
+
+	// A FILE now occupies "a", so "a/b.txt" cannot be created.
+	if c := h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/a", []byte("x"), nil).Code; c != http.StatusCreated {
+		t.Fatalf("put a = %d", c)
+	}
+	if rec := h.do(t, "", http.MethodPut, "/api/v1/uploads/"+sess.UploadID, []byte("payload"), nil); rec.Code != http.StatusConflict {
+		t.Fatalf("PUT with conflicting ancestor = %d (%s), want 409", rec.Code, rec.Body)
+	}
+	rec = h.do(t, "", http.MethodGet, "/api/v1/uploads/"+sess.UploadID, nil, nil)
+	var status uploadStatusView
+	_ = json.Unmarshal(rec.Body.Bytes(), &status)
+	if status.Status != "pending" {
+		t.Fatalf("status after failed commit = %q, want pending", status.Status)
+	}
+
+	// Remove the obstacle; the retry succeeds.
+	if c := h.do(t, h.token, http.MethodDelete, "/api/v1/collections/demo/files/a", nil, nil).Code; c != http.StatusNoContent {
+		t.Fatalf("delete a = %d", c)
+	}
+	if rec := h.do(t, "", http.MethodPut, "/api/v1/uploads/"+sess.UploadID, []byte("payload"), nil); rec.Code != http.StatusCreated {
+		t.Fatalf("retry = %d (%s), want 201", rec.Code, rec.Body)
+	}
+}
+
+// TestUploads_BeginRejectsKindConflict: a session whose path is already
+// blocked by a file ancestor (or that names an existing folder) is refused
+// up front.
+func TestUploads_BeginRejectsKindConflict(t *testing.T) {
+	h := newHarness(t)
+	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
+	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/a", []byte("x"), nil)
+	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/dir/f.txt", []byte("x"), nil)
+	for _, p := range []string{"a/b.txt", "dir"} {
+		rec := h.do(t, h.token, http.MethodPost, "/api/v1/collections/demo/uploads", []byte(`{"path":"`+p+`"}`), nil)
+		if rec.Code != http.StatusConflict {
+			t.Errorf("begin %s = %d (%s), want 409", p, rec.Code, rec.Body)
+		}
+	}
+}

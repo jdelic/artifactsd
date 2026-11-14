@@ -12,6 +12,7 @@ import (
 	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/blob"
 	"github.com/jdelic/artifactsd/internal/config"
+	"github.com/jdelic/artifactsd/internal/meta"
 	"github.com/jdelic/artifactsd/internal/session"
 	"github.com/jdelic/artifactsd/internal/store"
 )
@@ -44,18 +45,22 @@ type Handler struct {
 	session *session.Manager
 	log     *slog.Logger
 	tmpl    *template.Template
+	// metaPolicy carries operator metadata rules into validation.
+	metaPolicy *meta.Policy
 }
 
 // New builds the admin UI handler, parsing the embedded templates once.
 func New(d Deps) *Handler { //nolint:gocritic // Deps is built once at construction
+	mp, _ := d.Config.MetaPolicy() // validated at startup; nil = defaults
 	return &Handler{
-		store:   d.Store,
-		blob:    d.Blob,
-		cfg:     d.Config,
-		audit:   d.Audit,
-		cleaner: d.Cleaner,
-		session: d.Session,
-		log:     d.Logger,
-		tmpl:    parseTemplates(),
+		metaPolicy: mp,
+		store:      d.Store,
+		blob:       d.Blob,
+		cfg:        d.Config,
+		audit:      d.Audit,
+		cleaner:    d.Cleaner,
+		session:    d.Session,
+		log:        d.Logger,
+		tmpl:       parseTemplates(),
 	}
 }

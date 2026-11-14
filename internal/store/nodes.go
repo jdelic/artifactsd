@@ -12,7 +12,7 @@ import (
 
 const nodeCols = `id, collection_id, parent_id, path, name, kind, blob_id, size,
 	content_type, checksum, metadata, created_at, updated_at, last_access_at,
-	visibility, expires_at`
+	visibility, expires_at, upload_request_id`
 
 func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	var (
@@ -28,11 +28,12 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 		lastAccess  sql.NullString
 		visibility  sql.NullString
 		expires     sql.NullString
+		uploadReq   sql.NullInt64
 	)
 	if err := row.Scan(
 		&n.ID, &n.CollectionID, &parentID, &n.Path, &n.Name, &n.Kind,
 		&blobID, &size, &contentType, &checksum, &meta,
-		&created, &updated, &lastAccess, &visibility, &expires,
+		&created, &updated, &lastAccess, &visibility, &expires, &uploadReq,
 	); err != nil {
 		return nil, err
 	}
@@ -44,6 +45,7 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	n.Checksum = strPtr(checksum)
 	n.Metadata = []byte(meta)
 	n.Visibility = strPtr(visibility)
+	n.UploadRequestID = int64Ptr(uploadReq)
 
 	var err error
 	if n.CreatedAt, err = parseTime(created); err != nil {
@@ -72,8 +74,19 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 // folder in place — replacing one with the other requires an explicit
 // delete/recreate. Violations return ErrKindConflict without mutating any row.
 func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
-	if err := s.checkKindInvariants(ctx, n); err != nil {
+	return s.upsertNode(ctx, s.db.sql, n)
+}
+
+// upsertNode is UpsertNode on q (the DB or a transaction).
+func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
+	exists, err := checkKindInvariants(ctx, q, n)
+	if err != nil {
 		return err
+	}
+	if !exists && n.Kind == KindFile {
+		if err := s.checkCapacity(ctx, q, n.CollectionID); err != nil {
+			return err
+		}
 	}
 
 	now := s.now()
@@ -82,12 +95,13 @@ func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
 	}
 	n.UpdatedAt = now
 
-	err := s.db.sql.QueryRowContext(
+	err = q.QueryRowContext(
 		ctx,
 		`INSERT INTO nodes
 			(collection_id, parent_id, path, name, kind, blob_id, size, content_type,
-			 checksum, metadata, created_at, updated_at, last_access_at, visibility, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 checksum, metadata, created_at, updated_at, last_access_at, visibility, expires_at,
+			 upload_request_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(collection_id, path) DO UPDATE SET
 			parent_id    = excluded.parent_id,
 			name         = excluded.name,
@@ -101,50 +115,134 @@ func (s *Store) UpsertNode(ctx context.Context, n *Node) error {
 			metadata     = excluded.metadata,
 			updated_at   = excluded.updated_at,
 			visibility   = excluded.visibility,
-			expires_at   = excluded.expires_at
+			expires_at   = excluded.expires_at,
+			upload_request_id = excluded.upload_request_id
 		 RETURNING id`,
 		n.CollectionID, n.ParentID, n.Path, n.Name, n.Kind, n.BlobID, n.Size, n.ContentType,
 		n.Checksum, defaultJSON(n.Metadata), fmtTime(n.CreatedAt), fmtTime(n.UpdatedAt),
 		fmtTimePtr(n.LastAccessAt), n.Visibility, fmtTimePtr(n.ExpiresAt),
+		n.UploadRequestID,
 	).Scan(&n.ID)
 	return err
 }
 
 // checkKindInvariants verifies, before an upsert, that the parent is a folder
-// and that an existing node at the same path is not flipping kind (artifactsd-2bw).
-func (s *Store) checkKindInvariants(ctx context.Context, n *Node) error {
+// and that an existing node at the same path is not flipping kind
+// (artifactsd-2bw). It reports whether a node already exists at n's path.
+func checkKindInvariants(ctx context.Context, q querier, n *Node) (exists bool, err error) {
 	if n.ParentID != nil {
 		var parentKind string
-		err := s.db.sql.QueryRowContext(ctx, `SELECT kind FROM nodes WHERE id = ?`, *n.ParentID).Scan(&parentKind)
+		err := q.QueryRowContext(ctx, `SELECT kind FROM nodes WHERE id = ?`, *n.ParentID).Scan(&parentKind)
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrKindConflict // parent vanished; treat as a structural conflict
+			return false, ErrKindConflict // parent vanished; treat as a structural conflict
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 		if parentKind != KindFolder {
-			return ErrKindConflict // a file cannot be a parent
+			return false, ErrKindConflict // a file cannot be a parent
 		}
 	}
 
 	var existingKind string
-	err := s.db.sql.QueryRowContext(ctx,
+	err = q.QueryRowContext(ctx,
 		`SELECT kind FROM nodes WHERE collection_id = ? AND path = ?`, n.CollectionID, n.Path).Scan(&existingKind)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil // new path, no conflict
+		return false, nil // new path, no conflict
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if existingKind != n.Kind {
-		return ErrKindConflict // file<->folder replacement is not allowed in place
+		return true, ErrKindConflict // file<->folder replacement is not allowed in place
+	}
+	return true, nil
+}
+
+// CheckFilePath is a read-only pre-check that a FILE can be written at p: no
+// ancestor of p may be a file and p itself may not be a folder. It returns
+// ErrKindConflict otherwise. The write re-checks authoritatively.
+func (s *Store) CheckFilePath(ctx context.Context, collectionID int64, p string) error {
+	segs := strings.Split(p, "/")
+	prefix := ""
+	for i, seg := range segs {
+		if i == 0 {
+			prefix = seg
+		} else {
+			prefix += "/" + seg
+		}
+		n, err := s.GetNode(ctx, collectionID, prefix)
+		if errors.Is(err, ErrNotFound) {
+			return nil // nothing at or below this prefix exists yet
+		}
+		if err != nil {
+			return err
+		}
+		last := i == len(segs)-1
+		if (!last && n.Kind != KindFolder) || (last && n.Kind != KindFile) {
+			return ErrKindConflict
+		}
 	}
 	return nil
 }
 
+// CountFiles returns the number of file nodes in a collection.
+func (s *Store) CountFiles(ctx context.Context, collectionID int64) (int, error) {
+	return countFiles(ctx, s.db.sql, collectionID)
+}
+
+func countFiles(ctx context.Context, q querier, collectionID int64) (int, error) {
+	var n int
+	err := q.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM nodes WHERE collection_id = ? AND kind = ?`, collectionID, KindFile).Scan(&n)
+	return n, err
+}
+
+// checkCapacity returns ErrCollectionFull when the collection already holds
+// the maximum number of files. Inside a transaction (the upload-link commit)
+// the check and the insert are atomic. On the token-authenticated paths, which
+// call UpsertNode outside a transaction, two concurrent creators can overshoot
+// the cap by a few files; that is acceptable for credentialed writers.
+func (s *Store) checkCapacity(ctx context.Context, q querier, collectionID int64) error {
+	limit := s.MaxFilesPerCollection()
+	if limit == 0 {
+		return nil
+	}
+	n, err := countFiles(ctx, q, collectionID)
+	if err != nil {
+		return err
+	}
+	if n >= limit {
+		return ErrCollectionFull
+	}
+	return nil
+}
+
+// CheckCollectionCapacity is an early, advisory check for request handlers:
+// it returns ErrCollectionFull when creating a NEW file at path would exceed
+// the cap. Replacing an existing file is always allowed. The authoritative
+// check happens again when the node is written.
+func (s *Store) CheckCollectionCapacity(ctx context.Context, collectionID int64, path string) error {
+	if s.MaxFilesPerCollection() == 0 {
+		return nil
+	}
+	existing, err := s.GetNode(ctx, collectionID, path)
+	if err == nil && existing.Kind == KindFile {
+		return nil
+	}
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	return s.checkCapacity(ctx, s.db.sql, collectionID)
+}
+
 // GetNode returns a node by (collection, path).
 func (s *Store) GetNode(ctx context.Context, collectionID int64, path string) (*Node, error) {
-	row := s.db.sql.QueryRowContext(ctx,
+	return getNode(ctx, s.db.sql, collectionID, path)
+}
+
+func getNode(ctx context.Context, q querier, collectionID int64, path string) (*Node, error) {
+	row := q.QueryRowContext(ctx,
 		`SELECT `+nodeCols+` FROM nodes WHERE collection_id = ? AND path = ?`, collectionID, path)
 	n, err := scanNode(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -155,7 +253,11 @@ func (s *Store) GetNode(ctx context.Context, collectionID int64, path string) (*
 
 // GetNodeByID returns a node by id.
 func (s *Store) GetNodeByID(ctx context.Context, id int64) (*Node, error) {
-	row := s.db.sql.QueryRowContext(ctx, `SELECT `+nodeCols+` FROM nodes WHERE id = ?`, id)
+	return getNodeByID(ctx, s.db.sql, id)
+}
+
+func getNodeByID(ctx context.Context, q querier, id int64) (*Node, error) {
+	row := q.QueryRowContext(ctx, `SELECT `+nodeCols+` FROM nodes WHERE id = ?`, id)
 	n, err := scanNode(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -392,6 +494,11 @@ func collectNodes(rows *sql.Rows) ([]*Node, error) {
 // ancestor returns ErrKindConflict. Shared by the API and admin upload paths
 // (previously duplicated in both packages).
 func (s *Store) EnsureParentFolders(ctx context.Context, collectionID int64, p string) (*int64, error) {
+	return s.ensureParentFolders(ctx, s.db.sql, collectionID, p)
+}
+
+// ensureParentFolders is EnsureParentFolders on q (the DB or a transaction).
+func (s *Store) ensureParentFolders(ctx context.Context, q querier, collectionID int64, p string) (*int64, error) {
 	segs := strings.Split(p, "/")
 	if len(segs) == 1 {
 		return nil, nil
@@ -404,7 +511,7 @@ func (s *Store) EnsureParentFolders(ctx context.Context, collectionID int64, p s
 		} else {
 			prefix += "/" + seg
 		}
-		existing, err := s.GetNode(ctx, collectionID, prefix)
+		existing, err := getNode(ctx, q, collectionID, prefix)
 		if err == nil {
 			if existing.Kind != KindFolder {
 				return nil, ErrKindConflict // an existing ancestor must be a folder
@@ -419,7 +526,7 @@ func (s *Store) EnsureParentFolders(ctx context.Context, collectionID int64, p s
 			CollectionID: collectionID, ParentID: parentID, Path: prefix,
 			Name: path.Base(prefix), Kind: KindFolder, Metadata: json.RawMessage(`{}`),
 		}
-		if err := s.UpsertNode(ctx, folder); err != nil {
+		if err := s.upsertNode(ctx, q, folder); err != nil {
 			return nil, err
 		}
 		id := folder.ID

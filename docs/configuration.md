@@ -63,7 +63,8 @@ separate bare host (e.g. `admin.example.com`, distinct from the base-URL host):
   the base-URL host. Requests to the wrong plane get `404`.
 - The admin session cookie is host-only, so it is never sent to the public
   origin — artifact JavaScript there cannot reach it even if you disable the
-  sandbox (`content.sandbox: false`), which makes this the right setup for rich
+  sandbox (`content.sandbox: false`, which only admin-scoped tokens may set),
+  which makes this the right setup for rich
   interactive SPAs that need a stable origin.
 - Point both hostnames at artifactsd (same process/listener). If a reverse proxy
   terminates them, list it in `--trusted-proxies` so the admin/public split
@@ -207,6 +208,35 @@ the API/CLI still overrides them.
 Richer per-object robots blocks and response headers can't be expressed in env;
 set them through the metadata API/CLI.
 
+### Allowed response headers
+
+`content.headers` only accepts an allowlist of response headers, because
+whatever a writer stores there is sent on the artifact's responses, on the
+same origin as the admin UI unless `ARTIFACTSD_ADMIN_HOST` is set:
+
+`Cache-Control`, `Content-Disposition`, `Content-Language`, `Content-Encoding`,
+`Content-Security-Policy`, `Content-Security-Policy-Report-Only`, `X-Robots-Tag`,
+`Link`, `Vary`, `Expires`, `Referrer-Policy`, `Permissions-Policy`,
+`Cross-Origin-Resource-Policy`, `Cross-Origin-Opener-Policy`,
+`Cross-Origin-Embedder-Policy`, `Timing-Allow-Origin`, `X-Content-Type-Options`,
+`X-Frame-Options`, every `Access-Control-*` header, and every `X-*` header except
+`X-Request-Id`, `X-Forwarded-*`, `X-Accel-*` and `X-Sendfile`.
+
+`Content-Type` is accepted but ignored in favour of `content.content_type`.
+Values may not contain CR, LF or NUL; names are capped at 128 bytes, values at
+8 KiB, and a document at 32 headers. Anything else is rejected with `400`.
+
+| Setting | Flag | Env | Default |
+|---------|------|-----|---------|
+| Extra allowed headers | `--extra-allowed-headers` | `ARTIFACTSD_EXTRA_ALLOWED_HEADERS` | (none) |
+
+A comma-separated list of extra header names to allow (e.g. `Server-Timing`).
+**Every writer** (any token with `collections:write` or `shares:write`) can then
+set them, so only add headers that are harmless on your origin. Hop-by-hop
+headers, `Set-Cookie`, `Content-Length` and `Content-Type` can never be added;
+the server refuses to start if you list one. Documents stored before an entry
+was removed stay readable, and the disallowed headers are simply not served.
+
 ## Limits, janitor & uploads
 
 | Setting | Env | Default |
@@ -219,6 +249,13 @@ set them through the metadata API/CLI.
 | Janitor batch size | `ARTIFACTSD_JANITOR_BATCH_SIZE` | `500` |
 | Last-access update throttle | `ARTIFACTSD_ACCESS_UPDATE_THROTTLE` | `60s` |
 | Upload session TTL | `ARTIFACTSD_UPLOAD_TTL` | `1h` |
+
+`MAX_FILES_PER_COLLECTION` caps the number of **files** in one collection
+(folders do not count). Creating a new file beyond it is rejected with `409`
+on every write path (API `PUT`, large uploads, the admin UI and upload links);
+replacing an existing file is always allowed. On upload links the check is
+atomic with the write; for token-authenticated writers concurrent uploads may
+overshoot the cap by a few files.
 
 When more than `AUTH_FAIL_MAX` auth failures from one client address occur
 within `AUTH_FAIL_WINDOW`, further **credentialed** attempts from that address

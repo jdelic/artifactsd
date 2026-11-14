@@ -31,7 +31,11 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   the full tree; a positive value limits the number of levels below the base
   path; anything else is a `400`.
 - **Metadata** in request/response bodies is the JSON metadata document (access,
-  content, crawl, expiry blocks).
+  content, crawl, expiry blocks). Setting `content.sandbox: false` anywhere
+  (collection, folder, file, share, large upload) requires an **admin-scoped**
+  token; other tokens get `403` "content.sandbox=false requires an admin-scoped
+  token". Setting it to `true` or leaving it out is always allowed, and a
+  non-admin `PATCH` that doesn't mention it keeps an admin-set `false`.
 
 ## Collections
 
@@ -71,8 +75,14 @@ DELETE /api/v1/collections/{c}/files/{path...}        delete           collectio
 **Upload (`PUT`)** — the body is the raw file bytes. The request `Content-Type`
 sets `content.content_type` unless metadata overrides it. To attach a full
 metadata document alongside a binary body, send it base64url-encoded in the
-`Artifactsd-Metadata` header. The path is normalized and traversal-checked;
-parent folders are implied. Oversized bodies get `413`. Response:
+`Artifactsd-Metadata` header. **Replacing an existing file without the header
+keeps its metadata** (visibility, auth, expiry, headers, …) and, when the
+request carries no usable `Content-Type`, its content type; sending the header
+replaces the stored metadata. `Artifactsd-Metadata: e30` (`{}`) is the explicit
+way to reset a file's metadata. The same rule applies to large uploads: a
+session begun without `metadata` keeps the replaced file's metadata. The path
+is normalized and traversal-checked; parent folders are implied. Oversized
+bodies get `413`. Response:
 
 ```json
 { "collection": "sales-demo-2026", "path": "report.pdf", "size": 18422,
@@ -156,7 +166,10 @@ Begin body and response:
 The `upload_url` carries an unguessable `upload_id` and needs **no additional
 auth** — possession is the capability, so an agent can be handed the URL and
 `PUT` directly. Sessions are single-use with a short TTL (`ARTIFACTSD_UPLOAD_TTL`);
-unfinished ones are reaped by the janitor.
+unfinished ones are reaped by the janitor. A `PUT` that fails to write the file
+(e.g. `409` because a file now occupies a parent path) does **not** consume the
+session: fix the cause and retry the same URL. Creating a session whose path is
+already blocked returns `409` immediately.
 
 ## Shares
 
@@ -205,14 +218,23 @@ Create body (all fields except `collection` optional):
   "label": "Q2 Deliverables", "description": "PDF or DOCX please.",
   "file_metadata": { "access": { "visibility": "private" } },
   "allow_uploader_access": false, "single_use": false,
-  "use_submission_folders": true,
+  "use_submission_folders": true, "allow_overwrite": false,
   "max_files": 50, "max_file_size": 52428800,
   "expires_at": "2026-08-01T00:00:00Z" }
 ```
 
 The response includes the shareable `url` (`https://.../r/{request_id}`).
-`file_metadata` is applied to every uploaded file; `use_submission_folders`
-nests each submission under `{target_folder}/{submission_id}/`. **Closing**
+`file_metadata` is applied to every uploaded file. **Uploaded files are
+private** unless `file_metadata.access.visibility` says otherwise;
+`allow_uploader_access: true` requires `public` or `unlisted` (else `400`), and
+a URL is only returned when the file is actually reachable anonymously (no
+private collection or parent folder). `use_submission_folders`
+nests each submission under `{target_folder}/{submission_id}/`. Without
+submission folders, uploading a name that already exists is refused with `409`;
+`allow_overwrite: true` lets the link replace files **it uploaded itself** (never
+files from any other writer or link, and replacements don't count toward
+`max_files`). Every holder of the link can then replace the others' files, so
+prefer `use_submission_folders` for links shared with several people. **Closing**
 (`PATCH {"status":"closed"}`) stops new uploads and keeps the files;
 **revoking** (`DELETE`) is the permanent form and also escalates an
 already-closed link. Neither deletes uploaded files.
@@ -226,8 +248,11 @@ GET  /r/{request_id}/status    JSON status: active/closed/expired, counts
 ```
 
 Status codes: `200` upload accepted · `404` unknown link · `410` expired,
-closed, or revoked · `409` max-files quota reached · `413` over the per-link
-or server size limit.
+closed, or revoked · `409` max-files quota reached, collection file limit
+reached, or a path conflict · `400` duplicate file names in one request or more
+than 100 files · `413` over the per-link or server size limit. A rejected
+request stores none of its files: limits are checked for the whole request
+before any file becomes visible.
 
 ## Crawl API
 
@@ -263,11 +288,12 @@ not management endpoints.
 |-----------|------|
 | Success (read/replace) | `200` |
 | Created | `201` |
-| Bad input / unsafe header / bad path | `400` |
+| Bad input / header not in the allowlist ([configuration](configuration.md#allowed-response-headers)) / bad path | `400` |
 | Missing or invalid API token | `401` |
 | Valid token, insufficient scope | `403` |
 | Unknown object, or private/expired on a public route | `404` |
 | Name or share conflict | `409` |
+| New file in a collection at `ARTIFACTSD_MAX_FILES_PER_COLLECTION` ("collection has reached its file limit (N)") | `409` |
 | Over `max_upload_size` | `413` |
 | Auth-failure rate limit tripped | `429` |
 

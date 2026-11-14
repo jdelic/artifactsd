@@ -235,12 +235,67 @@ func TestUploadSessions_Lifecycle(t *testing.T) {
 		t.Errorf("status = %q, want pending", u.Status)
 	}
 
-	if err := s.CompleteUploadSession(ctx, u.UploadID, "sha256:xyz", fixedNow); err != nil {
-		t.Fatalf("CompleteUploadSession: %v", err)
+	ref := "sha256:xyz"
+	n := &Node{CollectionID: c.ID, Path: "big.bin", Name: "big.bin", Kind: KindFile, BlobID: &ref, Metadata: []byte(`{}`)}
+	if err := s.CommitUpload(ctx, u.UploadID, n, fixedNow); err != nil {
+		t.Fatalf("CommitUpload: %v", err)
 	}
 	got, _ := s.GetUploadSession(ctx, u.UploadID)
 	if got.Status != UploadCompleted || got.TempBlobID == nil {
 		t.Errorf("not completed: %+v", got)
+	}
+	if _, err := s.GetNode(ctx, c.ID, "big.bin"); err != nil {
+		t.Errorf("node not written: %v", err)
+	}
+	// A second commit of the same session is refused.
+	if err := s.CommitUpload(ctx, u.UploadID, n, fixedNow); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second CommitUpload = %v, want ErrNotFound", err)
+	}
+}
+
+func TestUploadSessions_CommitRollsBackOnConflict(t *testing.T) {
+	s, ctx := newStore(t)
+	c := mustCollection(t, s, ctx, "demo")
+	if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, Path: "a", Name: "a", Kind: KindFile}); err != nil {
+		t.Fatal(err)
+	}
+	u := &UploadSession{UploadID: "upl_conflict", CollectionID: c.ID, TargetPath: "a/b", ExpiresAt: fixedNow.Add(time.Hour)}
+	if err := s.CreateUploadSession(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	ref := "sha256:abc"
+	n := &Node{CollectionID: c.ID, Path: "a/b", Name: "b", Kind: KindFile, BlobID: &ref, Metadata: []byte(`{}`)}
+	if err := s.CommitUpload(ctx, u.UploadID, n, fixedNow); !errors.Is(err, ErrKindConflict) {
+		t.Fatalf("CommitUpload = %v, want ErrKindConflict", err)
+	}
+	got, _ := s.GetUploadSession(ctx, u.UploadID)
+	if got.Status != UploadPending {
+		t.Errorf("session status after failed commit = %q, want pending", got.Status)
+	}
+}
+
+func TestCheckFilePath(t *testing.T) {
+	s, ctx := newStore(t)
+	c := mustCollection(t, s, ctx, "demo")
+	dir := &Node{CollectionID: c.ID, Path: "dir", Name: "dir", Kind: KindFolder}
+	if err := s.UpsertNode(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, ParentID: &dir.ID, Path: "dir/f", Name: "f", Kind: KindFile}); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]error{
+		"new.txt":     nil,
+		"dir/new.txt": nil,
+		"dir/f":       nil,
+		"dir":         ErrKindConflict,
+		"dir/f/x":     ErrKindConflict,
+		"x/y/z":       nil,
+	}
+	for p, want := range cases {
+		if err := s.CheckFilePath(ctx, c.ID, p); !errors.Is(err, want) {
+			t.Errorf("CheckFilePath(%q) = %v, want %v", p, err, want)
+		}
 	}
 }
 
@@ -315,5 +370,40 @@ func TestAudit_AppendAndList(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Action != "file.delete" || list[0].Actor == nil {
 		t.Errorf("ListAudit = %+v", list)
+	}
+}
+
+func TestUpsertNode_CollectionFileCap(t *testing.T) {
+	s, ctx := newStore(t)
+	s = s.WithMaxFilesPerCollection(2)
+	c := mustCollection(t, s, ctx, "capped")
+	file := func(p string) *Node {
+		return &Node{CollectionID: c.ID, Path: p, Name: p, Kind: KindFile, Metadata: []byte(`{}`)}
+	}
+	if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, Path: "dir", Name: "dir", Kind: KindFolder}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"a", "b"} {
+		if err := s.UpsertNode(ctx, file(p)); err != nil {
+			t.Fatalf("upsert %s: %v", p, err)
+		}
+	}
+	if n, err := s.CountFiles(ctx, c.ID); err != nil || n != 2 {
+		t.Fatalf("CountFiles = %d, %v; want 2 (folders excluded)", n, err)
+	}
+	if err := s.UpsertNode(ctx, file("c")); !errors.Is(err, ErrCollectionFull) {
+		t.Errorf("third file: err = %v, want ErrCollectionFull", err)
+	}
+	if err := s.UpsertNode(ctx, file("a")); err != nil {
+		t.Errorf("replacing a file at the cap: %v", err)
+	}
+	if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, Path: "dir2", Name: "dir2", Kind: KindFolder}); err != nil {
+		t.Errorf("folder at the cap: %v", err)
+	}
+	if err := s.CheckCollectionCapacity(ctx, c.ID, "a"); err != nil {
+		t.Errorf("CheckCollectionCapacity(existing) = %v", err)
+	}
+	if err := s.CheckCollectionCapacity(ctx, c.ID, "new"); !errors.Is(err, ErrCollectionFull) {
+		t.Errorf("CheckCollectionCapacity(new) = %v, want ErrCollectionFull", err)
 	}
 }

@@ -9,7 +9,8 @@ import (
 
 const uploadRequestCols = `id, request_id, collection_id, target_folder, label, description,
 	file_metadata, allow_uploader_access, single_use, use_submission_folders,
-	max_files, max_file_size, files_uploaded, status, created_at, expires_at, revoked_at, last_used_at`
+	max_files, max_file_size, files_uploaded, status, created_at, expires_at, revoked_at, last_used_at,
+	allow_overwrite`
 
 func scanUploadRequest(row interface{ Scan(...any) error }) (*UploadRequest, error) {
 	var (
@@ -30,6 +31,7 @@ func scanUploadRequest(row interface{ Scan(...any) error }) (*UploadRequest, err
 		&ur.AllowUploaderAccess, &ur.SingleUse, &ur.UseSubmissionFolders,
 		&maxFiles, &maxFileSize, &ur.FilesUploaded,
 		&ur.Status, &created, &expires, &revoked, &lastUsed,
+		&ur.AllowOverwrite,
 	); err != nil {
 		return nil, err
 	}
@@ -73,13 +75,15 @@ func (s *Store) CreateUploadRequest(ctx context.Context, ur *UploadRequest) erro
 		`INSERT INTO upload_requests
 			(request_id, collection_id, target_folder, label, description, file_metadata,
 			 allow_uploader_access, single_use, use_submission_folders,
-			 max_files, max_file_size, files_uploaded, status, created_at, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+			 max_files, max_file_size, files_uploaded, status, created_at, expires_at,
+			 allow_overwrite)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
 		ur.RequestID, ur.CollectionID, ur.TargetFolder,
 		ur.Label, ur.Description, defaultJSON(ur.FileMetadata),
 		boolToInt(ur.AllowUploaderAccess), boolToInt(ur.SingleUse), boolToInt(ur.UseSubmissionFolders),
 		ur.MaxFiles, ur.MaxFileSize,
 		ur.Status, fmtTime(ur.CreatedAt), fmtTimePtr(ur.ExpiresAt),
+		boolToInt(ur.AllowOverwrite),
 	)
 	if err != nil {
 		return err
@@ -173,12 +177,29 @@ func (s *Store) CloseUploadRequest(ctx context.Context, requestID, status string
 	return requireOne(res)
 }
 
-// CommitUploadRequestSubmission creates a submission record, increments the
-// files_uploaded counter, and (when single_use is true) closes the request —
-// all in one transaction so the state is consistent even under concurrent POSTs.
-func (s *Store) CommitUploadRequestSubmission(
+// CommitUploadRequestFiles links the files received through an upload link
+// and records the submission, all in ONE transaction (artifactsd-m9e.2):
+//
+//  1. re-reads the request row: it must still be active (else
+//     ErrUploadRequestNotActive) and the files must fit max_files (else
+//     ErrUploadRequestQuotaExceeded);
+//  2. checks each target path (artifactsd-m9e.1): a path that already holds a
+//     node is refused with a *FileExistsError unless the link allows overwrite
+//     AND the existing node is a file this same link wrote. Replacements do not
+//     count toward max_files;
+//  3. materializes each file's parent folders and upserts the file node with
+//     UploadRequestID set to the link, recomputing its denormalized columns;
+//  4. inserts the submission row (FileCount counts new files only; TotalBytes
+//     all bytes received)
+//     and bumps files_uploaded, closing the request when singleUse is set.
+//
+// Any error rolls back everything, so no file of a rejected submission becomes
+// visible. Blobs already stored for the files stay unreferenced and are
+// collected by the janitor. Each file's ParentID and ID are set on success.
+func (s *Store) CommitUploadRequestFiles(
 	ctx context.Context,
 	sub *UploadRequestSubmission,
+	files []*Node,
 	singleUse bool,
 	now time.Time,
 ) error {
@@ -188,28 +209,62 @@ func (s *Store) CommitUploadRequestSubmission(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Re-read status inside the transaction to ensure we win the race.
+	// Re-read status inside the transaction: this is the authoritative check.
 	var status string
-	var filesUploaded, maxFiles int64
-	var maxFilesNull sql.NullInt64
+	var filesUploaded int64
+	var maxFiles sql.NullInt64
+	var allowOverwrite bool
 	if err := tx.QueryRowContext(
 		ctx,
-		`SELECT status, files_uploaded, max_files FROM upload_requests WHERE id = ?`,
+		`SELECT status, files_uploaded, max_files, allow_overwrite FROM upload_requests WHERE id = ?`,
 		sub.UploadRequestID,
-	).Scan(&status, &filesUploaded, &maxFilesNull); err != nil {
+	).Scan(&status, &filesUploaded, &maxFiles, &allowOverwrite); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	}
-	if maxFilesNull.Valid {
-		maxFiles = maxFilesNull.Int64
-	}
 	if status != UploadRequestActive {
 		return ErrUploadRequestNotActive
 	}
-	if maxFiles > 0 && filesUploaded+sub.FileCount > maxFiles {
+
+	sub.FileCount = 0
+	sub.TotalBytes = 0
+	for _, f := range files {
+		if f.Size != nil {
+			sub.TotalBytes += *f.Size
+		}
+		existing, err := getNode(ctx, tx, f.CollectionID, f.Path)
+		switch {
+		case errors.Is(err, ErrNotFound):
+			sub.FileCount++
+		case err != nil:
+			return err
+		case allowOverwrite && existing.Kind == KindFile &&
+			existing.UploadRequestID != nil && *existing.UploadRequestID == sub.UploadRequestID:
+			// Replacing this link's own file: allowed, not counted.
+		default:
+			return &FileExistsError{Path: f.Path}
+		}
+		id := sub.UploadRequestID
+		f.UploadRequestID = &id
+	}
+	if maxFiles.Valid && maxFiles.Int64 > 0 && filesUploaded+sub.FileCount > maxFiles.Int64 {
 		return ErrUploadRequestQuotaExceeded
+	}
+
+	for _, f := range files {
+		parentID, err := s.ensureParentFolders(ctx, tx, f.CollectionID, f.Path)
+		if err != nil {
+			return err
+		}
+		f.ParentID = parentID
+		if err := s.upsertNode(ctx, tx, f); err != nil {
+			return err
+		}
+		if err := s.recomputeNodeDenormalized(ctx, tx, f.ID); err != nil {
+			return err
+		}
 	}
 
 	sub.CreatedAt = now
@@ -319,4 +374,17 @@ func boolToInt(b bool) int {
 var (
 	ErrUploadRequestNotActive     = errors.New("store: upload request is not active")
 	ErrUploadRequestQuotaExceeded = errors.New("store: upload request max_files quota exceeded")
+	// ErrUploadRequestFileExists is matched (errors.Is) by *FileExistsError.
+	ErrUploadRequestFileExists = errors.New("store: a node already exists at the upload target")
 )
+
+// FileExistsError reports an upload-link target path that already holds a
+// node the link may not replace (artifactsd-m9e.1).
+type FileExistsError struct{ Path string }
+
+func (e *FileExistsError) Error() string {
+	return ErrUploadRequestFileExists.Error() + ": " + e.Path
+}
+
+// Is makes errors.Is(err, ErrUploadRequestFileExists) match.
+func (e *FileExistsError) Is(target error) bool { return target == ErrUploadRequestFileExists }

@@ -98,7 +98,9 @@ artifactctl rm [-r] <collection>/<path>
 ```
 
 - `put` infers content type from the file extension unless `--content-type` is
-  given.
+  given. Re-uploading a file **without** metadata flags keeps its existing
+  metadata; any metadata flag replaces the stored document with the one the
+  flags describe.
 - `--generate-bearer-token` creates a random token and prints it **once**;
   `--bearer-token <t>` takes an explicit value. With `--output json` the token
   is the `generated_bearer_token` field of the command's JSON object.
@@ -169,6 +171,7 @@ artifactctl upload-request create <collection>
         [--public|--unlisted|--protected|--private]
         [--crawlable|--no-crawlable] [--index|--no-index]
         [--single-use] [--use-submission-folders] [--allow-uploader-access]
+        [--allow-overwrite]
 artifactctl upload-request list
 artifactctl upload-request show <request-id>
 artifactctl upload-request close <request-id>     # stop new uploads; keep files
@@ -177,7 +180,11 @@ artifactctl upload-request submissions <request-id>
 ```
 
 The visibility/crawl flags set the metadata applied to every uploaded file.
-`--max-file-size` takes human sizes (`10MB`, `500KiB`) — all units are
+Without a visibility flag, uploaded files are **private**;
+`--allow-uploader-access` needs `--public` or `--unlisted`.
+Without `--use-submission-folders`, an upload whose name already exists is
+refused (409); `--allow-overwrite` lets the link replace only files it uploaded
+itself. `--max-file-size` takes human sizes (`10MB`, `500KiB`) — all units are
 1024-based. `create` prints the shareable URL prominently. `ur` is a command
 alias.
 

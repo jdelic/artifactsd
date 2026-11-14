@@ -61,6 +61,7 @@ CREATE TABLE upload_requests (
     file_metadata         TEXT NOT NULL DEFAULT '{}', -- metadata applied to each uploaded file (JSON)
     allow_uploader_access BOOLEAN NOT NULL DEFAULT 0, -- show file URLs to uploader on success
     use_submission_folders BOOLEAN NOT NULL DEFAULT 0,-- if true, nest files under {target_folder}/{submission_id}/
+    allow_overwrite       BOOLEAN NOT NULL DEFAULT 0, -- (0005) may replace files this link wrote; never others
     single_use            BOOLEAN NOT NULL DEFAULT 0, -- if true, auto-close after first successful submission
     max_files             INTEGER,                    -- optional cap on total files (across all submitters)
     max_file_size         INTEGER,                    -- optional per-file size override (≤ server max_upload_size)
@@ -101,9 +102,31 @@ With `use_submission_folders = false` (default):
 {collection}/{target_folder}/{filename}
 ```
 
-If a file with the same name already exists, it is **overwritten** (consistent
-with the PUT-file semantics in the management API). This is the right default for
-agent workflows where filenames are unique by convention.
+**Visibility defaults to private** (artifactsd-m9e.24). An upload-link holder
+must not be able to publish arbitrary content on the operator's domain just by
+holding a link. When the link's `file_metadata` sets no `access.visibility`,
+`private` is written into it at creation (API and admin UI), so the stored link
+is self-describing; links created earlier are treated the same at upload time.
+`allow_uploader_access` returns a file URL only when the file's *effective*
+visibility (server defaults → collection → ancestor folders → file) is public or
+unlisted and neither the collection nor an ancestor folder is private. Creating
+a link with `allow_uploader_access` whose files would not be public or unlisted
+is rejected (400).
+
+If a node with the same name already exists, the upload is **refused with
+409** ("a file named X already exists") by default (artifactsd-m9e.1). A link
+holder is anonymous, unlike a `PUT` caller with a write-scoped token, so a link
+must never be able to replace published content or reset a protected file's
+metadata.
+
+`allow_overwrite` (default `false`) opts a link into replacing files **it
+uploaded itself**: `nodes.upload_request_id` (migration 0005) records the link
+that wrote a file, and any other writer (API `PUT`, large upload, admin UI)
+resets it to `NULL`. A link can therefore never replace a file from another
+writer or another link, even with `allow_overwrite`. Replacements do not count
+toward `max_files`. Note that every holder of the same link can replace the
+others' files when overwrite is on; links shared with several people should use
+`use_submission_folders` instead.
 
 With `use_submission_folders = true`:
 
@@ -311,11 +334,23 @@ footer pattern from [09 §1](09-admin-ui.md)).
   sessions ([14 §5](14-access-control.md)).
 - Size enforcement: `max_file_size` per request ≤ server `max_upload_size`; 413
   if exceeded. The server's global `MaxBytesReader` is the hard limit.
-- Quota enforcement: `max_files` counter is incremented atomically inside a DB
-  transaction; 409 if exceeded.
-- Single-use enforcement: when `single_use = true`, `status` is set to `closed`
-  inside the same DB transaction that commits the uploaded files. A concurrent
-  POST racing on the same link loses the transaction and receives 410.
+- **Receive, then commit** (artifactsd-m9e.2). A POST is handled in two phases:
+  1. *Receive*: each file is streamed to the blob store and kept in memory as a
+     pending node. Nothing is linked into the tree. Per-file size (413), the
+     100-files-per-request cap (400), duplicate target paths within the request
+     (400) and the link's remaining `max_files` quota (409, fail fast without
+     reading further parts) are enforced here.
+  2. *Commit*: `store.CommitUploadRequestFiles` runs ONE transaction that
+     re-reads the request row (not active → 410, over quota → 409), materializes
+     parent folders, upserts every node, inserts the submission row and bumps
+     `files_uploaded` (closing the link when `single_use`). Any failure rolls
+     back everything: a rejected request never leaves a visible file. Blobs of
+     rejected requests stay unreferenced and are collected by the janitor.
+- Quota enforcement: see above; `max_files` is checked inside the commit
+  transaction, so it is a hard limit.
+- Single-use enforcement: `status` is set to `closed` inside the same commit
+  transaction, so of concurrent POSTs on a single-use link exactly one commits;
+  the others receive 410 and none of their files become visible.
 - Expired/revoked links return **410 Gone** — informative for holders of a
   legitimate link, while the unguessable ID prevents enumeration.
 - Rate limiting: same per-IP rate limiter applied to auth attempts ([06](06-auth-security.md))

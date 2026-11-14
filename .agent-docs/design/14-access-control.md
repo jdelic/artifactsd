@@ -219,7 +219,13 @@ its own CSP header so author CSPs only tighten it; `Set-Cookie` is stripped from
 artifact metadata. Tradeoff: a sandboxed page has a `null` origin, so it loses
 its own-origin storage/cookies and presents `Origin: null` to third-party APIs
 (only `*`-CORS APIs work) — trusted interactive content opts out with
-`content.sandbox: false`, regaining the real origin.
+`content.sandbox: false`, regaining the real origin. **Only admin-scoped
+principals may set `content.sandbox: false`** (artifactsd-m9e.4): in the
+single-domain topology an unsandboxed HTML artifact can drive the admin UI of
+any admin who opens it, so write scope must not be enough. The check lives in
+the API's metadata helpers (`requireSandboxPrivilege`), covering collection,
+folder, file, share and large-upload metadata; upload-request `file_metadata`
+and the admin UI are admin-only already.
 
 **Defense in depth on the admin side.** Every admin response sets
 `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,

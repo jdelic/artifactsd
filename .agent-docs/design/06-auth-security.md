@@ -104,8 +104,11 @@ All collection-relative paths pass `cleanPath`:
   the public site down.
 - **Upload size**: `limits.max_upload_size` enforced by a `http.MaxBytesReader`
   wrapper; streaming uploads are checked incrementally → `413`.
-- **Per-collection file count**: `limits.max_file_count_per_collection`
-  enforced on upload → `409`/`403`.
+- **Per-collection file count**: `ARTIFACTSD_MAX_FILES_PER_COLLECTION` (files
+  only, folders excluded) enforced in `store.upsertNode` for every new file
+  node → `409` (artifactsd-m9e.11). Handlers also pre-check before reading the
+  body (`CheckCollectionCapacity`). Atomic inside the upload-link commit
+  transaction; small overshoot under concurrency is accepted for token paths.
 
 ## 6. Transport security (SPEC §17, decision D4)
 

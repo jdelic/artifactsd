@@ -278,3 +278,48 @@ func TestCollectionsList_ShowsExpiry(t *testing.T) {
 		t.Errorf("keep never expires and should show —:\n%s", keep)
 	}
 }
+
+func TestBeginUpload_CollectionFull(t *testing.T) {
+	ha := newFullHarness(t)
+	ha.st.WithMaxFilesPerCollection(1)
+	form := url.Values{"name": {"demo-run"}}
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	seedFile(t, ha, "demo-run", "one.txt", "1")
+
+	body, _ := json.Marshal(map[string]string{"path": "two.txt"})
+	rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/upload/begin", bytes.NewReader(body), "application/json")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "file limit (1)") {
+		t.Fatalf("begin upload in a full collection = %d (%s), want 409", rec.Code, rec.Body)
+	}
+	// Replacing the existing file is still allowed.
+	body, _ = json.Marshal(map[string]string{"path": "one.txt"})
+	if rec := doReq(t, ha, http.MethodPost, "/collections/demo-run/upload/begin", bytes.NewReader(body), "application/json"); rec.Code != http.StatusCreated {
+		t.Errorf("begin upload replacing a file = %d (%s), want 201", rec.Code, rec.Body)
+	}
+}
+
+// TestAdminUpload_PreservesMetadata: re-uploading a file through the admin UI
+// keeps its metadata (artifactsd-m9e.3).
+func TestAdminUpload_PreservesMetadata(t *testing.T) {
+	ha := newFullHarness(t)
+	form := url.Values{"name": {"demo-run"}}
+	doReq(t, ha, http.MethodPost, "/collections", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	seedFile(t, ha, "demo-run", "f.txt", "v1")
+	c, err := ha.st.GetCollectionByName(context.Background(), "demo-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := ha.st.GetNode(context.Background(), c.ID, "f.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.Metadata = []byte(`{"access":{"visibility":"private"}}`)
+	if err := ha.st.UpsertNode(context.Background(), n); err != nil {
+		t.Fatal(err)
+	}
+	seedFile(t, ha, "demo-run", "f.txt", "v2")
+	n, _ = ha.st.GetNode(context.Background(), c.ID, "f.txt")
+	if !strings.Contains(string(n.Metadata), "private") {
+		t.Errorf("metadata after admin re-upload = %s, want private kept", n.Metadata)
+	}
+}

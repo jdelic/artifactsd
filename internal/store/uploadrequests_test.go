@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"path"
 	"testing"
 	"time"
 )
@@ -133,11 +134,12 @@ func TestUploadRequests_CommitSubmission(t *testing.T) {
 	sub := &UploadRequestSubmission{
 		UploadRequestID: ur.ID,
 		SubmissionID:    "sub_test01",
-		FileCount:       2,
-		TotalBytes:      1024,
 	}
-	if err := s.CommitUploadRequestSubmission(ctx, sub, false, fixedNow); err != nil {
-		t.Fatalf("CommitUploadRequestSubmission: %v", err)
+	if err := s.CommitUploadRequestFiles(ctx, sub, linkFiles(c.ID, "in/a.txt", "in/b.txt"), false, fixedNow); err != nil {
+		t.Fatalf("CommitUploadRequestFiles: %v", err)
+	}
+	if n, err := s.GetNode(ctx, c.ID, "in/b.txt"); err != nil || n.ParentID == nil {
+		t.Errorf("committed node in/b.txt: %+v, %v (want it under a materialized folder)", n, err)
 	}
 
 	reloaded, _ := s.GetUploadRequestByID(ctx, ur.ID)
@@ -152,7 +154,7 @@ func TestUploadRequests_CommitSubmission(t *testing.T) {
 	if err != nil || len(subs) != 1 {
 		t.Fatalf("ListUploadRequestSubmissions: %v (len=%d)", err, len(subs))
 	}
-	if subs[0].FileCount != 2 || subs[0].TotalBytes != 1024 {
+	if subs[0].FileCount != 2 || subs[0].TotalBytes != 1024 { // 2 × 512 bytes
 		t.Errorf("unexpected submission: %+v", subs[0])
 	}
 }
@@ -175,11 +177,9 @@ func TestUploadRequests_CommitSubmission_SingleUse(t *testing.T) {
 	sub := &UploadRequestSubmission{
 		UploadRequestID: ur.ID,
 		SubmissionID:    "sub_singleuse",
-		FileCount:       1,
-		TotalBytes:      512,
 	}
-	if err := s.CommitUploadRequestSubmission(ctx, sub, true, fixedNow); err != nil {
-		t.Fatalf("CommitUploadRequestSubmission: %v", err)
+	if err := s.CommitUploadRequestFiles(ctx, sub, linkFiles(c.ID, "a.txt"), true, fixedNow); err != nil {
+		t.Fatalf("CommitUploadRequestFiles: %v", err)
 	}
 
 	// Should now be closed
@@ -192,12 +192,13 @@ func TestUploadRequests_CommitSubmission_SingleUse(t *testing.T) {
 	sub2 := &UploadRequestSubmission{
 		UploadRequestID: ur.ID,
 		SubmissionID:    "sub_singleuse2",
-		FileCount:       1,
-		TotalBytes:      256,
 	}
-	err := s.CommitUploadRequestSubmission(ctx, sub2, true, fixedNow)
+	err := s.CommitUploadRequestFiles(ctx, sub2, linkFiles(c.ID, "b.txt"), true, fixedNow)
 	if !errors.Is(err, ErrUploadRequestNotActive) {
 		t.Errorf("second submit: want ErrUploadRequestNotActive, got %v", err)
+	}
+	if _, err := s.GetNode(ctx, c.ID, "b.txt"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("rejected submission's file exists (err=%v)", err)
 	}
 }
 
@@ -220,23 +221,70 @@ func TestUploadRequests_CommitSubmission_QuotaExceeded(t *testing.T) {
 	sub := &UploadRequestSubmission{
 		UploadRequestID: ur.ID,
 		SubmissionID:    "sub_quota1",
-		FileCount:       2,
-		TotalBytes:      100,
 	}
-	if err := s.CommitUploadRequestSubmission(ctx, sub, false, fixedNow); err != nil {
+	if err := s.CommitUploadRequestFiles(ctx, sub, linkFiles(c.ID, "a.txt", "b.txt"), false, fixedNow); err != nil {
 		t.Fatalf("first submit: %v", err)
 	}
 
 	sub2 := &UploadRequestSubmission{
 		UploadRequestID: ur.ID,
 		SubmissionID:    "sub_quota2",
-		FileCount:       1,
-		TotalBytes:      50,
 	}
-	err := s.CommitUploadRequestSubmission(ctx, sub2, false, fixedNow)
+	err := s.CommitUploadRequestFiles(ctx, sub2, linkFiles(c.ID, "c.txt"), false, fixedNow)
 	if !errors.Is(err, ErrUploadRequestQuotaExceeded) {
 		t.Errorf("over quota: want ErrUploadRequestQuotaExceeded, got %v", err)
 	}
+	if _, err := s.GetNode(ctx, c.ID, "c.txt"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("over-quota file exists (err=%v)", err)
+	}
+}
+
+// TestUploadRequests_CommitFiles_RollsBackOnConflict: a failure on a later file
+// (here a kind conflict) leaves no earlier file, folder or submission behind.
+func TestUploadRequests_CommitFiles_RollsBackOnConflict(t *testing.T) {
+	s, ctx := newStore(t)
+	c := mustCollection(t, s, ctx, "inbox")
+	ur := &UploadRequest{
+		RequestID: "urq_rollback123456789", CollectionID: c.ID,
+		FileMetadata: []byte(`{}`), Status: UploadRequestActive,
+	}
+	if err := s.CreateUploadRequest(ctx, ur); err != nil {
+		t.Fatal(err)
+	}
+	// An existing FILE at "x" makes "x/b.txt" a kind conflict.
+	if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, Path: "x", Name: "x", Kind: KindFile}); err != nil {
+		t.Fatal(err)
+	}
+	sub := &UploadRequestSubmission{UploadRequestID: ur.ID, SubmissionID: "sub_rb"}
+	err := s.CommitUploadRequestFiles(ctx, sub, linkFiles(c.ID, "new/a.txt", "x/b.txt"), false, fixedNow)
+	if !errors.Is(err, ErrKindConflict) {
+		t.Fatalf("err = %v, want ErrKindConflict", err)
+	}
+	for _, p := range []string{"new", "new/a.txt"} {
+		if _, err := s.GetNode(ctx, c.ID, p); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s exists after rollback (err=%v)", p, err)
+		}
+	}
+	reloaded, _ := s.GetUploadRequestByID(ctx, ur.ID)
+	if reloaded.FilesUploaded != 0 {
+		t.Errorf("FilesUploaded = %d after rollback, want 0", reloaded.FilesUploaded)
+	}
+	if subs, _ := s.ListUploadRequestSubmissions(ctx, ur.ID); len(subs) != 0 {
+		t.Errorf("%d submissions after rollback, want 0", len(subs))
+	}
+}
+
+// linkFiles builds 512-byte file nodes at the given paths.
+func linkFiles(collectionID int64, paths ...string) []*Node {
+	out := make([]*Node, 0, len(paths))
+	for _, p := range paths {
+		size := int64(512)
+		out = append(out, &Node{
+			CollectionID: collectionID, Path: p, Name: path.Base(p), Kind: KindFile,
+			Size: &size, Metadata: []byte(`{}`),
+		})
+	}
+	return out
 }
 
 func TestUploadRequests_JanitorExpiry(t *testing.T) {

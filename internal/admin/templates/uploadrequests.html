@@ -21,16 +21,17 @@
       <label>Max file size <input type="text" name="max_file_size" placeholder="10MB (optional)"></label>
       <label>Uploaded file visibility
         <select name="file_visibility">
-          <option value="">server default</option>
-          <option value="public">public</option>
-          <option value="unlisted">unlisted</option>
+          <option value="private" selected>private (default)</option>
           <option value="protected">protected</option>
-          <option value="private">private</option>
+          <option value="unlisted">unlisted</option>
+          <option value="public">public</option>
         </select>
       </label>
+      <span class="nc-warn">Public: anyone with the link can publish content on this site. Prefer private or unlisted.</span>
       <label class="nc-scope"><input type="checkbox" name="single_use" value="on"> Single-use (auto-close after first upload)</label>
       <label class="nc-scope"><input type="checkbox" name="use_submission_folders" value="on"> Submission folders (each upload batch in its own subfolder)</label>
       <label class="nc-scope"><input type="checkbox" name="allow_uploader_access" value="on"> Show file URLs to uploaders (public/unlisted files only)</label>
+      <label class="nc-scope" title="Any holder of the link can then replace another holder's file; use submission folders for links shared with several people."><input type="checkbox" name="allow_overwrite" value="on"> Allow overwrite (the link may replace files it uploaded itself, never other files)</label>
       <button class="nc-button" type="submit">Create</button>
     </form>
     {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}

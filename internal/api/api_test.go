@@ -20,6 +20,7 @@ import (
 
 type harness struct {
 	h       http.Handler
+	st      *store.Store
 	token   string
 	roToken string
 }
@@ -42,18 +43,17 @@ func newHarnessEnv(t *testing.T, env map[string]string) *harness {
 	if _, err := db.Migrate(context.Background()); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	st := store.New(db)
-	bs, err := blob.NewFSStore(dir)
-	if err != nil {
-		t.Fatalf("blob: %v", err)
-	}
-
 	cfg, err := config.LoadAndValidate(
 		[]string{"--base-url", "https://x.example.com", "--data", dir},
 		func(k string) string { return env[k] }, io.Discard,
 	)
 	if err != nil {
 		t.Fatalf("config: %v", err)
+	}
+	st := store.New(db).WithMaxFilesPerCollection(cfg.Limits.MaxFilesPerCollection)
+	bs, err := blob.NewFSStore(dir)
+	if err != nil {
+		t.Fatalf("blob: %v", err)
 	}
 
 	h := New(Deps{
@@ -63,7 +63,7 @@ func newHarnessEnv(t *testing.T, env map[string]string) *harness {
 		BaseURL: cfg.Server.BaseURL,
 	})
 
-	return &harness{h: h.Routes(), token: mkToken(t, st, "admin", `["admin"]`), roToken: mkToken(t, st, "ro", `["collections:read"]`)}
+	return &harness{h: h.Routes(), st: st, token: mkToken(t, st, "admin", `["admin"]`), roToken: mkToken(t, st, "ro", `["collections:read"]`)}
 }
 
 func base64urlNoPad(s string) string {

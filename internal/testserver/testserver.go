@@ -42,6 +42,13 @@ func (s *Server) Close() { s.http.Close() }
 // migrations, seeds an admin token, and registers teardown on t.Cleanup.
 func New(t *testing.T) *Server {
 	t.Helper()
+	return NewWithEnv(t, nil)
+}
+
+// NewWithEnv is New with extra ARTIFACTSD_* environment settings applied to the
+// server configuration (e.g. limits or policy overrides a test needs).
+func NewWithEnv(t *testing.T, env map[string]string) *Server {
+	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -55,7 +62,7 @@ func New(t *testing.T) *Server {
 
 	cfg, err := config.LoadAndValidate(
 		[]string{"--base-url", baseURL, "--data", dir, "--listen", ln.Addr().String()},
-		func(string) string { return "" }, io.Discard,
+		func(k string) string { return env[k] }, io.Discard,
 	)
 	if err != nil {
 		_ = ln.Close()
@@ -71,7 +78,8 @@ func New(t *testing.T) *Server {
 		_ = ln.Close()
 		t.Fatalf("testserver: migrate: %v", err)
 	}
-	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation)
+	st := store.New(db).WithDefaultDeleteAfterCreation(cfg.Policy.DeleteAfterCreation).
+		WithMaxFilesPerCollection(cfg.Limits.MaxFilesPerCollection)
 
 	bs, err := blob.NewFSStore(cfg.Server.DataDir)
 	if err != nil {

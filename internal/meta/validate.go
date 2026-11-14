@@ -7,18 +7,21 @@ import (
 	"github.com/jdelic/artifactsd/internal/durations"
 )
 
-// Validate checks the document for well-formedness at write time: valid
-// visibility, auth entry shapes, and parseable expiry durations. Header safety
-// is enforced separately (design/03 §6). It does not require secrets to be
-// hashed.
-func (d *Document) Validate() error {
+// Validate is ValidateWith(nil): validation under the built-in defaults.
+func (d *Document) Validate() error { return d.ValidateWith(nil) }
+
+// ValidateWith checks the document for well-formedness at write time under
+// the operator policy p (nil = built-in defaults): content.headers against the
+// allowlist (design/03 §6), valid visibility, auth entry shapes, and parseable
+// expiry durations. It does not require secrets to be hashed. Apply it to the
+// incoming document or patch only — never to already-stored metadata, which
+// may predate a rule and must stay readable and patchable.
+func (d *Document) ValidateWith(p *Policy) error {
 	var probs []string
 	add := func(format string, args ...any) { probs = append(probs, fmt.Sprintf(format, args...)) }
 
 	if d.Content != nil {
-		for _, name := range RejectedHeaders(d.Content.Headers) {
-			add("content.headers %q is not allowed (hop-by-hop/unsafe)", name)
-		}
+		probs = append(probs, p.headerProblems(d.Content.Headers)...)
 	}
 
 	if d.Access != nil {
