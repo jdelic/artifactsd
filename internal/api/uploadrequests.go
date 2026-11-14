@@ -134,7 +134,7 @@ func (h *Handler) createUploadRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Validate and prepare file_metadata; uploaded files default to private
 	// (artifactsd-m9e.24).
-	fileMetaJSON, ok := h.prepareMetadata(w, req.FileMetadata)
+	fileMetaJSON, ok := h.prepareMetadata(w, r, req.FileMetadata)
 	if !ok {
 		return
 	}

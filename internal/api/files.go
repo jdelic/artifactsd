@@ -306,6 +306,9 @@ func (h *Handler) uploadMetadata(w http.ResponseWriter, r *http.Request) (doc *m
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return nil, false, false
 	}
+	if !requireSandboxPrivilege(w, r, doc) {
+		return nil, false, false
+	}
 	if err := doc.HashSecrets(); err != nil {
 		h.internalServerError(w, "hash secrets", err)
 		return nil, false, false

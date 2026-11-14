@@ -73,7 +73,7 @@ func (h *Handler) internalServerError(w http.ResponseWriter, what string, err er
 
 // prepareMetadata validates a fresh metadata document, hashes its secrets, and
 // returns the storage JSON. Writes a 400 and returns false on invalid input.
-func (h *Handler) prepareMetadata(w http.ResponseWriter, raw json.RawMessage) (json.RawMessage, bool) {
+func (h *Handler) prepareMetadata(w http.ResponseWriter, r *http.Request, raw json.RawMessage) (json.RawMessage, bool) {
 	doc, err := meta.FromJSON(raw)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
@@ -81,6 +81,9 @@ func (h *Handler) prepareMetadata(w http.ResponseWriter, raw json.RawMessage) (j
 	}
 	if err = doc.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
+		return nil, false
+	}
+	if !requireSandboxPrivilege(w, r, doc) {
 		return nil, false
 	}
 	if err = doc.HashSecrets(); err != nil {
@@ -111,6 +114,9 @@ func (h *Handler) mergeMetadata(w http.ResponseWriter, r *http.Request, existing
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return nil, false
 	}
+	if !requireSandboxPrivilege(w, r, patch) {
+		return nil, false
+	}
 	if err = patch.HashSecrets(); err != nil {
 		h.internalServerError(w, "hash secrets", err)
 		return nil, false
@@ -128,4 +134,21 @@ func (h *Handler) mergeMetadata(w http.ResponseWriter, r *http.Request, existing
 		return nil, false
 	}
 	return out, true
+}
+
+// requireSandboxPrivilege rejects (403) a metadata document that turns the
+// content sandbox off unless the caller holds an admin-scoped token
+// (artifactsd-m9e.4). Unsandboxed HTML runs with full same-origin power, so
+// write scope must not be enough to serve it. Setting sandbox true or leaving
+// it unset is always allowed. Every metadata helper calls it, so no handler can
+// forget.
+func requireSandboxPrivilege(w http.ResponseWriter, r *http.Request, doc *meta.Document) bool {
+	if doc == nil || doc.Content == nil || doc.Content.Sandbox == nil || *doc.Content.Sandbox {
+		return true
+	}
+	if p := auth.PrincipalFromContext(r.Context()); p != nil && p.Scopes.Has(auth.ScopeAdmin) {
+		return true
+	}
+	writeError(w, http.StatusForbidden, CodeForbidden, "content.sandbox=false requires an admin-scoped token")
+	return false
 }

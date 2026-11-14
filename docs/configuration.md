@@ -63,7 +63,8 @@ separate bare host (e.g. `admin.example.com`, distinct from the base-URL host):
   the base-URL host. Requests to the wrong plane get `404`.
 - The admin session cookie is host-only, so it is never sent to the public
   origin — artifact JavaScript there cannot reach it even if you disable the
-  sandbox (`content.sandbox: false`), which makes this the right setup for rich
+  sandbox (`content.sandbox: false`, which only admin-scoped tokens may set),
+  which makes this the right setup for rich
   interactive SPAs that need a stable origin.
 - Point both hostnames at artifactsd (same process/listener). If a reverse proxy
   terminates them, list it in `--trusted-proxies` so the admin/public split

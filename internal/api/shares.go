@@ -71,7 +71,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	metaJSON, ok := h.prepareMetadata(w, req.Metadata)
+	metaJSON, ok := h.prepareMetadata(w, r, req.Metadata)
 	if !ok {
 		return
 	}
