@@ -209,7 +209,7 @@ func compileVerifiers(entries []meta.AuthEntry, oidcCache *auth.OIDCProviderCach
 		}
 	}
 	if len(basic) > 0 {
-		verifiers = append(verifiers, auth.NewMultiBasicVerifier(basic, ""))
+		verifiers = append(verifiers, auth.NewBasicUsersVerifier(basic, ""))
 	}
 	return verifiers
 }
