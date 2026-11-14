@@ -12,7 +12,7 @@
   </div>
 
   <div class="nc-panel" data-label="Content / Access / Crawl / Expiry">
-    <form class="nc-form nc-form-grid" hx-post="{{.AdminPath}}/collections/{{.Collection}}/meta/fields?path={{.Path}}"
+    <form class="nc-form nc-form-grid" hx-post="{{.AdminPath}}/collections/{{.Collection}}/meta/fields?path={{urlquery .Path}}"
           hx-target="#meta-panel" hx-swap="outerHTML">
       {{if .FieldsError}}<div class="nc-error nc-form-wide">{{.FieldsError}}</div>{{end}}
       <label>Content-Type {{template "nc_info" "Overrides the served Content-Type response header. Leave blank to auto-detect from the file extension."}}
@@ -98,7 +98,7 @@
     <p class="nc-help">The full metadata/policy document for this object.
       <a href="https://github.com/jdelic/artifactsd/blob/main/.agent-docs/design/03-metadata-policy.md" target="_blank" rel="noopener">What's this? (schema &amp; semantics)</a>
     </p>
-    <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/meta/raw?path={{.Path}}"
+    <form class="nc-form" hx-post="{{.AdminPath}}/collections/{{.Collection}}/meta/raw?path={{urlquery .Path}}"
           hx-target="#meta-panel" hx-swap="outerHTML">
       {{if .RawError}}<div class="nc-error nc-form-wide">{{.RawError}}</div>{{end}}
       <textarea name="raw" rows="16" cols="70" class="nc-raw-json">{{.RawJSON}}</textarea>
