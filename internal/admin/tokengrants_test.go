@@ -11,9 +11,9 @@ import (
 	"github.com/jdelic/artifactsd/internal/store"
 )
 
-// TestTokens_RestrictedGrants: the tokens screen creates restricted tokens,
-// adds and removes grants, and a collection page lists its grants
-// (artifactsd-m9e.29, design/16 §7).
+// TestTokens_RestrictedGrants: the tokens screen creates restricted tokens;
+// each one's grants subpage lists, adds and removes grants; a collection's
+// shares page lists its grants (artifactsd-m9e.29/.30, design/16 §7).
 func TestTokens_RestrictedGrants(t *testing.T) {
 	ha := newFullHarness(t)
 	for _, n := range []string{"reports", "other"} {
@@ -37,18 +37,32 @@ func TestTokens_RestrictedGrants(t *testing.T) {
 	}
 	// A restricted token needs no token-level scopes.
 	body = post("/tokens", url.Values{"name": {"agent"}, "restricted": {"on"}})
-	if !strings.Contains(body, "shown once") || !strings.Contains(body, "restricted") {
-		t.Fatalf("create restricted: %s", body)
-	}
 	agent := tokenNamed(t, ha.st, "agent")
 	if !agent.Restricted {
 		t.Fatal("token not restricted")
 	}
 	id := strconv.FormatInt(agent.ID, 10)
+	if !strings.Contains(body, "shown once") || !strings.Contains(body, `/admin/tokens/`+id+`/grants">add grants`) {
+		t.Fatalf("create restricted should link its grants page: %s", body)
+	}
+
+	// The grants subpage starts empty and is a page of its own.
+	rec := doReq(t, ha, http.MethodGet, "/tokens/"+id+"/grants", http.NoBody, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No grants: this token reaches nothing") ||
+		!strings.Contains(rec.Body.String(), `<option value="reports">`) {
+		t.Fatalf("grants page = %d: %s", rec.Code, rec.Body)
+	}
 
 	body = post("/tokens/"+id+"/grants", url.Values{"collection": {"reports"}, "scopes": {"collections:read", "shares:read"}})
-	if !strings.Contains(body, "reports") || !strings.Contains(body, "collections:read, shares:read") {
+	if !strings.Contains(body, `id="tokengrants-panel"`) || !strings.Contains(body, "reports") ||
+		!strings.Contains(body, "collections:read, shares:read") {
 		t.Errorf("after grant: %s", body)
+	}
+	// The tokens screen only summarizes and links the grants.
+	rec = doReq(t, ha, http.MethodGet, "/tokens", http.NoBody, "")
+	if !strings.Contains(rec.Body.String(), `/admin/tokens/`+id+`/grants">1 grant</a>`) ||
+		strings.Contains(rec.Body.String(), "collections:read, shares:read") {
+		t.Errorf("tokens screen should link, not inline, the grants: %s", rec.Body)
 	}
 	body = post("/tokens/"+id+"/grants", url.Values{"collection": {"other"}, "scopes": {"admin"}})
 	if !strings.Contains(body, "admin cannot be granted") {
@@ -60,8 +74,8 @@ func TestTokens_RestrictedGrants(t *testing.T) {
 	}
 
 	// The collection's access (shares) page lists the tokens holding grants on it.
-	rec := doReq(t, ha, http.MethodGet, "/collections/reports/shares", http.NoBody, "")
-	if !strings.Contains(rec.Body.String(), "agent") || !strings.Contains(rec.Body.String(), "collections:read, shares:read") {
+	rec = doReq(t, ha, http.MethodGet, "/collections/reports/shares", http.NoBody, "")
+	if !strings.Contains(rec.Body.String(), `/admin/tokens/`+id+`/grants">agent</a>`) || !strings.Contains(rec.Body.String(), "collections:read, shares:read") {
 		t.Errorf("collection page lacks the grant: %s", rec.Body)
 	}
 
@@ -71,12 +85,20 @@ func TestTokens_RestrictedGrants(t *testing.T) {
 		t.Errorf("after remove: grants=%v body=%s", grants, body)
 	}
 
-	// Grants on an unrestricted token are refused.
+	// Unrestricted tokens have no grants page, and grants on them are refused.
 	post("/tokens", url.Values{"name": {"plain"}, "scopes": {"collections:read"}})
-	plain := tokenNamed(t, ha.st, "plain")
-	body = post("/tokens/"+strconv.FormatInt(plain.ID, 10)+"/grants", url.Values{"collection": {"reports"}, "scopes": {"collections:read"}})
-	if !strings.Contains(body, "grants require a restricted token") {
-		t.Errorf("grant on unrestricted token: %s", body)
+	plainGrants := "/tokens/" + strconv.FormatInt(tokenNamed(t, ha.st, "plain").ID, 10) + "/grants"
+	rec = doReq(t, ha, http.MethodGet, plainGrants, http.NoBody, "")
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "not restricted") {
+		t.Errorf("unrestricted grants page = %d: %s", rec.Code, rec.Body)
+	}
+	form := url.Values{"collection": {"reports"}, "scopes": {"collections:read"}}
+	rec = doReq(t, ha, http.MethodPost, plainGrants, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("grant on unrestricted token = %d", rec.Code)
+	}
+	if rec = doReq(t, ha, http.MethodGet, "/tokens/999/grants", http.NoBody, ""); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown token grants page = %d", rec.Code)
 	}
 
 	entries, _ := ha.st.QueryAudit(context.Background(), store.AuditFilter{Action: "token.grant", Limit: 10})
@@ -86,6 +108,27 @@ func TestTokens_RestrictedGrants(t *testing.T) {
 	entries, _ = ha.st.QueryAudit(context.Background(), store.AuditFilter{Action: "token.ungrant", Limit: 10})
 	if len(entries) != 1 {
 		t.Errorf("token.ungrant audit entries = %d, want 1", len(entries))
+	}
+}
+
+// TestNav_TokensAndAuditTopLevel: Tokens and Audit Log are top-level menu
+// items; the old Tools section is gone (artifactsd-m9e.30).
+func TestNav_TokensAndAuditTopLevel(t *testing.T) {
+	ha := newFullHarness(t)
+	for _, tc := range []struct{ path, active string }{
+		{"/tokens", "Tokens"}, {"/audit", "Audit&nbsp;Log"},
+	} {
+		body := doReq(t, ha, http.MethodGet, tc.path, http.NoBody, "").Body.String()
+		if strings.Contains(body, "Tools") || strings.Contains(body, `data-label="Tools"`) {
+			t.Errorf("%s still shows Tools", tc.path)
+		}
+		if !strings.Contains(body, `href="/admin/tokens" data-shortcut="t"><u>T</u>okens</a>`) ||
+			!strings.Contains(body, `href="/admin/audit" data-shortcut="a"><u>A</u>udit&nbsp;Log</a>`) {
+			t.Errorf("%s nav lacks the Tokens/Audit Log items", tc.path)
+		}
+		if !strings.Contains(body, `nc-nav nc-nav-active" href="/admin/`+strings.ToLower(strings.Split(tc.active, "&")[0])) {
+			t.Errorf("%s: %s not highlighted", tc.path, tc.active)
+		}
 	}
 }
 

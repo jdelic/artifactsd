@@ -1,0 +1,55 @@
+{{define "tokengrants"}}
+<div class="nc-panel" data-label="Token">
+  <a href="{{.AdminPath}}/tokens">&larr; Tokens</a>
+  &nbsp; <b>{{.TokenName}}</b> ({{.Prefix}}) <span class="nc-restricted">restricted</span>
+  {{if .Revoked}}<span class="nc-error">revoked</span>{{end}}
+  <p class="nc-hint">This token reaches only the collections below, each with the scopes listed. To it, every other collection does not exist.</p>
+</div>
+{{template "tokengrants_panel" .}}
+{{end}}
+
+{{define "tokengrants_panel"}}
+<div id="tokengrants-panel">
+  {{if not .Revoked}}
+  <div class="nc-panel" data-label="Grant a collection">
+    {{if .Collections}}
+    <form class="nc-form" hx-post="{{.AdminPath}}/tokens/{{.TokenID}}/grants" hx-target="#tokengrants-panel" hx-swap="outerHTML">
+      <label>Collection
+        <select name="collection" data-shortcut="g" data-shortcut-action="focus">
+          {{range .Collections}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+      </label>
+      <span class="nc-scopes">
+        {{range .GrantScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
+      </span>
+      <button class="nc-button" type="submit">Grant</button>
+    </form>
+    <p class="nc-hint">Granting a collection that already has a grant replaces its scopes.</p>
+    {{else}}
+    <p>No collections exist yet. Create one first, then grant it here.</p>
+    {{end}}
+    {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+  </div>
+  {{else if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
+  <div class="nc-panel" data-label="Grants">
+    <table class="nc-table">
+      <tr><th>Collection</th><th>Scopes</th><th>Granted</th><th></th></tr>
+      {{range .Grants}}
+      <tr>
+        <td><a href="{{$.AdminPath}}/collections/{{.Collection}}/shares">{{.Collection}}</a></td>
+        <td>{{.Scopes}}</td>
+        <td>{{.CreatedAt}}</td>
+        <td>
+          <form class="nc-inline-form" hx-post="{{$.AdminPath}}/tokens/{{$.TokenID}}/grants/{{.Collection}}/remove"
+                hx-target="#tokengrants-panel" hx-swap="outerHTML" hx-confirm="Remove the grant on {{.Collection}}?">
+            <button class="nc-button" type="submit">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="4">No grants: this token reaches nothing.</td></tr>
+      {{end}}
+    </table>
+  </div>
+</div>
+{{end}}

@@ -237,8 +237,9 @@ artifactctl token ungrant 7 scratch
 `collections:*` and `shares:*` scopes — never `admin`. Restricted tokens cannot
 create collections: create one first, then grant it. `token list` shows
 `restricted: reports=collections:read,collections:write; ...` instead of
-scopes. The admin UI's **Tokens** screen does the same, and a collection's
-**Shares** screen lists the restricted tokens that can reach it.
+scopes. In the admin UI, **Tokens** links each restricted token to its own
+grants page, where grants are added and removed, and a collection's **Shares**
+screen lists the restricted tokens that can reach it.
 
 ### Maintenance & version
 

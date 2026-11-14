@@ -38,6 +38,7 @@ type sharesPanelData struct {
 
 // collectionGrantRow is one token holding a grant on the collection.
 type collectionGrantRow struct {
+	TokenID int64
 	Token   string
 	Scopes  string
 	Revoked bool
@@ -258,7 +259,7 @@ func (h *Handler) loadSharesPanel(r *http.Request, c *store.Collection, newURL, 
 	}
 	grantRows := make([]collectionGrantRow, 0, len(grants))
 	for _, g := range grants {
-		grantRows = append(grantRows, collectionGrantRow{Token: g.TokenName, Scopes: joinScopes(g.Scopes), Revoked: g.TokenRevoked})
+		grantRows = append(grantRows, collectionGrantRow{TokenID: g.TokenID, Token: g.TokenName, Scopes: joinScopes(g.Scopes), Revoked: g.TokenRevoked})
 	}
 	return sharesPanelData{
 		AdminPath: h.cfg.Admin.Path, Collection: c.Name, Shares: rows, Grants: grantRows,

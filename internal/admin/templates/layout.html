@@ -19,7 +19,8 @@
     <a class="nc-nav{{if eq .Active "files"}} nc-nav-active{{end}}" href="{{.AdminPath}}/files"><u>F</u>iles</a>
     <a class="nc-nav{{if eq .Active "shares"}} nc-nav-active{{end}}" href="{{.AdminPath}}/shares"><u>S</u>hares</a>
     <a class="nc-nav{{if eq .Active "uploadrequests"}} nc-nav-active{{end}}" href="{{.AdminPath}}/upload-requests" data-shortcut="u"><u>U</u>pload&nbsp;Requests</a>
-    <a class="nc-nav{{if eq .Active "tools"}} nc-nav-active{{end}}" href="{{.AdminPath}}/tokens"><u>T</u>ools</a>
+    <a class="nc-nav{{if eq .Active "tokens"}} nc-nav-active{{end}}" href="{{.AdminPath}}/tokens" data-shortcut="t"><u>T</u>okens</a>
+    <a class="nc-nav{{if eq .Active "audit"}} nc-nav-active{{end}}" href="{{.AdminPath}}/audit" data-shortcut="a"><u>A</u>udit&nbsp;Log</a>
     <div class="nc-spacer"></div>
     {{if .Identity}}<span class="nc-user">{{or .Identity.Email .Identity.Subject}}</span>
     <button type="button" class="nc-nav nc-logout" data-shortcut="l"

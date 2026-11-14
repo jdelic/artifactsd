@@ -588,16 +588,6 @@ body {
   padding: 0 4px;
   font-size: 0.85em;
 }
-.nc-grant {
-  margin-top: 4px;
-}
-.nc-grant-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  margin-top: 6px;
-}
 .nc-hint {
   font-size: 0.85em;
   color: var(--nc-grey);

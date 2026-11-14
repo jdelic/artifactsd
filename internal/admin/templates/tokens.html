@@ -1,8 +1,4 @@
 {{define "tokens"}}
-<div class="nc-panel" data-label="Tools">
-  <a href="{{.AdminPath}}/tokens">Tokens</a>
-  <a href="{{.AdminPath}}/audit">Audit log</a>
-</div>
 {{template "tokens_panel" .}}
 {{end}}
 
@@ -14,48 +10,28 @@
       <span class="nc-scopes">
         {{range .KnownScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
       </span>
-      <label class="nc-scope" title="Reaches only the collections granted below; leave scopes unchecked"><input type="checkbox" name="restricted" value="1"> restricted</label>
+      <label class="nc-scope" title="Reaches only the collections granted on its grants page; leave scopes unchecked"><input type="checkbox" name="restricted" value="1"> restricted</label>
       <button class="nc-button" type="submit">Create</button>
     </form>
     {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
     {{if .NewToken}}
     <div class="nc-saved">
       token for "{{.NewTokenFor}}" (shown once, copy it now): <code>{{.NewToken}}</code>
+      {{if .NewTokenGrantsID}}<br>It is restricted and reaches nothing yet: <a href="{{.AdminPath}}/tokens/{{.NewTokenGrantsID}}/grants">add grants</a>.{{end}}
     </div>
     {{end}}
   </div>
   <div class="nc-panel" data-label="Tokens">
     <table class="nc-table">
       <tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Created</th><th>Status</th><th></th></tr>
-      {{range $t := .Tokens}}
+      {{range .Tokens}}
       <tr>
         <td>{{.Name}}</td>
         <td>{{.Prefix}}</td>
         <td>
           {{if .Restricted}}
           <span class="nc-restricted">restricted</span>
-          {{range .Grants}}
-          <div class="nc-grant">
-            <b>{{.Collection}}</b>: {{.Scopes}}
-            {{if not $t.Revoked}}
-            <form class="nc-inline-form" hx-post="{{$.AdminPath}}/tokens/{{$t.ID}}/grants/{{.Collection}}/remove"
-                  hx-target="#tokens-panel" hx-swap="outerHTML" hx-confirm="Remove the grant on {{.Collection}}?">
-              <button class="nc-button" type="submit">Remove</button>
-            </form>
-            {{end}}
-          </div>
-          {{else}}
-          <div class="nc-grant">no grants: reaches nothing</div>
-          {{end}}
-          {{if and (not .Revoked) $.Collections}}
-          <form class="nc-form nc-grant-form" hx-post="{{$.AdminPath}}/tokens/{{.ID}}/grants" hx-target="#tokens-panel" hx-swap="outerHTML">
-            <select name="collection" aria-label="Collection">
-              {{range $.Collections}}<option value="{{.}}">{{.}}</option>{{end}}
-            </select>
-            {{range $.GrantScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
-            <button class="nc-button" type="submit">Grant</button>
-          </form>
-          {{end}}
+          <a href="{{$.AdminPath}}/tokens/{{.ID}}/grants">{{if .GrantCount}}{{.GrantCount}} grant{{if gt .GrantCount 1}}s{{end}}{{else}}no grants{{end}}</a>
           {{else}}{{.Scopes}}{{end}}
         </td>
         <td>{{.CreatedAt}}</td>

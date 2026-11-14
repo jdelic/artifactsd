@@ -56,12 +56,13 @@ decision E1 ("simple beats complex here").
 | File detail | view/download, edit metadata (content-type, headers, access, crawl, expiry) |
 | Sandbox state | collections, folders and files with the sandbox turned off show a "sandbox off" badge; files whose content a non-admin changed since an admin approved it show "awaiting approval" and an **Approve unsandboxed** action (artifactsd-7tl.9) |
 | Metadata editor | structured form per section (incl. visibility, directory listing, crawl/index, **sandbox** tri-state, expiry with per-mechanism enable toggles + effective-expiry banner) with per-field info tooltips, plus the full **JSON policy document** editor; save errors render inline next to the section that produced them |
-| Shares | list/create/revoke share URLs; copy link; set expiry & policy |
+| Shares | list/create/revoke share URLs; copy link; set expiry & policy; read-only list of the restricted tokens granted the collection, each linking to its grants page |
 | Access policy | set visibility, directory listing, auth credentials (bearer/basic/oidc) |
 | Crawl/index policy | toggle crawlable/indexable, robots block editor |
 | Expiry | view/edit expiry rules; show effective absolute expiry |
-| Tokens | list/create/revoke API tokens (secret shown once) |
-| Audit log | filter by action/date; deletions, admin actions, **and authenticated access to protected objects** (`object.access`, decision N6); DB-backed |
+| Tokens (top-level menu) | list/create/revoke API tokens (secret shown once); restricted tokens show a badge and a link to their grants page |
+| Token grants | per restricted token: table of its collection grants (collection, scopes, granted) with Remove, plus a form to add or replace a grant ([16](16-token-scoping.md) §7) |
+| Audit log (top-level menu) | filter by action/date; deletions, admin actions, **and authenticated access to protected objects** (`object.access`, decision N6); DB-backed |
 | Maintenance | trigger cleanup, view janitor stats |
 
 (No operational access-log screen: public/served-request logs stream to stdout,

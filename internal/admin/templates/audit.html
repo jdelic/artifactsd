@@ -1,8 +1,4 @@
 {{define "audit"}}
-<div class="nc-panel" data-label="Tools">
-  <a href="{{.AdminPath}}/tokens">Tokens</a>
-  <a href="{{.AdminPath}}/audit">Audit log</a>
-</div>
 <div class="nc-panel" data-label="Filter">
   <form class="nc-form" method="get" action="{{.AdminPath}}/audit">
     <label>Action <input type="text" name="action" value="{{.Action}}" placeholder="collection.create" data-shortcut="f" data-shortcut-action="focus"></label>
