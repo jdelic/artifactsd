@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -188,5 +190,87 @@ func TestAdminUI_CleanupWithValidCSRFToken(t *testing.T) {
 	s.routes().ServeHTTP(rec, r)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cleanup with valid CSRF token = %d, body %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAdminUpload_AdminHostUploadURLIsSameOrigin: with ARTIFACTSD_ADMIN_HOST
+// set, the admin UI's begin-upload returns an upload_url on the admin host —
+// a public-host URL would be a cross-origin PUT the server has no CORS for —
+// and the PUT to it succeeds there (artifactsd-m9e.15).
+func TestAdminUpload_AdminHostUploadURLIsSameOrigin(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(context.Background(), filepath.Join(dir, store.DBFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(db)
+	bs, err := blob.NewFSStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, _ := auth.HashPassword("s3cret")
+	env := map[string]string{
+		"ARTIFACTSD_ADMIN_BASIC_USER":          "root",
+		"ARTIFACTSD_ADMIN_BASIC_PASSWORD_HASH": hash,
+		"ARTIFACTSD_BASE_URL":                  "https://pub.example.com",
+		"ARTIFACTSD_ADMIN_HOST":                "admin.example.com",
+		"ARTIFACTSD_DATA_DIR":                  dir,
+	}
+	cfg, err := config.LoadAndValidate(nil, func(k string) string { return env[k] }, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Options{
+		Config: cfg, Logger: audit.NewAppLogger(io.Discard, "error"), Access: audit.NewAccessLogger(io.Discard),
+		DB: db, Store: st, Blob: bs,
+	})
+	if err := st.CreateCollection(context.Background(), &store.Collection{Name: "demo", Metadata: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	send := func(method, target, body string, hdr map[string]string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "https://admin.example.com"+target, strings.NewReader(body))
+		r.Host = "admin.example.com"
+		r.SetBasicAuth("root", "s3cret")
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec
+	}
+
+	dash := send(http.MethodGet, "/admin/", "", nil)
+	if dash.Code != http.StatusOK {
+		t.Fatalf("dashboard on admin host = %d", dash.Code)
+	}
+	token := extractCSRFToken(t, dash.Body.String())
+	rec := send(http.MethodPost, "/admin/collections/demo/upload/begin", `{"path":"f.txt"}`, map[string]string{
+		"Content-Type": "application/json", "X-CSRF-Token": token, "Origin": "https://admin.example.com",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("begin upload = %d (%s)", rec.Code, rec.Body)
+	}
+	var resp struct {
+		UploadURL string `json:"upload_url"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(resp.UploadURL)
+	if err != nil || u.Host != "admin.example.com" {
+		t.Fatalf("upload_url = %q, want it on the admin host", resp.UploadURL)
+	}
+
+	put := httptest.NewRequest(http.MethodPut, resp.UploadURL, strings.NewReader("bytes"))
+	put.Host = u.Host
+	putRec := httptest.NewRecorder()
+	h.ServeHTTP(putRec, put)
+	if putRec.Code != http.StatusCreated {
+		t.Errorf("PUT to upload_url on the admin host = %d (%s)", putRec.Code, putRec.Body)
 	}
 }

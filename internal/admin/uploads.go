@@ -96,7 +96,11 @@ func (h *Handler) beginUpload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(beginUploadResponse{
-		UploadURL: strings.TrimRight(h.cfg.Server.BaseURL, "/") + "/api/v1/uploads/" + uploadID,
+		// Same origin as the admin UI: with ARTIFACTSD_ADMIN_HOST set, a
+		// public-host URL would make the browser's PUT cross-origin, and the
+		// server deliberately has no CORS. /api/v1 is served on both hosts
+		// (artifactsd-m9e.15).
+		UploadURL: strings.TrimRight(h.cfg.Server.AdminBaseURL(), "/") + "/api/v1/uploads/" + uploadID,
 		UploadID:  uploadID,
 		Method:    http.MethodPut,
 		ExpiresAt: sess.ExpiresAt.UTC().Format(time.RFC3339),
