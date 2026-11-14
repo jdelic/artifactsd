@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -41,6 +42,29 @@ func IsKnownScope(sc Scope) bool {
 		}
 	}
 	return false
+}
+
+// IsGrantScope reports whether sc may appear on a per-collection grant
+// (design/16 §2): any known scope except admin.
+func IsGrantScope(sc Scope) bool {
+	return sc != ScopeAdmin && IsKnownScope(sc)
+}
+
+// ValidateGrantScopes checks the scope list of one per-collection grant
+// (design/16 §2): at least one scope, all known, never admin.
+func ValidateGrantScopes(scopes []string) error {
+	if len(scopes) == 0 {
+		return errors.New("a grant needs at least one scope")
+	}
+	for _, s := range scopes {
+		if Scope(s) == ScopeAdmin {
+			return errors.New("admin cannot be granted per collection")
+		}
+		if !IsGrantScope(Scope(s)) {
+			return errors.New("unknown scope: " + s)
+		}
+	}
+	return nil
 }
 
 // ScopeSet is a token's granted scopes.

@@ -213,5 +213,8 @@ func (h *Handler) lookupShare(w http.ResponseWriter, r *http.Request) (*store.Sh
 		h.internalServerError(w, "lookup share collection", err)
 		return nil, nil, false
 	}
+	if !h.authorizeCollection(w, r, c, "share does not exist") {
+		return nil, nil, false
+	}
 	return sh, c, true
 }

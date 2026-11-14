@@ -21,9 +21,12 @@ is bound to the token that opened it before initialization completes. If the
 adapter no longer retains a session's binding, the client must initialize a
 new session with its own token.
 
-1. Mint one token per agent with only the scopes it needs, e.g.
-   `artifactctl token create my-agent --scope collections:write`
-   (add `collections:delete` only if it must delete).
+1. Mint one token per agent with only the scopes it needs. Prefer a
+   **restricted** token limited to the agent's own collections, e.g.
+   `artifactctl token create my-agent --restricted --grant my-agent-work=collections:write`
+   (add `collections:delete` only if it must delete). To a restricted token,
+   every other collection does not exist. An unrestricted
+   `--scope collections:write` token reaches every collection.
 2. Put it in the agent's environment as `ARTIFACTSD_TOKEN` — never paste the
    value into a shared config file.
 3. Print the client config with

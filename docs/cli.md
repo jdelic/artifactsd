@@ -208,8 +208,11 @@ limits the number of levels.
 
 ```
 artifactctl token create <name> [--scope ...] [--expires-in <dur>]
+artifactctl token create <name> --restricted [--grant <collection>=<scope>[,<scope>...]]...
 artifactctl token list
 artifactctl token revoke <id>
+artifactctl token grant <id> <collection> --scope <scope> [--scope ...]
+artifactctl token ungrant <id> <collection>
 ```
 
 `token create` prints the secret **once** — store it then. Available scopes:
@@ -218,6 +221,25 @@ artifactctl token revoke <id>
 --help` explains each). `rm` and `share revoke` need the `:delete` scopes;
 `:write` does not include them. Managing
 tokens and upload requests requires `admin`.
+
+A **restricted** token reaches only the collections it is granted, with
+scopes per collection; to it, every other collection looks like it does not
+exist. Give each agent its own restricted token:
+
+```
+artifactctl token create agent-reports --restricted \
+    --grant reports=collections:read,collections:write
+artifactctl token grant 7 scratch --scope collections:read   # add or replace
+artifactctl token ungrant 7 scratch
+```
+
+`token grant` replaces that grant's scopes. Grant scopes are the
+`collections:*` and `shares:*` scopes — never `admin`. Restricted tokens cannot
+create collections: create one first, then grant it. `token list` shows
+`restricted: reports=collections:read,collections:write; ...` instead of
+scopes. In the admin UI, **Tokens** links each restricted token to its own
+grants page, where grants are added and removed, and a collection's **Shares**
+screen lists the restricted tokens that can reach it.
 
 ### Maintenance & version
 

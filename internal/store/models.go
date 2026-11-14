@@ -112,6 +112,21 @@ type APIToken struct {
 	LastUsedAt  *time.Time
 	ExpiresAt   *time.Time
 	RevokedAt   *time.Time
+	// Restricted tokens reach only the collections in their grants (design/16).
+	Restricted bool
+}
+
+// TokenGrant gives a restricted API token the listed scopes on one
+// collection (design/16 §2). CollectionName, TokenName and TokenRevoked are
+// filled on reads.
+type TokenGrant struct {
+	TokenID        int64
+	CollectionID   int64
+	CollectionName string
+	TokenName      string
+	TokenRevoked   bool
+	Scopes         json.RawMessage
+	CreatedAt      time.Time
 }
 
 // Upload request statuses (design/15 §3).

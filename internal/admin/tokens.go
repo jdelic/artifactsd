@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -20,6 +21,10 @@ type tokenRow struct {
 	Scopes    string
 	CreatedAt string
 	Revoked   bool
+	// Restricted tokens reach only their granted collections (design/16);
+	// the grants are managed on the token's grants subpage.
+	Restricted bool
+	GrantCount int
 }
 
 // tokensPanelData backs the "tokens_panel" partial.
@@ -29,7 +34,10 @@ type tokensPanelData struct {
 	KnownScopes []string
 	NewToken    string
 	NewTokenFor string
-	Error       string
+	// NewTokenGrantsID is set when the token just created is restricted, to
+	// point the admin at its (still empty) grants page.
+	NewTokenGrantsID int64
+	Error            string
 }
 
 var tokensFKeys = []fkey{{"Alt-C", "Create"}, {"Alt-L", "Logout"}}
@@ -54,15 +62,10 @@ func (h *Handler) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scopes := r.Form["scopes"]
-	if len(scopes) == 0 {
-		h.renderTokensPanel(w, r, "", "", "at least one scope is required")
+	restricted := r.FormValue("restricted") != ""
+	if msg := validateTokenForm(restricted, scopes); msg != "" {
+		h.renderTokensPanel(w, r, "", "", msg)
 		return
-	}
-	for _, s := range scopes {
-		if !auth.IsKnownScope(auth.Scope(s)) {
-			h.renderTokensPanel(w, r, "", "", "unknown scope: "+s)
-			return
-		}
 	}
 
 	secret, hash, prefix, err := auth.GenerateToken()
@@ -75,7 +78,7 @@ func (h *Handler) createToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "encoding scopes: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	tok := &store.APIToken{Name: tokenName, TokenHash: hash, TokenPrefix: prefix, Scopes: scopesJSON}
+	tok := &store.APIToken{Name: tokenName, TokenHash: hash, TokenPrefix: prefix, Scopes: scopesJSON, Restricted: restricted}
 	ctx := r.Context()
 	if err := h.store.CreateToken(ctx, tok); err != nil {
 		h.renderTokensPanel(w, r, "", "", "creating token: "+err.Error())
@@ -85,7 +88,41 @@ func (h *Handler) createToken(w http.ResponseWriter, r *http.Request) {
 		id := session.FromContext(ctx)
 		_ = h.audit.Record(ctx, &audit.Entry{Action: audit.ActionTokenCreate, Actor: actorOf(id), Target: tok.Name})
 	}
-	h.renderTokensPanel(w, r, secret, tok.Name, "")
+	data, err := h.loadTokensPanel(r, secret, tok.Name, "")
+	if err != nil {
+		http.Error(w, "loading tokens: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if tok.Restricted {
+		data.NewTokenGrantsID = tok.ID
+	}
+	h.renderPartial(w, "tokens_panel", data)
+}
+
+// validateTokenForm checks the create form (design/16 §2): unrestricted
+// tokens need known scopes; restricted tokens take none (their scopes live on
+// grants, added afterwards) and can never be admin. Returns "" when valid.
+func validateTokenForm(restricted bool, scopes []string) string {
+	if restricted {
+		for _, s := range scopes {
+			if auth.Scope(s) == auth.ScopeAdmin {
+				return "admin tokens cannot be restricted"
+			}
+		}
+		if len(scopes) > 0 {
+			return "restricted tokens carry scopes on their grants: leave the scopes unchecked and add grants on the token's grants page"
+		}
+		return ""
+	}
+	if len(scopes) == 0 {
+		return "at least one scope is required"
+	}
+	for _, s := range scopes {
+		if !auth.IsKnownScope(auth.Scope(s)) {
+			return "unknown scope: " + s
+		}
+	}
+	return ""
 }
 
 // revokeToken revokes an API token.
@@ -119,16 +156,23 @@ func (h *Handler) renderTokensPanel(w http.ResponseWriter, r *http.Request, newT
 }
 
 func (h *Handler) loadTokensPanel(r *http.Request, newToken, newTokenFor, errMsg string) (tokensPanelData, error) {
-	tokens, err := h.store.ListTokens(r.Context())
+	ctx := r.Context()
+	tokens, err := h.store.ListTokens(ctx)
+	if err != nil {
+		return tokensPanelData{}, err
+	}
+	grants, err := h.store.ListTokenGrants(ctx)
 	if err != nil {
 		return tokensPanelData{}, err
 	}
 	rows := make([]tokenRow, 0, len(tokens))
 	for _, t := range tokens {
-		rows = append(rows, tokenRow{
+		row := tokenRow{
 			ID: t.ID, Name: t.Name, Prefix: t.TokenPrefix, Scopes: joinScopes(t.Scopes),
 			CreatedAt: t.CreatedAt.UTC().Format("2006-01-02 15:04"), Revoked: t.RevokedAt != nil,
-		})
+			Restricted: t.Restricted, GrantCount: len(grants[t.ID]),
+		}
+		rows = append(rows, row)
 	}
 	known := make([]string, 0, len(auth.KnownScopes))
 	for _, s := range auth.KnownScopes {
@@ -145,8 +189,10 @@ func joinScopes(raw []byte) string {
 	if err != nil {
 		return ""
 	}
+	scopes := set.Strings()
+	sort.Strings(scopes)
 	out := ""
-	for i, s := range set.Strings() {
+	for i, s := range scopes {
 		if i > 0 {
 			out += ", "
 		}

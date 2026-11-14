@@ -11,6 +11,9 @@ envelope.
   (`admin`, `collections:read|write|delete`, `shares:read|write|delete`). `:write`
   and `:delete` each imply `:read`; `:write` does not imply `:delete`
   (artifactsd-m9e.25), so DELETE routes require the delete scope.
+  **Restricted** tokens carry their scopes on per-collection grants instead
+  and reach only granted collections; others answer `404`
+  ([16](16-token-scoping.md)).
 - **Errors**:
   ```json
   { "error": { "code": "not_found", "message": "collection does not exist" } }
@@ -171,6 +174,8 @@ Returns the structured, policy-filtered listing in SPEC §10.5. Honors
 GET    /api/v1/tokens                  list API tokens (metadata only)
 POST   /api/v1/tokens                  create token → returns secret ONCE
 DELETE /api/v1/tokens/{id}             revoke token
+PUT    /api/v1/tokens/{id}/grants/{c}  create/replace a grant (restricted tokens, [16](16-token-scoping.md) §5)
+DELETE /api/v1/tokens/{id}/grants/{c}  remove a grant
 GET    /api/v1/audit?since=&action=    audit log (deletions + admin actions)
 POST   /api/v1/maintenance/cleanup     trigger janitor pass now (SPEC §14)
 GET    /api/v1/stats                   counts, storage usage

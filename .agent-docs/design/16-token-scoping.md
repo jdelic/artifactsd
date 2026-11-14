@@ -1,7 +1,8 @@
 # 16 — Per-collection grants for API tokens
 
-> **Status: ACCEPTED** (owner decisions 2026-11-14, artifactsd-m9e.26). The
-> implementation is tracked in the tickets listed in §10.
+> **Status: ACCEPTED** (owner decisions 2026-11-14, artifactsd-m9e.26).
+> Implemented: store, auth and API in artifactsd-m9e.28; admin UI and CLI in
+> artifactsd-m9e.29.
 
 ## 1. Problem
 
@@ -71,6 +72,8 @@ Two steps, so no route can forget the check:
 1. **Route gate** (`requireScope`): an unrestricted principal must satisfy the
    route's scope as today. A restricted principal passes the gate if *any* of its
    grants satisfies it; the required scope is put in the request context.
+   A route whose scope no grant holds is therefore `403` before any collection
+   is looked up — independent of the collection, so it discloses nothing.
 2. **Collection gate** (`lookupCollection` and every place that resolves a
    collection indirectly): a restricted principal needs a grant for that
    collection satisfying the route's scope.
@@ -115,10 +118,15 @@ flood the audit table.
 
 ## 7. Surfaces
 
-- **Admin UI:** the token form gets a "Restricted" switch and a grants editor
-  (collection picker + scope checkboxes per row; disabled for `admin`); the
-  token list shows restriction and grants; a collection's page lists the tokens
-  that hold grants on it.
+- **Admin UI:** Tokens and Audit Log are top-level menu items. The token form
+  gets a "restricted" checkbox (scopes left unchecked; `admin` refused). In
+  the token list a restricted token shows a badge and a link to its own
+  **grants page** (`{admin}/tokens/{id}/grants`, artifactsd-m9e.30): a table of
+  its grants (collection, scopes, granted, Remove) and a grant form
+  (collection picker + grant-scope checkboxes; re-granting replaces the
+  scopes). Unrestricted tokens have no grants page (404). A collection's Shares
+  screen lists the restricted tokens holding grants on it, linking to their
+  grants pages.
 - **CLI:** `artifactctl token create <name> --restricted --grant reports=collections:read,collections:write`
   (repeatable), `artifactctl token grant <id> <collection> --scope …`,
   `artifactctl token ungrant <id> <collection>`, `token list` shows grants.
@@ -152,14 +160,15 @@ a downgrade — revoke them first if you ever roll back.
 
 1. **Store + auth + API** — migration, `Principal.Restricted/Grants`, the two
    gates of §4 on every route, grant management API (§5), audit (§6). Tests:
-   - restricted token with `read` on A: A's files/meta/tree/folders/crawl/shares
-     200; every route on B → 404; `GET /collections` and `GET /crawl` list only
+   - restricted token with every grant scope on A: every route on A succeeds;
+     every route on B → 404; `GET /collections` and `GET /crawl` list only
      A; writes on A → 403 naming the scope;
    - grant with `read+write` on A, `read` on B: write on B → 403;
    - `POST /collections` with a restricted token → 403;
    - share routes by `share_id` for a collection without a grant → 404;
    - collection deleted → grants gone; re-created with the same name → 404;
-   - restricted + no grants → 404 everywhere; `admin` + restricted → 400;
+   - restricted + no grants → reaches nothing (403 at the route gate);
+     `admin` + restricted → 400;
    - existing (unrestricted) tokens behave exactly as before.
 2. **Admin UI + CLI + docs** — §7 surfaces; docs/http-api.md, docs/cli.md,
    design/04 §1/§8, design/14 §6.

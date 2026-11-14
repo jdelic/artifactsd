@@ -32,5 +32,16 @@
       {{end}}
     </table>
   </div>
+  <div class="nc-panel" data-label="Token grants">
+    <table class="nc-table">
+      <tr><th>Restricted token</th><th>Scopes on this collection</th><th>Status</th></tr>
+      {{range .Grants}}
+      <tr><td><a href="{{$.AdminPath}}/tokens/{{.TokenID}}/grants">{{.Token}}</a></td><td>{{.Scopes}}</td><td>{{if .Revoked}}revoked{{else}}active{{end}}</td></tr>
+      {{else}}
+      <tr><td colspan="3">No restricted tokens are granted this collection.</td></tr>
+      {{end}}
+    </table>
+    <p class="nc-hint">Unrestricted tokens reach every collection. Manage a token's grants from its grants page (follow its name, or go to <a href="{{.AdminPath}}/tokens">Tokens</a>).</p>
+  </div>
 </div>
 {{end}}

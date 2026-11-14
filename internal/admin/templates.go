@@ -130,8 +130,10 @@ func navSection(page string) string {
 	switch page {
 	case "tree", "meta", "shares":
 		return "collections"
-	case "tokens", "audit":
-		return "tools"
+	case "tokens", "tokengrants":
+		return "tokens"
+	case "audit":
+		return "audit"
 	case "allfiles":
 		return "files"
 	case "allshares":

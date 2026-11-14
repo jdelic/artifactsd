@@ -70,6 +70,7 @@ func (h *Handler) crawlRoot(w http.ResponseWriter, r *http.Request) {
 		h.internalServerError(w, "list collections", err)
 		return
 	}
+	cols = grantedCollections(r, cols, auth.ScopeCollectionsRead)
 	defs := h.policyDefaults()
 	admin := isAdmin(r)
 
@@ -295,6 +296,5 @@ func (h *Handler) policyDefaults() meta.Defaults {
 // scope — non-crawlable objects are visible to admin-scoped crawl callers only
 // (SPEC §10.1).
 func isAdmin(r *http.Request) bool {
-	p := auth.PrincipalFromContext(r.Context())
-	return p != nil && p.Scopes.Has(auth.ScopeAdmin)
+	return auth.PrincipalFromContext(r.Context()).IsAdmin()
 }

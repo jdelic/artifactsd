@@ -29,8 +29,19 @@ type sharesPanelData struct {
 	AdminPath  string
 	Collection string
 	Shares     []shareRow
-	NewURL     string
-	Error      string
+	// Grants are the restricted API tokens that can reach this collection
+	// (design/16 §7); managed on the tokens screen.
+	Grants []collectionGrantRow
+	NewURL string
+	Error  string
+}
+
+// collectionGrantRow is one token holding a grant on the collection.
+type collectionGrantRow struct {
+	TokenID int64
+	Token   string
+	Scopes  string
+	Revoked bool
 }
 
 var sharesFKeys = []fkey{{"Alt-C", "Create"}, {"Alt-L", "Logout"}}
@@ -242,8 +253,17 @@ func (h *Handler) loadSharesPanel(r *http.Request, c *store.Collection, newURL, 
 		}
 		rows = append(rows, row)
 	}
+	grants, err := h.store.CollectionGrants(r.Context(), c.ID)
+	if err != nil {
+		return sharesPanelData{}, err
+	}
+	grantRows := make([]collectionGrantRow, 0, len(grants))
+	for _, g := range grants {
+		grantRows = append(grantRows, collectionGrantRow{TokenID: g.TokenID, Token: g.TokenName, Scopes: joinScopes(g.Scopes), Revoked: g.TokenRevoked})
+	}
 	return sharesPanelData{
-		AdminPath: h.cfg.Admin.Path, Collection: c.Name, Shares: rows, NewURL: newURL, Error: errMsg,
+		AdminPath: h.cfg.Admin.Path, Collection: c.Name, Shares: rows, Grants: grantRows,
+		NewURL: newURL, Error: errMsg,
 	}, nil
 }
 

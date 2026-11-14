@@ -32,14 +32,30 @@ func (t *TokenSource) LookupToken(ctx context.Context, hash string) (*auth.Token
 	if err != nil {
 		return nil, err
 	}
-	return &auth.TokenRecord{
-		ID:        tok.ID,
-		Name:      tok.Name,
-		Prefix:    tok.TokenPrefix,
-		Scopes:    scopes,
-		ExpiresAt: tok.ExpiresAt,
-		RevokedAt: tok.RevokedAt,
-	}, nil
+	rec := &auth.TokenRecord{
+		ID:         tok.ID,
+		Name:       tok.Name,
+		Prefix:     tok.TokenPrefix,
+		Scopes:     scopes,
+		ExpiresAt:  tok.ExpiresAt,
+		RevokedAt:  tok.RevokedAt,
+		Restricted: tok.Restricted,
+	}
+	if tok.Restricted {
+		grants, err := t.s.TokenGrants(ctx, tok.ID)
+		if err != nil {
+			return nil, err
+		}
+		rec.Grants = make(map[int64]auth.ScopeSet, len(grants))
+		for _, g := range grants {
+			set, err := auth.ParseScopes(g.Scopes)
+			if err != nil {
+				return nil, err
+			}
+			rec.Grants[g.CollectionID] = set
+		}
+	}
+	return rec, nil
 }
 
 // MarkTokenUsed implements auth.TokenStore.

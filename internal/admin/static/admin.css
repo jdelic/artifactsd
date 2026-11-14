@@ -580,3 +580,15 @@ body {
   border: 1px solid var(--nc-yellow);
   padding: 0 4px;
 }
+
+/* Restricted API tokens and their per-collection grants (artifactsd-m9e.29). */
+.nc-restricted {
+  color: var(--nc-cyan-bright);
+  border: 1px solid var(--nc-cyan-bright);
+  padding: 0 4px;
+  font-size: 0.85em;
+}
+.nc-hint {
+  font-size: 0.85em;
+  color: var(--nc-grey);
+}

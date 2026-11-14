@@ -1,8 +1,4 @@
 {{define "tokens"}}
-<div class="nc-panel" data-label="Tools">
-  <a href="{{.AdminPath}}/tokens">Tokens</a>
-  <a href="{{.AdminPath}}/audit">Audit log</a>
-</div>
 {{template "tokens_panel" .}}
 {{end}}
 
@@ -14,12 +10,14 @@
       <span class="nc-scopes">
         {{range .KnownScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
       </span>
+      <label class="nc-scope" title="Reaches only the collections granted on its grants page; leave scopes unchecked"><input type="checkbox" name="restricted" value="1"> restricted</label>
       <button class="nc-button" type="submit">Create</button>
     </form>
     {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
     {{if .NewToken}}
     <div class="nc-saved">
       token for "{{.NewTokenFor}}" (shown once, copy it now): <code>{{.NewToken}}</code>
+      {{if .NewTokenGrantsID}}<br>It is restricted and reaches nothing yet: <a href="{{.AdminPath}}/tokens/{{.NewTokenGrantsID}}/grants">add grants</a>.{{end}}
     </div>
     {{end}}
   </div>
@@ -30,7 +28,12 @@
       <tr>
         <td>{{.Name}}</td>
         <td>{{.Prefix}}</td>
-        <td>{{.Scopes}}</td>
+        <td>
+          {{if .Restricted}}
+          <span class="nc-restricted">restricted</span>
+          <a href="{{$.AdminPath}}/tokens/{{.ID}}/grants">{{if .GrantCount}}{{.GrantCount}} grant{{if gt .GrantCount 1}}s{{end}}{{else}}no grants{{end}}</a>
+          {{else}}{{.Scopes}}{{end}}
+        </td>
         <td>{{.CreatedAt}}</td>
         <td>{{if .Revoked}}revoked{{else}}active{{end}}</td>
         <td>
