@@ -49,6 +49,16 @@ interact with them. In short:
 | `protected` | only with the object's auth (no auth entry → always 404) | never |
 | `private` | never (404); reachable via the API and share links | never |
 
+"Never listed" means an object is left out of its **parent's** listing. Inside
+a folder that has listing enabled (`--list`) and that you reached by its URL,
+the contents are listed even when they inherit `unlisted` from that folder,
+its collection, or a share. Only children that are marked `unlisted`
+themselves stay hidden. So an `unlisted` share with listing on shows its files.
+
+A listing under a share link (`/s/<share-id>/`) is titled "Index of shared
+files". Its paths are relative to the share and never name the collection or
+the shared folder's real location.
+
 > This client config is distinct from the **server**, which takes flags and env
 > only ([Configuration](configuration.md)).
 

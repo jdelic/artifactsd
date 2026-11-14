@@ -39,8 +39,9 @@ Visibility
   API always returns whatever the token's scopes allow.
 
   public     Served to anyone with the URL. The default.
-  unlisted   Served to anyone with the URL, but hidden from directory
-             listings, robots.txt, and the sitemap.
+  unlisted   Served to anyone with the URL, but hidden from its parent's
+             directory listing, robots.txt, and the sitemap. A listed folder
+             still shows contents that only inherit unlisted from it.
   protected  Served only to callers that pass the object's auth entries (see
              below). A protected object without any auth entry is never
              served (404) until auth is added.

@@ -25,17 +25,23 @@ type listingEntry struct {
 }
 
 // listingView is the JSON listing body and the html/template data.
+// For a share-rooted listing Collection is empty and Path and every entry's
+// Path are relative to the share's root, so the listing never names the
+// underlying collection or the shared folder's real location (artifactsd-f0q).
 type listingView struct {
-	Collection string         `json:"collection"`
+	Collection string         `json:"collection,omitempty"`
 	Path       string         `json:"path"`
 	Entries    []listingEntry `json:"entries"`
+	// Title is the HTML heading, e.g. "Index of /demo/docs" or "Index of
+	// shared files /docs/".
+	Title string `json:"-"`
 }
 
 var listingTemplate = template.Must(template.New("listing").Funcs(template.FuncMap{"escapeURL": paths.EscapeURL}).Parse(`<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>Index of /{{.Collection}}/{{.Path}}</title></head>
+<head><meta charset="utf-8"><title>{{.Title}}</title></head>
 <body>
-<h1>Index of /{{.Collection}}/{{.Path}}</h1>
+<h1>{{.Title}}</h1>
 <ul>
 {{- range .Entries}}
 <li><a href="./{{escapeURL .Name}}{{if eq .Type "folder"}}/{{end}}">{{.Name}}{{if eq .Type "folder"}}/{{end}}</a></li>
@@ -99,7 +105,7 @@ func (h *Handler) serveDirectory(w http.ResponseWriter, r *http.Request, coll *s
 		}
 		h.recordAccess(r.Context(), acc)
 		privateCaching(w, &decision)
-		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, expiry, sh != nil)
+		h.renderListing(w, r, coll, dirPath, dirNode, layers, eff, expiry, sh)
 	case policy.NotFound:
 		// Decide returns NotFound here for one of: private/under-private-
 		// ancestor, expired, protected without auth, or (only reachable once
@@ -171,13 +177,19 @@ func (h *Handler) serveIndexOrNotFound(w http.ResponseWriter, r *http.Request, c
 // (design/05 §2). layers is the directory's own resolved metadata chain
 // (already including a share's overrides, if any); each child's effective
 // visibility/content-type is computed by extending it with the child's own
-// metadata, avoiding a re-walk of the ancestor chain per child. sharePrivateBypass
-// mirrors serveDirectory's own private→unlisted bypass for a share-rooted
-// request: a child that resolves "private" only because it inherits the
-// share's otherwise-private collection/ancestor chain is still listed (the
-// share already grants access to the whole subtree); a child explicitly
-// marked "unlisted" is always hidden regardless (SPEC §8.1's "don't list me"
-// is independent of the share/private non-disclosure mechanism).
+// metadata, avoiding a re-walk of the ancestor chain per child. sh is the
+// share for a share-rooted request (nil on /c/): it mirrors serveDirectory's
+// own private→unlisted bypass, so a child that resolves "private" only
+// because it inherits the share's otherwise-private collection/ancestor chain
+// is still listed (the share already grants access to the whole subtree), and
+// it makes the view share-relative (see listingView).
+//
+// "unlisted" keeps an object out of its parent's listing (SPEC §8.1), so a
+// child is omitted only when its own metadata marks it unlisted. A child that
+// merely inherits "unlisted" from the folder, collection or share being
+// listed is shown: that container was reached by URL and has listing enabled,
+// and hiding everything inherited would turn every unlisted share or folder
+// listing into "(empty)" (artifactsd-f0q).
 //
 // dirExpiry is the directory's own effective expiry (earliest in its chain,
 // already folding in a share's expiry when present). Each child's effective
@@ -185,7 +197,7 @@ func (h *Handler) serveIndexOrNotFound(w http.ResponseWriter, r *http.Request, c
 // are skipped so a listing never discloses names/metadata for content that a
 // direct fetch already 404s during the window between expiry and janitor
 // deletion (design/05, mirrors the crawl API's filter in internal/api/crawl.go).
-func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *store.Collection, dirPath string, dirNode *store.Node, layers []*meta.Document, dirEff *meta.Effective, dirExpiry *time.Time, sharePrivateBypass bool) {
+func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *store.Collection, dirPath string, dirNode *store.Node, layers []*meta.Document, dirEff *meta.Effective, dirExpiry *time.Time, sh *store.Share) {
 	var parentID *int64
 	if dirNode != nil {
 		id := dirNode.ID
@@ -198,7 +210,14 @@ func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *st
 	}
 
 	now := h.now()
-	view := listingView{Collection: coll.Name, Path: dirPath, Entries: []listingEntry{}}
+	view := listingView{Collection: coll.Name, Path: dirPath, Entries: []listingEntry{}, Title: "Index of /" + coll.Name + "/" + dirPath}
+	if sh != nil {
+		rel := shareRelative(sh, dirPath)
+		view = listingView{Path: rel, Entries: []listingEntry{}, Title: "Index of shared files /"}
+		if rel != "" {
+			view.Title += rel + "/"
+		}
+	}
 	for _, c := range children {
 		if childExpiry := meta.Earliest(dirExpiry, c.ExpiresAt); childExpiry != nil && !now.Before(*childExpiry) {
 			continue // expired: never disclosed, matching the direct-fetch 404
@@ -209,11 +228,14 @@ func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *st
 		}
 		childLayers := append(append([]*meta.Document{}, layers...), childDoc)
 		childEff := meta.Resolve(h.defaults(), childLayers...)
-		hidePrivate := childEff.Visibility == meta.VisibilityPrivate && !sharePrivateBypass
-		if hidePrivate || childEff.Visibility == meta.VisibilityUnlisted {
+		hidePrivate := childEff.Visibility == meta.VisibilityPrivate && sh == nil
+		if hidePrivate || markedUnlisted(childDoc) {
 			continue
 		}
 		entry := listingEntry{Name: c.Name, Path: c.Path, UpdatedAt: c.UpdatedAt.UTC().Format(time.RFC3339)}
+		if sh != nil {
+			entry.Path = shareRelative(sh, c.Path)
+		}
 		if c.Kind == store.KindFolder {
 			entry.Type = "folder"
 		} else {
@@ -237,6 +259,24 @@ func (h *Handler) renderListing(w http.ResponseWriter, r *http.Request, coll *st
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = listingTemplate.Execute(w, view)
+}
+
+// markedUnlisted reports whether a child's own metadata marks it unlisted.
+func markedUnlisted(doc *meta.Document) bool {
+	return doc != nil && doc.Access != nil && doc.Access.Visibility != nil && *doc.Access.Visibility == meta.VisibilityUnlisted
+}
+
+// shareRelative strips a share's target path from a collection path, giving
+// the path as seen under /s/{share_id}/. p is always within the share's
+// subtree (resolveSharePath guarantees it).
+func shareRelative(sh *store.Share, p string) string {
+	if sh.TargetPath == "" {
+		return p
+	}
+	if p == sh.TargetPath {
+		return ""
+	}
+	return strings.TrimPrefix(p, sh.TargetPath+"/")
 }
 
 // wantsJSONListing picks JSON over the default HTML listing (design/05 §1
