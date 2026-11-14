@@ -34,7 +34,7 @@
   </div>
   <div class="nc-panel" data-label="Token grants">
     <table class="nc-table">
-      <tr><th>Restricted token</th><th>Scopes on this collection</th><th>Status</th></tr>
+      <tr><th>Restricted token</th><th>Scopes on this collection {{template "scopes_info"}}</th><th>Status</th></tr>
       {{range .Grants}}
       <tr><td><a href="{{$.AdminPath}}/tokens/{{.TokenID}}/grants">{{.Token}}</a></td><td>{{.Scopes}}</td><td>{{if .Revoked}}revoked{{else}}active{{end}}</td></tr>
       {{else}}
