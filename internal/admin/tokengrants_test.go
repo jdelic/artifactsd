@@ -52,6 +52,16 @@ func TestTokens_RestrictedGrants(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `<option value="reports">`) {
 		t.Fatalf("grants page = %d: %s", rec.Code, rec.Body)
 	}
+	// The collection picker is a searchable text input over a datalist
+	// (artifactsd-0li), not a plain <select>.
+	if page := rec.Body.String(); !strings.Contains(page, `list="grant-collections"`) ||
+		!strings.Contains(page, `<datalist id="grant-collections">`) || strings.Contains(page, `<select name="collection"`) {
+		t.Errorf("collection picker should be a searchable datalist input: %s", page)
+	}
+	body = post("/tokens/"+id+"/grants", url.Values{"collection": {"nope"}, "scopes": {"collections:read"}})
+	if !strings.Contains(body, "unknown collection: nope") {
+		t.Errorf("free-typed unknown collection: %s", body)
+	}
 
 	body = post("/tokens/"+id+"/grants", url.Values{"collection": {"reports"}, "scopes": {"collections:read", "shares:read"}})
 	if !strings.Contains(body, `id="tokengrants-panel"`) || !strings.Contains(body, "reports") ||
