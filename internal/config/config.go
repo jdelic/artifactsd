@@ -10,6 +10,8 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/jdelic/artifactsd/internal/clientip"
 )
 
 // HostOnly strips an optional :port from a host[:port] string, returning the
@@ -76,8 +78,27 @@ type Server struct {
 	AdminHost   string
 	DataDir     string
 	AutoMigrate bool
-	TrustProxy  bool
-	LogLevel    string
+	// TrustedProxies lists the proxy addresses (CIDRs or bare IPs) whose
+	// X-Forwarded-For/-Host/-Proto headers are honored (design/06 §6). Requests
+	// from any other peer have those headers ignored.
+	TrustedProxies []string
+	// TrustProxy is the deprecated boolean form: true without TrustedProxies
+	// trusts loopback and the private ranges (clientip.DeprecatedTrustProxyDefaults).
+	TrustProxy bool
+	LogLevel   string
+}
+
+// EffectiveTrustedProxies returns the trusted proxy list in effect: the
+// explicit TrustedProxies when set, else the deprecated --trust-proxy defaults
+// when that is true, else none.
+func (s *Server) EffectiveTrustedProxies() []string {
+	if len(s.TrustedProxies) > 0 {
+		return s.TrustedProxies
+	}
+	if s.TrustProxy {
+		return clientip.DeprecatedTrustProxyDefaults
+	}
+	return nil
 }
 
 // AdminBaseURL returns the external base URL of the admin control plane: the

@@ -86,7 +86,8 @@ artifactsd-data/
 `artifactsd` can terminate TLS itself or sit behind a reverse proxy:
 
 - `--tls=off` (default) — plain HTTP; terminate TLS at a proxy in front of it
-  and set `--trust-proxy` so forwarded headers are honored.
+  and list the proxy's address in `--trusted-proxies` so its forwarded headers
+  are honored (see [Configuration → Reverse proxies](configuration.md#reverse-proxies)).
 - `--tls=files --tls-cert=cert.pem --tls-key=key.pem` — serve a supplied
   certificate.
 - `--tls=acme --acme-domains=artifacts.example.com --acme-email=you@example.com`

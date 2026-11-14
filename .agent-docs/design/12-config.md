@@ -19,7 +19,8 @@ env for deployment.
 | Admin host (separate-origin isolation) | `--admin-host` | `ARTIFACTSD_ADMIN_HOST` | (unset → single domain) |
 | Data directory | `--data` | `ARTIFACTSD_DATA_DIR` | `./artifactsd-data` |
 | Auto-migrate on boot | `--auto-migrate` | `ARTIFACTSD_AUTO_MIGRATE` | `true` |
-| Trust proxy headers | `--trust-proxy` | `ARTIFACTSD_TRUST_PROXY` | `false` |
+| Trusted proxies (CIDRs/IPs) | `--trusted-proxies` | `ARTIFACTSD_TRUSTED_PROXIES` | (none) |
+| Trust proxy headers (deprecated alias: loopback + private ranges) | `--trust-proxy` | `ARTIFACTSD_TRUST_PROXY` | `false` |
 | Log level | `--log-level` | `ARTIFACTSD_LOG_LEVEL` | `info` |
 
 `ARTIFACTSD_ADMIN_HOST` opts into the hardened **separate-admin-origin**

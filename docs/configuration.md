@@ -23,12 +23,33 @@ is enabled, durations/sizes must parse).
 | Admin host (separate origin) | `--admin-host` | `ARTIFACTSD_ADMIN_HOST` | (unset → single domain) |
 | Data directory | `--data` | `ARTIFACTSD_DATA_DIR` | `./artifactsd-data` |
 | Auto-migrate on boot | `--auto-migrate` | `ARTIFACTSD_AUTO_MIGRATE` | `true` |
-| Trust proxy headers | `--trust-proxy` | `ARTIFACTSD_TRUST_PROXY` | `false` |
+| Trusted proxies | `--trusted-proxies` | `ARTIFACTSD_TRUSTED_PROXIES` | (none → forwarded headers ignored) |
+| Trust proxy headers (**deprecated**) | `--trust-proxy` | `ARTIFACTSD_TRUST_PROXY` | `false` |
 | Log level | `--log-level` | `ARTIFACTSD_LOG_LEVEL` | `info` |
 
 `--base-url` is the public origin used to build links about the server (`/c`,
-`/s`, upload URLs); it must be an absolute URL. Set `--trust-proxy` only when
-running behind a proxy you control, so `X-Forwarded-*` headers are honored.
+`/s`, upload URLs); it must be an absolute URL.
+
+### Reverse proxies
+
+`--trusted-proxies` is a comma-separated list of the addresses (CIDRs or single
+IPs, IPv4 or IPv6) of the reverse proxies in front of artifactsd, e.g.
+`ARTIFACTSD_TRUSTED_PROXIES=10.0.0.5,fd00::/64`. `X-Forwarded-For`,
+`X-Forwarded-Host` and `X-Forwarded-Proto` are honored **only** on requests
+whose TCP peer is in that list; from anyone else they are ignored, so a client
+that reaches the listener directly cannot forge its address, scheme or host.
+
+The client address is taken from `X-Forwarded-For` read **right to left**:
+artifactsd skips entries that are trusted proxies and uses the first one that
+is not. Entries further left were supplied by the client and are never used.
+Your proxy may either overwrite or append to `X-Forwarded-For`; both work. List
+every proxy hop that sits between the internet and artifactsd. The effective
+list is logged at startup.
+
+`--trust-proxy=true` is **deprecated**. It still works and means "trust
+loopback and the private ranges" (`127.0.0.0/8, ::1/128, 10.0.0.0/8,
+172.16.0.0/12, 192.168.0.0/16, fc00::/7`), and logs a warning at startup. If
+`--trusted-proxies` is also set, the explicit list wins.
 
 ### Admin origin: single-domain vs. separate host
 
@@ -45,8 +66,8 @@ separate bare host (e.g. `admin.example.com`, distinct from the base-URL host):
   sandbox (`content.sandbox: false`), which makes this the right setup for rich
   interactive SPAs that need a stable origin.
 - Point both hostnames at artifactsd (same process/listener). If a reverse proxy
-  terminates them, set `--trust-proxy` so the admin/public split honors
-  `X-Forwarded-Host`, and ensure the proxy forwards the original `Host`.
+  terminates them, list it in `--trusted-proxies` so the admin/public split
+  honors `X-Forwarded-Host`, or have the proxy forward the original `Host`.
 - Whitelist `https://<admin-host>/auth/oidc/callback` at your IdP — that is the
   redirect URL artifactsd defaults to in this mode.
 - The bearer-token management API (`/api/v1`) and health checks have no ambient

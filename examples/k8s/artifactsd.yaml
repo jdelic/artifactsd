@@ -114,6 +114,11 @@ spec:
             # TLS terminated at the Ingress; change to "acme" for direct TLS.
             - name: ARTIFACTSD_TLS
               value: "off"
+            # Addresses of the Ingress controller pods (CIDR list). Only these
+            # peers may set X-Forwarded-For/-Host/-Proto; set it to your pod
+            # network so client IPs reach the rate limiter and access log.
+            - name: ARTIFACTSD_TRUSTED_PROXIES
+              value: "10.0.0.0/8"   # ← set this to your pod CIDR
             # Bootstrap token: seeds the first admin API token on first boot.
             # Delete this env var (and rotate the Secret) once set up.
             - name: ARTIFACTSD_BOOTSTRAP_TOKEN

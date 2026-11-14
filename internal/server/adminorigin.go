@@ -46,19 +46,12 @@ func (s *Server) hostIsolationGate(next http.Handler) http.Handler {
 	})
 }
 
-// requestHost returns the host the client addressed. It honors X-Forwarded-Host
-// only when proxies are trusted (mirroring clientIP), since the admin/public
+// requestHost returns the host the client addressed. X-Forwarded-Host is
+// honored only from a trusted proxy (design/06 §6), since the admin/public
 // dispatch depends on it; otherwise it uses the request's own Host header.
 func (s *Server) requestHost(r *http.Request) string {
-	if s.cfg.Server.TrustProxy {
-		if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
-			// X-Forwarded-Host may carry a comma-separated chain; the first is the
-			// original client-facing host.
-			if i := strings.IndexByte(xfh, ','); i >= 0 {
-				xfh = xfh[:i]
-			}
-			return strings.TrimSpace(xfh)
-		}
+	if xfh := s.proxies.ForwardedHost(r); xfh != "" {
+		return xfh
 	}
 	return r.Host
 }

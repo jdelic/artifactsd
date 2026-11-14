@@ -252,8 +252,8 @@ it unset for single-domain (the default). When set:
   and `/auth/oidc/callback`) is served **only** on the admin host; the **public
   artifact plane** (`/c`, `/s`, `/robots.txt`, `/sitemap.xml`) **only** on the
   public (base-URL) host. Cross-plane requests get `404` (not a redirect), so
-  neither host reveals what lives on the other. Behind a trusted proxy
-  (`ARTIFACTSD_TRUST_PROXY`) the gate honors `X-Forwarded-Host`.
+  neither host reveals what lives on the other. The gate honors
+  `X-Forwarded-Host` only from peers in `ARTIFACTSD_TRUSTED_PROXIES`.
 - The admin **session cookie is host-only** (no `Domain` attribute) and is set
   during the OIDC callback, which runs on the admin host — so the cookie is
   never even sent to the public origin. That is the structural boundary.

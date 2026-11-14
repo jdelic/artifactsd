@@ -104,8 +104,13 @@ All collection-relative paths pass `cleanPath`:
   (Let's Encrypt) from the first release** (`golang.org/x/crypto/acme/autocert`),
   selected by env/flags ([12](12-config.md)).
 - Operable behind a reverse proxy without TLS (plain HTTP listener). Honor
-  `X-Forwarded-For`/`X-Forwarded-Proto` only when `trust_proxy` is set, to avoid
-  IP spoofing of the rate limiter and access logs.
+  `X-Forwarded-For`/`-Host`/`-Proto` only when the TCP peer is in
+  `ARTIFACTSD_TRUSTED_PROXIES` (CIDR list; artifactsd-m9e.20), to avoid IP
+  spoofing of the rate limiter and access logs and forged host/scheme.
+  `X-Forwarded-For` is read right to left, skipping trusted hops; the first
+  untrusted address is the client (`internal/clientip`). An unparseable entry
+  stops the walk at the last good address. The boolean `trust_proxy` is a
+  deprecated alias for loopback + private ranges.
 - Secure cookies for the admin session (HttpOnly, Secure when TLS, SameSite).
 
 ## 7. Audit & logging (SPEC §17, decisions F5 / N6 / 12factor)

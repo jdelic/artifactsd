@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jdelic/artifactsd/internal/clientip"
 )
 
 // Validate performs startup validation and fails fast, returning an error that
@@ -39,6 +41,12 @@ func (c *Config) Validate() error {
 		} else if base, err := url.Parse(c.Server.BaseURL); err == nil && base.Host != "" &&
 			strings.EqualFold(HostOnly(c.Server.AdminHost), HostOnly(base.Host)) {
 			add("admin-host %q must differ from the base-url host to isolate the admin origin", c.Server.AdminHost)
+		}
+	}
+
+	for _, e := range c.Server.TrustedProxies {
+		if _, err := clientip.ParsePrefix(e); err != nil {
+			add("trusted-proxies: %v", err)
 		}
 	}
 

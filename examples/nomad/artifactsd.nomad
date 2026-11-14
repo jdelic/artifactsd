@@ -81,6 +81,10 @@ job "artifactsd" {
         # Leave "off" when a Nomad ingress gateway or external proxy handles it.
         ARTIFACTSD_TLS = "off"
 
+        # Addresses of the proxy / ingress gateway in front of this task (CIDR
+        # list). Only these peers may set X-Forwarded-For/-Host/-Proto.
+        ARTIFACTSD_TRUSTED_PROXIES = "127.0.0.1/32"
+
         # Bootstrap token: seeds the first admin-scoped API token on first
         # boot. Replace "change-me" with a random value (e.g. `openssl rand
         # -hex 32`) and remove this line once you have created a real token.
