@@ -79,21 +79,23 @@ type BasicCredential struct {
 	PasswordHash string
 }
 
-// MultiBasicVerifier accepts HTTP Basic credentials against several entries
-// at the cost of ONE argon2 run per request regardless of how many entries an
-// object lists (artifactsd-m9e.9): only entries whose username matches
-// (constant-time) are verified, and a single dummy verification runs when none
-// match, so a username miss costs the same as a hit.
-type MultiBasicVerifier struct {
+// BasicUsersVerifier checks the single Basic credential a request presents
+// against the set of users an object admits (all of its access.auth "basic"
+// entries). It costs ONE argon2 run per request however many users the object
+// lists (artifactsd-m9e.9): the presented username is matched first
+// (constant-time, usernames are unique), then only that user's hash is
+// verified — or a dummy hash when no username matches, so a miss costs the
+// same as a hit.
+type BasicUsersVerifier struct {
 	creds []BasicCredential
 	realm string
 }
 
-// NewMultiBasicVerifier builds a verifier over creds. An empty realm uses
+// NewBasicUsersVerifier builds a verifier over creds. An empty realm uses
 // DefaultRealm. Only the first entry per username is kept, so a request costs
 // one argon2 run even when a stored document repeats a username
 // (artifactsd-7tl.4); new documents with duplicates are rejected on write.
-func NewMultiBasicVerifier(creds []BasicCredential, realm string) *MultiBasicVerifier {
+func NewBasicUsersVerifier(creds []BasicCredential, realm string) *BasicUsersVerifier {
 	if realm == "" {
 		realm = DefaultRealm
 	}
@@ -106,16 +108,16 @@ func NewMultiBasicVerifier(creds []BasicCredential, realm string) *MultiBasicVer
 		seen[c.Username] = true
 		unique = append(unique, c)
 	}
-	return &MultiBasicVerifier{creds: unique, realm: realm}
+	return &BasicUsersVerifier{creds: unique, realm: realm}
 }
 
 // Verify matches HTTP Basic credentials against the entries.
-func (v *MultiBasicVerifier) Verify(r *http.Request) (bool, string) {
+func (v *BasicUsersVerifier) Verify(r *http.Request) (bool, string) {
 	user, pass, ok := r.BasicAuth()
 	if !ok {
 		return false, ""
 	}
-	// Usernames are unique (see NewMultiBasicVerifier): find the one match by
+	// Usernames are unique (see NewBasicUsersVerifier): find the one match by
 	// comparing against every entry, then run exactly one argon2 — against the
 	// dummy hash on a miss so both cases cost the same.
 	var match *BasicCredential
@@ -135,9 +137,9 @@ func (v *MultiBasicVerifier) Verify(r *http.Request) (bool, string) {
 }
 
 // Scheme returns "Basic".
-func (v *MultiBasicVerifier) Scheme() string { return "Basic" }
+func (v *BasicUsersVerifier) Scheme() string { return "Basic" }
 
 // Challenge returns `Basic realm="..."`.
-func (v *MultiBasicVerifier) Challenge() string {
+func (v *BasicUsersVerifier) Challenge() string {
 	return fmt.Sprintf("Basic realm=%q", v.realm)
 }
