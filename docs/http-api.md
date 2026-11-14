@@ -11,7 +11,12 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   <api-token>` (or an authenticated admin session). Tokens carry scopes; a
   request needs the scope listed for its endpoint or it gets `403`.
 - **Scopes** — `admin`, `collections:read`, `collections:write`,
-  `shares:read`, `shares:write`. `admin` implies the rest, and is the only
+  `collections:delete`, `shares:read`, `shares:write`, `shares:delete`.
+  `:write` and `:delete` each imply the matching `:read`, but **`:write` does
+  not imply `:delete`**: deleting collections, folders, files and shares needs
+  the explicit delete scope (replacing a file with `PUT` is a write). A `403`
+  names the missing scope ("insufficient scope: requires collections:delete").
+  `admin` implies the rest, and is the only
   scope for tokens, upload requests, audit, stats, and maintenance;
   `<resource>:write` implies `<resource>:read`.
 - **Errors** — a consistent JSON envelope:
@@ -45,7 +50,7 @@ GET    /api/v1/collections                 list (paginated)       collections:re
 GET    /api/v1/collections/{c}             get one (+ metadata)   collections:read
 GET    /api/v1/collections/{c}/meta        own + effective meta   collections:read
 PATCH  /api/v1/collections/{c}/meta        merge metadata         collections:write
-DELETE /api/v1/collections/{c}             delete (cascades)      collections:write
+DELETE /api/v1/collections/{c}             delete (cascades)      collections:delete
 ```
 
 Create body:
@@ -69,7 +74,7 @@ PUT    /api/v1/collections/{c}/files/{path...}        upload/replace   collectio
 GET    /api/v1/collections/{c}/files/{path...}        download         collections:read
 GET    /api/v1/collections/{c}/files/{path...}/meta   read metadata    collections:read
 PATCH  /api/v1/collections/{c}/files/{path...}/meta   merge metadata   collections:write
-DELETE /api/v1/collections/{c}/files/{path...}        delete           collections:write
+DELETE /api/v1/collections/{c}/files/{path...}        delete           collections:delete
 ```
 
 **Upload (`PUT`)** — the body is the raw file bytes. The request `Content-Type`
@@ -126,7 +131,7 @@ cleartext is never stored.
 ```
 GET    /api/v1/collections/{c}/folders/{path...}/meta   read folder metadata     collections:read
 PATCH  /api/v1/collections/{c}/folders/{path...}/meta   set/merge (materializes) collections:write
-DELETE /api/v1/collections/{c}/folders/{path...}        delete subtree           collections:write
+DELETE /api/v1/collections/{c}/folders/{path...}        delete subtree           collections:delete
 GET    /api/v1/collections/{c}/tree?path=&depth=        structured listing       collections:read
 ```
 
@@ -178,7 +183,7 @@ POST   /api/v1/collections/{c}/shares      create share          shares:write
 GET    /api/v1/collections/{c}/shares      list shares           shares:read
 GET    /api/v1/shares/{share_id}           get share             shares:read
 PATCH  /api/v1/shares/{share_id}           update policy/expiry  shares:write
-DELETE /api/v1/shares/{share_id}           revoke                shares:write
+DELETE /api/v1/shares/{share_id}           revoke                shares:delete
 ```
 
 Create body — `target_path: ""` shares the whole collection:

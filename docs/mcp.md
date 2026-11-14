@@ -37,7 +37,7 @@ installs) a systemd unit for it — see
 | `artifact_begin_upload` | `POST .../uploads` | returns a direct upload URL for large/binary |
 | `artifact_get_metadata` | `GET .../meta` | own + effective + provenance; empty path = collection, trailing `/` = folder |
 | `artifact_set_metadata` | `PATCH .../meta` | merge, same path convention |
-| `artifact_delete` | `DELETE .../files/{path}` | |
+| `artifact_delete` | `DELETE .../files/{path}` | needs a token with `collections:delete` |
 | `artifact_list_tree` | `GET .../tree` | structured listing (unfiltered management view) |
 | `artifact_get_public_url` | local compose | builds a `/c/...` URL |
 | `artifact_create_share` | `POST .../shares` | returns a `/s/...` URL |

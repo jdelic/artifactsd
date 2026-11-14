@@ -396,3 +396,35 @@ func mustWrite(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestE2E_RmNeedsDeleteScope: a write-only token cannot delete
+// (artifactsd-m9e.25), and the CLI shows which scope is missing.
+func TestE2E_RmNeedsDeleteScope(t *testing.T) {
+	e := newE2E(t)
+	if code, _, errOut := e.run("collection", "create", "demo"); code != exitOK {
+		t.Fatalf("create: %s", errOut)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := e.run("put", "demo/a.txt", local); code != exitOK {
+		t.Fatalf("put: %s", errOut)
+	}
+	code, out, errOut := e.run("--output", "json", "token", "create", "writer", "--scope", "collections:write")
+	if code != exitOK {
+		t.Fatalf("token create: %s", errOut)
+	}
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(out), &tok); err != nil || tok.Token == "" {
+		t.Fatalf("token json: %v (%s)", err, out)
+	}
+	var stdout, stderr bytes.Buffer
+	code = run(context.Background(), []string{"--base-url", e.ts.BaseURL, "--token", tok.Token, "rm", "demo/a.txt"},
+		&stdout, &stderr, func(string) string { return "" })
+	if code == exitOK || !strings.Contains(stderr.String(), "collections:delete") {
+		t.Errorf("rm with write-only token: code=%d stderr=%q, want failure naming collections:delete", code, stderr.String())
+	}
+}

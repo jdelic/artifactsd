@@ -8,7 +8,9 @@ envelope.
 ## 1. Conventions
 
 - **Auth**: `Authorization: Bearer <api-token>`. Tokens carry scopes
-  (`admin`, `collections:read`, `collections:write`, `shares:write`, ...).
+  (`admin`, `collections:read|write|delete`, `shares:read|write|delete`). `:write`
+  and `:delete` each imply `:read`; `:write` does not imply `:delete`
+  (artifactsd-m9e.25), so DELETE routes require the delete scope.
 - **Errors**:
   ```json
   { "error": { "code": "not_found", "message": "collection does not exist" } }

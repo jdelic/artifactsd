@@ -34,10 +34,13 @@ func (a *app) newTokenCreateCmd() *cobra.Command {
 			"                      upload requests, read the audit log and stats, run\n" +
 			"                      maintenance, or crawl non-crawlable objects\n" +
 			"  collections:read    list/show collections, read files, metadata, and crawl\n" +
-			"  collections:write   create/delete collections, upload/delete files, set metadata\n" +
+			"  collections:write   create collections, upload/replace files, set metadata\n" +
+			"  collections:delete  delete collections, folders and files\n" +
 			"  shares:read         list and show shares\n" +
-			"  shares:write        create/revoke shares\n\n" +
-			"A :write scope implies the matching :read.",
+			"  shares:write        create shares and change their policy\n" +
+			"  shares:delete       revoke shares\n\n" +
+			"A :write or :delete scope implies the matching :read; :write does NOT imply\n" +
+			":delete, so grant delete only to tokens that need it.",
 		Args: exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()
@@ -68,7 +71,7 @@ func (a *app) newTokenCreateCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringArrayVar(&scopes, "scope", nil, "token scope (repeatable): admin|collections:read|collections:write|shares:read|shares:write")
+	f.StringArrayVar(&scopes, "scope", nil, "token scope (repeatable): admin|collections:read|collections:write|collections:delete|shares:read|shares:write|shares:delete")
 	expiry.register(f)
 	return cmd
 }

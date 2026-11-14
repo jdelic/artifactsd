@@ -208,8 +208,10 @@ artifactctl token revoke <id>
 ```
 
 `token create` prints the secret **once** — store it then. Available scopes:
-`admin`, `collections:read`, `collections:write`, `shares:read`,
-`shares:write` (`artifactctl token create --help` explains each). Managing
+`admin`, `collections:read`, `collections:write`, `collections:delete`,
+`shares:read`, `shares:write`, `shares:delete` (`artifactctl token create
+--help` explains each). `rm` and `share revoke` need the `:delete` scopes;
+`:write` does not include them. Managing
 tokens and upload requests requires `admin`.
 
 ### Maintenance & version
