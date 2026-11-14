@@ -43,7 +43,7 @@ func TestSandboxOff_RequiresAdmin(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rec := h.do(t, c.token, c.method, c.target, []byte(c.body), c.headers)
-			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "requires an admin-scoped token") {
+			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "can only be set with an admin-scoped token") {
 				t.Fatalf("%s %s = %d (%s), want 403", c.method, c.target, rec.Code, rec.Body)
 			}
 			// The admin token may do the same thing.
@@ -75,10 +75,10 @@ func TestSandboxOff_NonAdminCanTouchOtherFields(t *testing.T) {
 	if own := ownMeta(t, h, "app.html"); !strings.Contains(own, `"sandbox":false`) {
 		t.Errorf("own = %s, want sandbox false kept", own)
 	}
-	// Setting sandbox true (or leaving it unset) is always allowed.
+	// Users can't change the sandbox in either direction (artifactsd-7tl.2).
 	if rec := h.do(t, writer, http.MethodPatch, "/api/v1/collections/demo/files/app.html?meta",
-		[]byte(`{"content":{"sandbox":true}}`), nil); rec.Code != http.StatusOK {
-		t.Errorf("sandbox true by writer = %d (%s)", rec.Code, rec.Body)
+		[]byte(`{"content":{"sandbox":true}}`), nil); rec.Code != http.StatusForbidden {
+		t.Errorf("sandbox true by writer = %d (%s), want 403", rec.Code, rec.Body)
 	}
 }
 

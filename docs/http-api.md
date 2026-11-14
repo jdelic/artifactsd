@@ -36,11 +36,15 @@ file serving (`/c/...`, `/s/...`) and crawler endpoints are covered at the
   the full tree; a positive value limits the number of levels below the base
   path; anything else is a `400`.
 - **Metadata** in request/response bodies is the JSON metadata document (access,
-  content, crawl, expiry blocks). Setting `content.sandbox: false` anywhere
-  (collection, folder, file, share, large upload) requires an **admin-scoped**
-  token; other tokens get `403` "content.sandbox=false requires an admin-scoped
-  token". Setting it to `true` or leaving it out is always allowed, and a
-  non-admin `PATCH` that doesn't mention it keeps an admin-set `false`.
+  content, crawl, expiry blocks). **Only admin-scoped tokens may set
+  `content.sandbox`** (to `true` or `false`) anywhere — collection, folder,
+  file, share, large upload; other tokens get `403` "content.sandbox can only
+  be set with an admin-scoped token". Documents that leave it out are fine, and
+  a non-admin metadata replacement keeps the admin's setting.
+  An admin setting `sandbox: false` on a file, folder, collection or share
+  unsandboxes the content **currently** under it — no re-upload needed. Content
+  a non-admin writes or replaces afterwards is served sandboxed until an admin
+  sets `sandbox: false` again (a metadata change, not an upload).
 
 ## Collections
 

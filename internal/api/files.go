@@ -69,9 +69,14 @@ func (h *Handler) putFile(w http.ResponseWriter, r *http.Request) {
 		if contentType == "" && keep.ContentType != nil {
 			contentType = *keep.ContentType
 		}
-	} else if metaJSON, err = doc.JSON(); err != nil {
-		h.internalServerError(w, "encode metadata", err)
-		return
+	} else {
+		if supplied && existing != nil && existing.Kind == store.KindFile && !isAdmin(r) {
+			keepAdminSandbox(doc, existing.Metadata)
+		}
+		if metaJSON, err = doc.JSON(); err != nil {
+			h.internalServerError(w, "encode metadata", err)
+			return
+		}
 	}
 	if !h.checkCapacity(w, r, c.ID, p) {
 		return
@@ -210,11 +215,11 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, errMetaQueryRequired)
 		return
 	}
-	node, _, ok := h.resolveFile(w, r, r.PathValue("path"))
+	node, c, ok := h.resolveFile(w, r, r.PathValue("path"))
 	if !ok {
 		return
 	}
-	merged, ok := h.mergeMetadata(w, r, node.Metadata)
+	merged, patch, ok := h.mergeMetadata(w, r, node.Metadata)
 	if !ok {
 		return
 	}
@@ -225,6 +230,10 @@ func (h *Handler) patchFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), node.ID); err != nil {
 		h.internalServerError(w, "recompute node", err)
+		return
+	}
+	if err := h.vouchIfUnsandboxed(r, patch, c.ID, node.Path); err != nil {
+		h.internalServerError(w, "trust content", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": node.Path, "own": redactMetadata(merged)})

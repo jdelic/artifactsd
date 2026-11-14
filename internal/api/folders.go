@@ -75,7 +75,7 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	merged, ok := h.mergeMetadata(w, r, existingMeta)
+	merged, patch, ok := h.mergeMetadata(w, r, existingMeta)
 	if !ok {
 		return
 	}
@@ -94,6 +94,10 @@ func (h *Handler) patchFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.RecomputeNodeDenormalized(r.Context(), folder.ID); err != nil {
 		h.internalServerError(w, "recompute folder", err)
+		return
+	}
+	if err := h.vouchIfUnsandboxed(r, patch, c.ID, p); err != nil {
+		h.internalServerError(w, "trust content", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": p, "own": redactMetadata(merged)})
