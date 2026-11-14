@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -51,10 +50,10 @@ func TestKindConflict_LargeUploadRespectsInvariant(t *testing.T) {
 	h.do(t, h.token, http.MethodPost, "/api/v1/collections", []byte(`{"name":"demo"}`), nil)
 	h.do(t, h.token, http.MethodPut, "/api/v1/collections/demo/files/a", []byte("file"), nil)
 
+	// Rejected when the session is created (artifactsd-m9e.13); a conflict
+	// arising after creation is covered by TestUploads_FailedCommitKeepsSessionPending.
 	rec := h.do(t, h.token, http.MethodPost, "/api/v1/collections/demo/uploads", []byte(`{"path":"a/b.bin"}`), nil)
-	var sess uploadSessionView
-	_ = json.Unmarshal(rec.Body.Bytes(), &sess)
-	if rec := h.do(t, "", http.MethodPut, "/api/v1/uploads/"+sess.UploadID, []byte("x"), nil); rec.Code != http.StatusConflict {
+	if rec.Code != http.StatusConflict {
 		t.Fatalf("large upload under a file = %d, want 409 (%s)", rec.Code, rec.Body)
 	}
 }

@@ -66,8 +66,15 @@ Two-step to avoid buffering huge bodies through the JSON API:
      upload directly (SPEC §16 flow). Safeguards: ≥95-bit id, short TTL,
      single-use (consumed on completion), size limit. See [14 §5](14-access-control.md).
    - Streams to a temp blob with size limit + hashing.
-   - On success: commit the node (same transaction logic as §2), mark session
-     `completed`.
+   - On success: `store.CommitUpload` claims the session (pending →
+     completed) and writes the node (parent folders, upsert, denormalized
+     columns) in ONE transaction (artifactsd-m9e.13). If the node write fails
+     (kind conflict, collection file cap, DB error) the claim rolls back and
+     the session stays `pending`, so the client can retry or abort. Of two
+     concurrent PUTs exactly one commits (artifactsd-ku3).
+   - Session creation pre-checks the target path (an ancestor that is a file,
+     or a path that is a folder → 409) and the collection file cap; both are
+     re-checked at commit.
 3. `GET /api/v1/uploads/{id}` → status; `DELETE` aborts and discards temp blob.
 
 Abandoned/expired sessions and their temp blobs are reaped by the janitor.

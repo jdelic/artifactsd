@@ -159,6 +159,33 @@ func checkKindInvariants(ctx context.Context, q querier, n *Node) (exists bool, 
 	return true, nil
 }
 
+// CheckFilePath is a read-only pre-check that a FILE can be written at p: no
+// ancestor of p may be a file and p itself may not be a folder. It returns
+// ErrKindConflict otherwise. The write re-checks authoritatively.
+func (s *Store) CheckFilePath(ctx context.Context, collectionID int64, p string) error {
+	segs := strings.Split(p, "/")
+	prefix := ""
+	for i, seg := range segs {
+		if i == 0 {
+			prefix = seg
+		} else {
+			prefix += "/" + seg
+		}
+		n, err := s.GetNode(ctx, collectionID, prefix)
+		if errors.Is(err, ErrNotFound) {
+			return nil // nothing at or below this prefix exists yet
+		}
+		if err != nil {
+			return err
+		}
+		last := i == len(segs)-1
+		if (!last && n.Kind != KindFolder) || (last && n.Kind != KindFile) {
+			return ErrKindConflict
+		}
+	}
+	return nil
+}
+
 // CountFiles returns the number of file nodes in a collection.
 func (s *Store) CountFiles(ctx context.Context, collectionID int64) (int, error) {
 	return countFiles(ctx, s.db.sql, collectionID)

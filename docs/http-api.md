@@ -156,7 +156,10 @@ Begin body and response:
 The `upload_url` carries an unguessable `upload_id` and needs **no additional
 auth** — possession is the capability, so an agent can be handed the URL and
 `PUT` directly. Sessions are single-use with a short TTL (`ARTIFACTSD_UPLOAD_TTL`);
-unfinished ones are reaped by the janitor.
+unfinished ones are reaped by the janitor. A `PUT` that fails to write the file
+(e.g. `409` because a file now occupies a parent path) does **not** consume the
+session: fix the cause and retry the same URL. Creating a session whose path is
+already blocked returns `409` immediately.
 
 ## Shares
 

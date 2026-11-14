@@ -74,16 +74,43 @@ func (s *Store) GetUploadSession(ctx context.Context, uploadID string) (*UploadS
 	return u, err
 }
 
-// CompleteUploadSession marks a session completed with its final temp blob.
-func (s *Store) CompleteUploadSession(ctx context.Context, uploadID, tempBlobID string, at time.Time) error {
-	res, err := s.db.sql.ExecContext(ctx,
-		`UPDATE upload_sessions SET status = ?, temp_blob_id = ?, completed_at = ?
-		 WHERE upload_id = ? AND status = ?`,
-		UploadCompleted, tempBlobID, fmtTime(at), uploadID, UploadPending)
+// CommitUpload completes a large-upload session and writes its file node in
+// ONE transaction (artifactsd-m9e.13): it claims the session (pending →
+// completed, recording n.BlobID; ErrNotFound when it is no longer pending),
+// materializes the parent folders, upserts n and recomputes its denormalized
+// columns. On any error everything rolls back and the session stays pending,
+// so the client can retry or abort. Of two concurrent commits for one session
+// exactly one succeeds (artifactsd-ku3). n.ParentID and n.ID are set on
+// success.
+func (s *Store) CommitUpload(ctx context.Context, uploadID string, n *Node, at time.Time) error {
+	tx, err := s.db.sql.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return requireOne(res)
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE upload_sessions SET status = ?, temp_blob_id = ?, completed_at = ?
+		 WHERE upload_id = ? AND status = ?`,
+		UploadCompleted, n.BlobID, fmtTime(at), uploadID, UploadPending)
+	if err != nil {
+		return err
+	}
+	if err := requireOne(res); err != nil {
+		return err
+	}
+	parentID, err := s.ensureParentFolders(ctx, tx, n.CollectionID, n.Path)
+	if err != nil {
+		return err
+	}
+	n.ParentID = parentID
+	if err := s.upsertNode(ctx, tx, n); err != nil {
+		return err
+	}
+	if err := s.recomputeNodeDenormalized(ctx, tx, n.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetUploadStatus updates a session's status (e.g. aborted/expired).
