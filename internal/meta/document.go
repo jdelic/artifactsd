@@ -55,7 +55,7 @@ type Content struct {
 	// (inherit the default) is distinct from an explicit false (trusted content
 	// served on its real origin) or true. Set false only for content you trust:
 	// it regains same-origin powers on the shared admin/artifact origin.
-	Sandbox *bool `json:"sandbox,omitempty" yaml:"sandbox,omitempty" jsonschema:"Serve active content inside a CSP sandbox (default true); set false only for trusted content. false requires an admin token"`
+	Sandbox *bool `json:"sandbox,omitempty" yaml:"sandbox,omitempty" jsonschema:"Serve active content inside a CSP sandbox (default true); set false only for trusted content. Only admins can set this"`
 }
 
 // Access holds visibility, directory listing, and the auth requirement list.

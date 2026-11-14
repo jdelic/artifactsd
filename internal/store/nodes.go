@@ -554,3 +554,17 @@ func (s *Store) TouchLastAccess(ctx context.Context, id int64, at time.Time) err
 	}
 	return requireOne(res)
 }
+
+// TrustContent marks the files at or below prefix ("" = the whole collection)
+// as trusted content: an admin has decided they may be served without the
+// sandbox (content.sandbox=false), with no re-upload needed (artifactsd-7tl.2).
+// Content written later by a non-admin is untrusted again until an admin
+// confirms it.
+func (s *Store) TrustContent(ctx context.Context, collectionID int64, prefix string) error {
+	_, err := s.db.sql.ExecContext(ctx,
+		`UPDATE nodes SET content_trusted = 1
+		 WHERE collection_id = ?1 AND kind = ?2
+		   AND (?3 = '' OR path = ?3 OR substr(path, 1, length(?3) + 1) = ?3 || '/')`,
+		collectionID, KindFile, prefix)
+	return err
+}

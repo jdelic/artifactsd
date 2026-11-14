@@ -45,93 +45,123 @@ func mint(t *testing.T, ts *testserver.Server, scopes string) string {
 	return v.Token
 }
 
-// TestContentTrust: sandbox=false only ever applies to content an
-// admin-scoped principal wrote. Replacing such content, or adding content
-// under an unsandboxed folder, with a non-admin token keeps it sandboxed
-// (artifactsd-7tl.2).
+func jsonCall(t *testing.T, ts *testserver.Server, method, path, token, body string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(context.Background(), method, ts.BaseURL+path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+// TestContentTrust covers the sandbox model (artifactsd-7tl.2):
+//   - only admins set content.sandbox, in either direction;
+//   - an admin setting sandbox=false on a file, folder, collection or share
+//     unsandboxes the content currently under it, without a re-upload;
+//   - content a non-admin writes or replaces afterwards is sandboxed until an
+//     admin confirms it again with a metadata change.
 func TestContentTrust(t *testing.T) {
 	ts := testserver.New(t)
 	writer := mint(t, ts, `["collections:write"]`)
-	jsonHdr := map[string]string{"Content-Type": "application/json"}
+	sharer := mint(t, ts, `["shares:write"]`)
 	html := map[string]string{"Content-Type": "text/html"}
-	call(t, ts, http.MethodPost, "/api/v1/collections", ts.AdminToken, `{"name":"demo"}`, jsonHdr)
+	jsonCall(t, ts, http.MethodPost, "/api/v1/collections", ts.AdminToken, `{"name":"demo"}`)
 
-	// Admin publishes trusted, unsandboxed content.
-	hdr := metaHdr(`{"content":{"sandbox":false}}`)
-	hdr["Content-Type"] = "text/html"
-	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/app.html", ts.AdminToken, "<p>admin</p>", hdr)
-	if sandboxed(t, ts, "/c/demo/app.html") {
-		t.Fatal("admin content with sandbox=false is sandboxed")
+	// Users can't change the sandbox in either direction, anywhere.
+	for _, c := range []struct{ token, method, path, body string }{
+		{writer, http.MethodPost, "/api/v1/collections", `{"name":"x","metadata":{"content":{"sandbox":true}}}`},
+		{writer, http.MethodPatch, "/api/v1/collections/demo/meta", `{"content":{"sandbox":true}}`},
+		{writer, http.MethodPatch, "/api/v1/collections/demo/folders/spa?meta", `{"content":{"sandbox":false}}`},
+		{writer, http.MethodPost, "/api/v1/collections/demo/uploads", `{"path":"z.html","metadata":{"content":{"sandbox":true}}}`},
+		{sharer, http.MethodPost, "/api/v1/collections/demo/shares", `{"target_path":"","metadata":{"content":{"sandbox":true}}}`},
+	} {
+		if code, body := jsonCall(t, ts, c.method, c.path, c.token, c.body); code != http.StatusForbidden {
+			t.Errorf("non-admin %s %s = %d %s, want 403", c.method, c.path, code, body)
+		}
 	}
-
-	// A writer's unrelated metadata patch keeps it unsandboxed.
-	if r := call(t, ts, http.MethodPatch, "/api/v1/collections/demo/files/app.html?meta", writer,
-		`{"crawl":{"indexable":false}}`, jsonHdr); r.StatusCode != http.StatusOK {
-		t.Fatalf("writer patch = %d", r.StatusCode)
-	}
-	if sandboxed(t, ts, "/c/demo/app.html") {
-		t.Error("unrelated metadata patch re-sandboxed admin content")
-	}
-
-	// A writer replacing the bytes (metadata kept) gets the sandbox back.
-	if r := call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/app.html", writer, "<script>evil</script>", html); r.StatusCode != http.StatusOK {
-		t.Fatalf("writer replace = %d", r.StatusCode)
-	}
-	if !sandboxed(t, ts, "/c/demo/app.html") {
-		t.Error("non-admin replacement of unsandboxed content is served without the sandbox")
-	}
-	// The admin re-publishing restores trust.
-	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/app.html", ts.AdminToken, "<p>admin again</p>", html)
-	if sandboxed(t, ts, "/c/demo/app.html") {
-		t.Error("admin re-upload did not restore trust")
+	hdr := metaHdr(`{"content":{"sandbox":true}}`)
+	if r := call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/x.html", writer, "x", hdr); r.StatusCode != http.StatusForbidden {
+		t.Errorf("non-admin PUT with sandbox=true = %d, want 403", r.StatusCode)
 	}
 
-	// Inherited sandbox=false: new content from a writer is still sandboxed.
-	call(t, ts, http.MethodPatch, "/api/v1/collections/demo/folders/spa?meta", ts.AdminToken, `{"content":{"sandbox":false}}`, jsonHdr)
-	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/spa/index.html", writer, "<p>w</p>", html)
-	if !sandboxed(t, ts, "/c/demo/spa/index.html") {
-		t.Error("writer content under an unsandboxed folder is served without the sandbox")
+	// A user's file, unsandboxed by an admin without re-uploading it.
+	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/user.html", writer, "<p>user</p>", html)
+	if !sandboxed(t, ts, "/c/demo/user.html") {
+		t.Fatal("user content not sandboxed by default")
+	}
+	if code, _ := jsonCall(t, ts, http.MethodPatch, "/api/v1/collections/demo/files/user.html?meta", ts.AdminToken, `{"content":{"sandbox":false}}`); code != http.StatusOK {
+		t.Fatalf("admin patch = %d", code)
+	}
+	if sandboxed(t, ts, "/c/demo/user.html") {
+		t.Error("admin sandbox=false on a user's file did not take effect")
+	}
+	// An unrelated user patch keeps it unsandboxed.
+	jsonCall(t, ts, http.MethodPatch, "/api/v1/collections/demo/files/user.html?meta", writer, `{"crawl":{"indexable":false}}`)
+	if sandboxed(t, ts, "/c/demo/user.html") {
+		t.Error("unrelated user patch re-sandboxed the file")
+	}
+	// The user replacing the bytes gets the sandbox back; the admin's setting
+	// is kept, even when the user sends a metadata document without it.
+	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/user.html", writer, "<script>new</script>",
+		map[string]string{"Content-Type": "text/html", "Artifactsd-Metadata": metaHdr(`{"crawl":{"indexable":false}}`)["Artifactsd-Metadata"]})
+	if !sandboxed(t, ts, "/c/demo/user.html") {
+		t.Error("user replacement of unsandboxed content is served without the sandbox")
+	}
+	if _, own := jsonCall(t, ts, http.MethodGet, "/api/v1/collections/demo/files/user.html?meta", ts.AdminToken, ""); !strings.Contains(own, `"sandbox":false`) {
+		t.Errorf("user metadata replacement dropped the admin's sandbox setting: %s", own)
+	}
+	// The admin re-confirms with a metadata change; no upload needed.
+	jsonCall(t, ts, http.MethodPatch, "/api/v1/collections/demo/files/user.html?meta", ts.AdminToken, `{"content":{"sandbox":false}}`)
+	if sandboxed(t, ts, "/c/demo/user.html") {
+		t.Error("admin re-confirmation did not take effect")
 	}
 
-	// A share override with sandbox=false (admin-only) still can't unsandbox
-	// writer content.
+	// Folder level: existing user content is unsandboxed, later uploads are not.
+	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/spa/index.html", writer, "<p>a</p>", html)
+	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/spa/deep/b.html", writer, "<p>b</p>", html)
+	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/spa-other/c.html", writer, "<p>c</p>", html)
+	jsonCall(t, ts, http.MethodPatch, "/api/v1/collections/demo/folders/spa?meta", ts.AdminToken, `{"content":{"sandbox":false}}`)
+	if sandboxed(t, ts, "/c/demo/spa/index.html") || sandboxed(t, ts, "/c/demo/spa/deep/b.html") {
+		t.Error("admin folder sandbox=false did not unsandbox the files below it")
+	}
+	if !sandboxed(t, ts, "/c/demo/spa-other/c.html") {
+		t.Error("a sibling folder with a common name prefix was affected")
+	}
+	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/spa/later.html", writer, "<p>later</p>", html)
+	if !sandboxed(t, ts, "/c/demo/spa/later.html") {
+		t.Error("user content added after the admin's decision is served without the sandbox")
+	}
+
+	// A share override: an admin share with sandbox=false vouches for its target.
+	code, body := jsonCall(t, ts, http.MethodPost, "/api/v1/collections/demo/shares", ts.AdminToken,
+		`{"target_path":"spa-other","metadata":{"content":{"sandbox":false}}}`)
 	var sh struct {
 		ShareID string `json:"share_id"`
 	}
-	{
-		req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.BaseURL+"/api/v1/collections/demo/shares",
-			strings.NewReader(`{"target_path":"spa","metadata":{"content":{"sandbox":false}}}`))
-		req.Header.Set("Authorization", "Bearer "+ts.AdminToken)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := ts.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&sh)
-		resp.Body.Close()
+	_ = json.Unmarshal([]byte(body), &sh)
+	if code != http.StatusCreated || sandboxed(t, ts, "/s/"+sh.ShareID+"/c.html") {
+		t.Errorf("admin share sandbox=false: %d, content still sandboxed", code)
 	}
-	if sh.ShareID == "" || !sandboxed(t, ts, "/s/"+sh.ShareID+"/index.html") {
-		t.Error("share override unsandboxed writer content")
+
+	// Collection level.
+	call(t, ts, http.MethodPut, "/api/v1/collections/demo/files/root.html", writer, "<p>r</p>", html)
+	jsonCall(t, ts, http.MethodPatch, "/api/v1/collections/demo/meta", ts.AdminToken, `{"content":{"sandbox":false}}`)
+	if sandboxed(t, ts, "/c/demo/root.html") || sandboxed(t, ts, "/c/demo/spa/later.html") {
+		t.Error("admin collection sandbox=false did not unsandbox the collection's files")
 	}
 
 	// Large uploads: trust follows the principal that began the session.
 	begin := func(token, path string) {
-		r, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-			ts.BaseURL+"/api/v1/collections/demo/uploads", strings.NewReader(`{"path":"`+path+`"}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		r.Header.Set("Authorization", "Bearer "+token)
-		r.Header.Set("Content-Type", "application/json")
-		resp, err := ts.Client().Do(r)
-		if err != nil {
-			t.Fatal(err)
-		}
+		_, b := jsonCall(t, ts, http.MethodPost, "/api/v1/collections/demo/uploads", token, `{"path":"`+path+`"}`)
 		var sess struct {
 			UploadURL string `json:"upload_url"`
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&sess)
-		resp.Body.Close()
+		_ = json.Unmarshal([]byte(b), &sess)
 		put, _ := http.NewRequestWithContext(context.Background(), http.MethodPut, sess.UploadURL, strings.NewReader("<p>big</p>"))
 		put.Header.Set("Content-Type", "text/html")
 		pr, err := ts.Client().Do(put)
@@ -141,12 +171,12 @@ func TestContentTrust(t *testing.T) {
 		_, _ = io.Copy(io.Discard, pr.Body)
 		pr.Body.Close()
 	}
-	begin(writer, "spa/big.html")
-	if !sandboxed(t, ts, "/c/demo/spa/big.html") {
-		t.Error("writer large upload under an unsandboxed folder is served without the sandbox")
+	begin(writer, "big.html")
+	if !sandboxed(t, ts, "/c/demo/big.html") {
+		t.Error("user large upload in an unsandboxed collection is served without the sandbox")
 	}
-	begin(ts.AdminToken, "spa/admin-big.html")
-	if sandboxed(t, ts, "/c/demo/spa/admin-big.html") {
-		t.Error("admin large upload under an unsandboxed folder is sandboxed")
+	begin(ts.AdminToken, "admin-big.html")
+	if sandboxed(t, ts, "/c/demo/admin-big.html") {
+		t.Error("admin large upload in an unsandboxed collection is sandboxed")
 	}
 }

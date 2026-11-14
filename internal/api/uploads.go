@@ -153,6 +153,16 @@ func (h *Handler) putUpload(w http.ResponseWriter, r *http.Request) {
 	if existing != nil {
 		status = http.StatusOK
 	}
+	// A non-admin session's metadata must not drop an admin's sandbox
+	// decision on the file it replaces (artifactsd-7tl.2).
+	if session.MetadataSupplied && !session.ContentTrusted && existing != nil && existing.Kind == store.KindFile {
+		if doc, err := meta.FromJSON(node.Metadata); err == nil {
+			keepAdminSandbox(doc, existing.Metadata)
+			if out, err := doc.JSON(); err == nil {
+				node.Metadata = out
+			}
+		}
+	}
 
 	// Claim the session and write the node in one transaction
 	// (artifactsd-m9e.13). The blob above is content-addressed and not yet

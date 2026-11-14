@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -428,5 +429,57 @@ func TestCommitUpload_RejectsExpiredSession(t *testing.T) {
 	got, _ := s.GetUploadSession(ctx, u.UploadID)
 	if got.Status != UploadPending {
 		t.Errorf("session status = %q, want still pending (the janitor expires it)", got.Status)
+	}
+}
+
+func TestTrustContent_Prefix(t *testing.T) {
+	s, ctx := newStore(t)
+	c := mustCollection(t, s, ctx, "demo")
+	for _, p := range []string{"spa", "spa-other"} {
+		if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, Path: p, Name: p, Kind: KindFolder}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := []string{"top.txt", "spa/a.txt", "spa/deep/b.txt", "spa-other/c.txt"}
+	for _, p := range files {
+		dir, _, _ := strings.Cut(p, "/")
+		var parent *int64
+		if dir != p {
+			n, _ := s.GetNode(ctx, c.ID, dir)
+			parent = &n.ID
+		}
+		if strings.Count(p, "/") == 2 {
+			pid, err := s.EnsureParentFolders(ctx, c.ID, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent = pid
+		}
+		if err := s.UpsertNode(ctx, &Node{CollectionID: c.ID, ParentID: parent, Path: p, Name: p, Kind: KindFile}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	trusted := func(p string) bool {
+		n, err := s.GetNode(ctx, c.ID, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n.ContentTrusted
+	}
+	if err := s.TrustContent(ctx, c.ID, "spa"); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]bool{"top.txt": false, "spa/a.txt": true, "spa/deep/b.txt": true, "spa-other/c.txt": false} {
+		if trusted(p) != want {
+			t.Errorf("after TrustContent(spa): %s trusted=%v, want %v", p, trusted(p), want)
+		}
+	}
+	if err := s.TrustContent(ctx, c.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range files {
+		if !trusted(p) {
+			t.Errorf("after TrustContent(\"\"): %s not trusted", p)
+		}
 	}
 }

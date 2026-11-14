@@ -268,21 +268,29 @@ artifact metadata. Tradeoff: a sandboxed page has a `null` origin, so it loses
 its own-origin storage/cookies and presents `Origin: null` to third-party APIs
 (only `*`-CORS APIs work) — trusted interactive content opts out with
 `content.sandbox: false`, regaining the real origin. **Only admin-scoped
-principals may set `content.sandbox: false`** (artifactsd-m9e.4): in the
+principals may set `content.sandbox`, in either direction** (artifactsd-m9e.4,
+artifactsd-7tl.2): in the
 single-domain topology an unsandboxed HTML artifact can drive the admin UI of
 any admin who opens it, so write scope must not be enough. The check lives in
 the API's metadata helpers (`requireSandboxPrivilege`), covering collection,
 folder, file, share and large-upload metadata; upload-request `file_metadata`
 and the admin UI are admin-only already.
 **Content trust** (artifactsd-7tl.2): the flag alone isn't enough — a writer could
-replace the *bytes* of an admin-unsandboxed file (metadata is kept on re-upload),
-or add files under an unsandboxed folder or share. So each file records whether an
-admin-scoped principal wrote its bytes (`nodes.content_trusted`, migration 0007;
-large uploads inherit it from the principal that began the session, upload links
-and non-admin tokens are untrusted). Serving applies the sandbox CSP to untrusted
-content regardless of `content.sandbox`, whether that comes from the file,
-an ancestor or a share. Metadata-only PATCHes keep the flag; an admin re-upload
-restores trust. Files existing before the migration count as trusted.
+replace the *bytes* of an admin-unsandboxed file, or add files under an
+unsandboxed folder, collection or share. So each file records whether its current
+bytes are trusted (`nodes.content_trusted`, migration 0007), and serving applies
+the sandbox CSP to untrusted content regardless of `content.sandbox`.
+- **Trusted** when an admin-scoped principal wrote the bytes (API PUT, a large
+  upload begun by an admin, the admin UI), or when an admin sets
+  `sandbox: false` on the file or on a folder, collection or share covering it:
+  that marks the files *currently* at or below it trusted, so an admin can
+  unsandbox existing content without a re-upload (`Store.TrustContent`; the
+  admin UI's metadata save counts when it saves `sandbox: false`).
+- **Untrusted** when a non-admin token or an upload link writes or replaces the
+  bytes. It stays sandboxed until an admin sets `sandbox: false` again.
+- Users can't change `content.sandbox` at all (403), and a non-admin metadata
+  replacement keeps the stored admin value. Metadata-only PATCHes keep trust.
+- Files existing before the migration count as trusted.
 
 **Defense in depth on the admin side.** Every admin response sets
 `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`,
