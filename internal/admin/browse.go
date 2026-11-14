@@ -3,6 +3,7 @@ package admin
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/jdelic/artifactsd/internal/audit"
@@ -173,7 +174,7 @@ func (h *Handler) allFiles(w http.ResponseWriter, r *http.Request) {
 			ContentType: f.ContentType,
 			Created:     f.CreatedAt.UTC().Format("2006-01-02 15:04"),
 			ViewURL:     base + "/c/" + f.CollectionName + "/" + paths.EscapeURL(f.Path),
-			MetaURL:     h.cfg.Admin.Path + "/collections/" + f.CollectionName + "/meta?path=" + f.Path,
+			MetaURL:     h.cfg.Admin.Path + "/collections/" + f.CollectionName + "/meta?path=" + url.QueryEscape(f.Path),
 			Sandbox:     string(states[f.CollectionName][f.Path]),
 		}
 		row.Expires, row.ExpiresSource = expiryCell(f.Effective)
