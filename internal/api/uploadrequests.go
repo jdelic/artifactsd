@@ -24,6 +24,7 @@ type uploadRequestView struct {
 	AllowUploaderAccess  bool            `json:"allow_uploader_access"`
 	SingleUse            bool            `json:"single_use"`
 	UseSubmissionFolders bool            `json:"use_submission_folders"`
+	AllowOverwrite       bool            `json:"allow_overwrite"`
 	MaxFiles             *int64          `json:"max_files,omitempty"`
 	MaxFileSize          *int64          `json:"max_file_size,omitempty"`
 	FilesUploaded        int64           `json:"files_uploaded"`
@@ -59,6 +60,7 @@ func (h *Handler) toUploadRequestView(collection string, ur *store.UploadRequest
 		AllowUploaderAccess:  ur.AllowUploaderAccess,
 		SingleUse:            ur.SingleUse,
 		UseSubmissionFolders: ur.UseSubmissionFolders,
+		AllowOverwrite:       ur.AllowOverwrite,
 		MaxFiles:             ur.MaxFiles,
 		MaxFileSize:          ur.MaxFileSize,
 		FilesUploaded:        ur.FilesUploaded,
@@ -86,9 +88,12 @@ type createUploadRequestBody struct {
 	AllowUploaderAccess  bool            `json:"allow_uploader_access"`
 	SingleUse            bool            `json:"single_use"`
 	UseSubmissionFolders bool            `json:"use_submission_folders"`
-	MaxFiles             *int64          `json:"max_files,omitempty"`
-	MaxFileSize          *int64          `json:"max_file_size,omitempty"`
-	ExpiresAt            *string         `json:"expires_at,omitempty"`
+	// AllowOverwrite lets the link replace files it uploaded itself; it can
+	// never replace files from any other writer (artifactsd-m9e.1).
+	AllowOverwrite bool    `json:"allow_overwrite"`
+	MaxFiles       *int64  `json:"max_files,omitempty"`
+	MaxFileSize    *int64  `json:"max_file_size,omitempty"`
+	ExpiresAt      *string `json:"expires_at,omitempty"`
 }
 
 // patchUploadRequestBody holds mutable fields for PATCH.
@@ -168,6 +173,7 @@ func (h *Handler) createUploadRequest(w http.ResponseWriter, r *http.Request) {
 		AllowUploaderAccess:  req.AllowUploaderAccess,
 		SingleUse:            req.SingleUse,
 		UseSubmissionFolders: req.UseSubmissionFolders,
+		AllowOverwrite:       req.AllowOverwrite,
 		MaxFiles:             req.MaxFiles,
 		MaxFileSize:          req.MaxFileSize,
 		ExpiresAt:            expiresAt,

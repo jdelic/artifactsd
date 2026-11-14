@@ -121,6 +121,9 @@ func (h *Handler) createUploadRequestAdmin(w http.ResponseWriter, r *http.Reques
 	if r.FormValue("allow_uploader_access") == "on" {
 		ur.AllowUploaderAccess = true
 	}
+	if r.FormValue("allow_overwrite") == "on" {
+		ur.AllowOverwrite = true
+	}
 	if v := strings.TrimSpace(r.FormValue("max_files")); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 1 {

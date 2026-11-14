@@ -37,6 +37,7 @@ func TestCreateUploadRequestAdmin_AllFields(t *testing.T) {
 		"single_use":             {"on"},
 		"use_submission_folders": {"on"},
 		"allow_uploader_access":  {"on"},
+		"allow_overwrite":        {"on"},
 	}
 	r := withIdentity(httptest.NewRequest(http.MethodPost, "/upload-requests",
 		strings.NewReader(form.Encode())), id)
@@ -67,9 +68,9 @@ func TestCreateUploadRequestAdmin_AllFields(t *testing.T) {
 	if ur.MaxFileSize == nil || *ur.MaxFileSize != 10<<20 {
 		t.Errorf("max_file_size = %v, want %d (10MB, 1024-based)", ur.MaxFileSize, 10<<20)
 	}
-	if !ur.SingleUse || !ur.UseSubmissionFolders || !ur.AllowUploaderAccess {
-		t.Errorf("toggles = single_use:%v submission_folders:%v uploader_access:%v, want all true",
-			ur.SingleUse, ur.UseSubmissionFolders, ur.AllowUploaderAccess)
+	if !ur.SingleUse || !ur.UseSubmissionFolders || !ur.AllowUploaderAccess || !ur.AllowOverwrite {
+		t.Errorf("toggles = single_use:%v submission_folders:%v uploader_access:%v overwrite:%v, want all true",
+			ur.SingleUse, ur.UseSubmissionFolders, ur.AllowUploaderAccess, ur.AllowOverwrite)
 	}
 	if ur.ExpiresAt == nil {
 		t.Error("expires_at not set from expires_in duration")

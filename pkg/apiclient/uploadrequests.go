@@ -19,6 +19,7 @@ type UploadRequest struct {
 	AllowUploaderAccess  bool            `json:"allow_uploader_access"`
 	SingleUse            bool            `json:"single_use"`
 	UseSubmissionFolders bool            `json:"use_submission_folders"`
+	AllowOverwrite       bool            `json:"allow_overwrite"`
 	MaxFiles             *int64          `json:"max_files,omitempty"`
 	MaxFileSize          *int64          `json:"max_file_size,omitempty"`
 	FilesUploaded        int64           `json:"files_uploaded"`
@@ -47,6 +48,7 @@ type CreateUploadRequestRequest struct {
 	AllowUploaderAccess  bool            `json:"allow_uploader_access,omitempty"`
 	SingleUse            bool            `json:"single_use,omitempty"`
 	UseSubmissionFolders bool            `json:"use_submission_folders,omitempty"`
+	AllowOverwrite       bool            `json:"allow_overwrite,omitempty"`
 	MaxFiles             *int64          `json:"max_files,omitempty"`
 	MaxFileSize          *int64          `json:"max_file_size,omitempty"`
 	ExpiresAt            *string         `json:"expires_at,omitempty"`

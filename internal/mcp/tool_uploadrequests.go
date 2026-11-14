@@ -22,6 +22,7 @@ type CreateUploadRequestIn struct {
 	SingleUse            bool           `json:"single_use,omitempty" jsonschema:"Auto-close the link after the first successful submission"`
 	UseSubmissionFolders bool           `json:"use_submission_folders,omitempty" jsonschema:"Store each submission in its own sub-folder named by submission_id"`
 	AllowUploaderAccess  bool           `json:"allow_uploader_access,omitempty" jsonschema:"Return file URLs to the uploader for public and unlisted files"`
+	AllowOverwrite       bool           `json:"allow_overwrite,omitempty" jsonschema:"Let the link replace files it uploaded itself (never other files). Default false: a name that already exists is refused with 409. Any holder of the link can replace another holder's file, so prefer use_submission_folders for shared links"`
 	MaxFiles             int64          `json:"max_files,omitempty" jsonschema:"Maximum total files that may be uploaded; 0 = unlimited"`
 	MaxFileSizeBytes     int64          `json:"max_file_size_bytes,omitempty" jsonschema:"Per-file size limit in bytes; 0 = server default"`
 	ExpiresIn            string         `json:"expires_in,omitempty" jsonschema:"Duration like 24h, 7d, or 2w; the link never expires if omitted"`
@@ -46,6 +47,7 @@ func (s *Server) createUploadRequest(ctx context.Context, _ *gosdk.CallToolReque
 		SingleUse:            in.SingleUse,
 		UseSubmissionFolders: in.UseSubmissionFolders,
 		AllowUploaderAccess:  in.AllowUploaderAccess,
+		AllowOverwrite:       in.AllowOverwrite,
 	}
 	if in.Label != "" {
 		req.Label = &in.Label

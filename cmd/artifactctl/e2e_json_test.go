@@ -84,6 +84,12 @@ func TestE2E_JSONOutput_OnlyJSON(t *testing.T) {
 
 	ur := jsonRun("upload-request", "create", "demo")
 	id := ur["request_id"].(string)
+	if ur["allow_overwrite"] != false {
+		t.Fatalf("default allow_overwrite = %v, want false", ur["allow_overwrite"])
+	}
+	if v := jsonRun("upload-request", "create", "demo", "--allow-overwrite"); v["allow_overwrite"] != true {
+		t.Fatalf("--allow-overwrite: %v", v)
+	}
 	if v := jsonRun("upload-request", "close", id); v["status"] != "closed" {
 		t.Fatalf("upload-request close: %v", v)
 	}

@@ -61,6 +61,7 @@ CREATE TABLE upload_requests (
     file_metadata         TEXT NOT NULL DEFAULT '{}', -- metadata applied to each uploaded file (JSON)
     allow_uploader_access BOOLEAN NOT NULL DEFAULT 0, -- show file URLs to uploader on success
     use_submission_folders BOOLEAN NOT NULL DEFAULT 0,-- if true, nest files under {target_folder}/{submission_id}/
+    allow_overwrite       BOOLEAN NOT NULL DEFAULT 0, -- (0005) may replace files this link wrote; never others
     single_use            BOOLEAN NOT NULL DEFAULT 0, -- if true, auto-close after first successful submission
     max_files             INTEGER,                    -- optional cap on total files (across all submitters)
     max_file_size         INTEGER,                    -- optional per-file size override (≤ server max_upload_size)
@@ -101,9 +102,20 @@ With `use_submission_folders = false` (default):
 {collection}/{target_folder}/{filename}
 ```
 
-If a file with the same name already exists, it is **overwritten** (consistent
-with the PUT-file semantics in the management API). This is the right default for
-agent workflows where filenames are unique by convention.
+If a node with the same name already exists, the upload is **refused with
+409** ("a file named X already exists") by default (artifactsd-m9e.1). A link
+holder is anonymous, unlike a `PUT` caller with a write-scoped token, so a link
+must never be able to replace published content or reset a protected file's
+metadata.
+
+`allow_overwrite` (default `false`) opts a link into replacing files **it
+uploaded itself**: `nodes.upload_request_id` (migration 0005) records the link
+that wrote a file, and any other writer (API `PUT`, large upload, admin UI)
+resets it to `NULL`. A link can therefore never replace a file from another
+writer or another link, even with `allow_overwrite`. Replacements do not count
+toward `max_files`. Note that every holder of the same link can replace the
+others' files when overwrite is on; links shared with several people should use
+`use_submission_folders` instead.
 
 With `use_submission_folders = true`:
 

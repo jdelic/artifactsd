@@ -180,7 +180,9 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		collectionID: c.ID, metaJSON: metaJSON, seen: map[string]bool{},
 		remaining: -1,
 	}
-	if ur.MaxFiles != nil && *ur.MaxFiles > 0 {
+	// Fail-fast quota only when every file is necessarily new: with
+	// allow_overwrite a replacement does not count, so the commit decides.
+	if ur.MaxFiles != nil && *ur.MaxFiles > 0 && !ur.AllowOverwrite {
 		rc.remaining = *ur.MaxFiles - ur.FilesUploaded
 	}
 
@@ -222,6 +224,13 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusGone, "upload link is no longer active")
 		case errors.Is(err, store.ErrUploadRequestQuotaExceeded):
 			writeJSONError(w, http.StatusConflict, "upload link has reached its file limit")
+		case errors.Is(err, store.ErrUploadRequestFileExists):
+			var fe *store.FileExistsError
+			name := "the target"
+			if errors.As(err, &fe) {
+				name = path.Base(fe.Path)
+			}
+			writeJSONError(w, http.StatusConflict, "a file named "+name+" already exists")
 		case errors.Is(err, store.ErrCollectionFull):
 			writeJSONError(w, http.StatusConflict, "the collection has reached its file limit")
 		case errors.Is(err, store.ErrKindConflict):
@@ -378,6 +387,18 @@ func (rc *receiver) receive(filename string, rd io.Reader) error {
 		return &httpError{http.StatusBadRequest, "two files in this request have the same name: " + path.Base(nodePath)}
 	}
 	rc.seen[nodePath] = true
+
+	// Advisory early refusal of an occupied path, before storing any bytes;
+	// the commit transaction re-checks authoritatively (artifactsd-m9e.1).
+	existing, err := rc.h.store.GetNode(rc.ctx, rc.collectionID, nodePath)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return fmt.Errorf("checking %q: %w", nodePath, err)
+	case !rc.ur.AllowOverwrite || existing.Kind != store.KindFile ||
+		existing.UploadRequestID == nil || *existing.UploadRequestID != rc.ur.ID:
+		return &httpError{http.StatusConflict, "a file named " + path.Base(nodePath) + " already exists"}
+	}
 
 	lr := &io.LimitedReader{R: rd, N: rc.maxPerFile + 1}
 	ref, size, sum, err := rc.h.blob.Put(rc.ctx, lr)

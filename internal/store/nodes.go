@@ -12,7 +12,7 @@ import (
 
 const nodeCols = `id, collection_id, parent_id, path, name, kind, blob_id, size,
 	content_type, checksum, metadata, created_at, updated_at, last_access_at,
-	visibility, expires_at`
+	visibility, expires_at, upload_request_id`
 
 func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	var (
@@ -28,11 +28,12 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 		lastAccess  sql.NullString
 		visibility  sql.NullString
 		expires     sql.NullString
+		uploadReq   sql.NullInt64
 	)
 	if err := row.Scan(
 		&n.ID, &n.CollectionID, &parentID, &n.Path, &n.Name, &n.Kind,
 		&blobID, &size, &contentType, &checksum, &meta,
-		&created, &updated, &lastAccess, &visibility, &expires,
+		&created, &updated, &lastAccess, &visibility, &expires, &uploadReq,
 	); err != nil {
 		return nil, err
 	}
@@ -44,6 +45,7 @@ func scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	n.Checksum = strPtr(checksum)
 	n.Metadata = []byte(meta)
 	n.Visibility = strPtr(visibility)
+	n.UploadRequestID = int64Ptr(uploadReq)
 
 	var err error
 	if n.CreatedAt, err = parseTime(created); err != nil {
@@ -97,8 +99,9 @@ func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
 		ctx,
 		`INSERT INTO nodes
 			(collection_id, parent_id, path, name, kind, blob_id, size, content_type,
-			 checksum, metadata, created_at, updated_at, last_access_at, visibility, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 checksum, metadata, created_at, updated_at, last_access_at, visibility, expires_at,
+			 upload_request_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(collection_id, path) DO UPDATE SET
 			parent_id    = excluded.parent_id,
 			name         = excluded.name,
@@ -112,11 +115,13 @@ func (s *Store) upsertNode(ctx context.Context, q querier, n *Node) error {
 			metadata     = excluded.metadata,
 			updated_at   = excluded.updated_at,
 			visibility   = excluded.visibility,
-			expires_at   = excluded.expires_at
+			expires_at   = excluded.expires_at,
+			upload_request_id = excluded.upload_request_id
 		 RETURNING id`,
 		n.CollectionID, n.ParentID, n.Path, n.Name, n.Kind, n.BlobID, n.Size, n.ContentType,
 		n.Checksum, defaultJSON(n.Metadata), fmtTime(n.CreatedAt), fmtTime(n.UpdatedAt),
 		fmtTimePtr(n.LastAccessAt), n.Visibility, fmtTimePtr(n.ExpiresAt),
+		n.UploadRequestID,
 	).Scan(&n.ID)
 	return err
 }

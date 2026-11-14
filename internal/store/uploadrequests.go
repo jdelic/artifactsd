@@ -9,7 +9,8 @@ import (
 
 const uploadRequestCols = `id, request_id, collection_id, target_folder, label, description,
 	file_metadata, allow_uploader_access, single_use, use_submission_folders,
-	max_files, max_file_size, files_uploaded, status, created_at, expires_at, revoked_at, last_used_at`
+	max_files, max_file_size, files_uploaded, status, created_at, expires_at, revoked_at, last_used_at,
+	allow_overwrite`
 
 func scanUploadRequest(row interface{ Scan(...any) error }) (*UploadRequest, error) {
 	var (
@@ -30,6 +31,7 @@ func scanUploadRequest(row interface{ Scan(...any) error }) (*UploadRequest, err
 		&ur.AllowUploaderAccess, &ur.SingleUse, &ur.UseSubmissionFolders,
 		&maxFiles, &maxFileSize, &ur.FilesUploaded,
 		&ur.Status, &created, &expires, &revoked, &lastUsed,
+		&ur.AllowOverwrite,
 	); err != nil {
 		return nil, err
 	}
@@ -73,13 +75,15 @@ func (s *Store) CreateUploadRequest(ctx context.Context, ur *UploadRequest) erro
 		`INSERT INTO upload_requests
 			(request_id, collection_id, target_folder, label, description, file_metadata,
 			 allow_uploader_access, single_use, use_submission_folders,
-			 max_files, max_file_size, files_uploaded, status, created_at, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+			 max_files, max_file_size, files_uploaded, status, created_at, expires_at,
+			 allow_overwrite)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
 		ur.RequestID, ur.CollectionID, ur.TargetFolder,
 		ur.Label, ur.Description, defaultJSON(ur.FileMetadata),
 		boolToInt(ur.AllowUploaderAccess), boolToInt(ur.SingleUse), boolToInt(ur.UseSubmissionFolders),
 		ur.MaxFiles, ur.MaxFileSize,
 		ur.Status, fmtTime(ur.CreatedAt), fmtTimePtr(ur.ExpiresAt),
+		boolToInt(ur.AllowOverwrite),
 	)
 	if err != nil {
 		return err
@@ -179,9 +183,14 @@ func (s *Store) CloseUploadRequest(ctx context.Context, requestID, status string
 //  1. re-reads the request row: it must still be active (else
 //     ErrUploadRequestNotActive) and the files must fit max_files (else
 //     ErrUploadRequestQuotaExceeded);
-//  2. materializes each file's parent folders and upserts the file node,
-//     recomputing its denormalized columns;
-//  3. inserts the submission row (FileCount and TotalBytes are set from files)
+//  2. checks each target path (artifactsd-m9e.1): a path that already holds a
+//     node is refused with a *FileExistsError unless the link allows overwrite
+//     AND the existing node is a file this same link wrote. Replacements do not
+//     count toward max_files;
+//  3. materializes each file's parent folders and upserts the file node with
+//     UploadRequestID set to the link, recomputing its denormalized columns;
+//  4. inserts the submission row (FileCount counts new files only; TotalBytes
+//     all bytes received)
 //     and bumps files_uploaded, closing the request when singleUse is set.
 //
 // Any error rolls back everything, so no file of a rejected submission becomes
@@ -204,11 +213,12 @@ func (s *Store) CommitUploadRequestFiles(
 	var status string
 	var filesUploaded int64
 	var maxFiles sql.NullInt64
+	var allowOverwrite bool
 	if err := tx.QueryRowContext(
 		ctx,
-		`SELECT status, files_uploaded, max_files FROM upload_requests WHERE id = ?`,
+		`SELECT status, files_uploaded, max_files, allow_overwrite FROM upload_requests WHERE id = ?`,
 		sub.UploadRequestID,
-	).Scan(&status, &filesUploaded, &maxFiles); err != nil {
+	).Scan(&status, &filesUploaded, &maxFiles, &allowOverwrite); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -218,12 +228,26 @@ func (s *Store) CommitUploadRequestFiles(
 		return ErrUploadRequestNotActive
 	}
 
-	sub.FileCount = int64(len(files))
+	sub.FileCount = 0
 	sub.TotalBytes = 0
 	for _, f := range files {
 		if f.Size != nil {
 			sub.TotalBytes += *f.Size
 		}
+		existing, err := getNode(ctx, tx, f.CollectionID, f.Path)
+		switch {
+		case errors.Is(err, ErrNotFound):
+			sub.FileCount++
+		case err != nil:
+			return err
+		case allowOverwrite && existing.Kind == KindFile &&
+			existing.UploadRequestID != nil && *existing.UploadRequestID == sub.UploadRequestID:
+			// Replacing this link's own file: allowed, not counted.
+		default:
+			return &FileExistsError{Path: f.Path}
+		}
+		id := sub.UploadRequestID
+		f.UploadRequestID = &id
 	}
 	if maxFiles.Valid && maxFiles.Int64 > 0 && filesUploaded+sub.FileCount > maxFiles.Int64 {
 		return ErrUploadRequestQuotaExceeded
@@ -350,4 +374,17 @@ func boolToInt(b bool) int {
 var (
 	ErrUploadRequestNotActive     = errors.New("store: upload request is not active")
 	ErrUploadRequestQuotaExceeded = errors.New("store: upload request max_files quota exceeded")
+	// ErrUploadRequestFileExists is matched (errors.Is) by *FileExistsError.
+	ErrUploadRequestFileExists = errors.New("store: a node already exists at the upload target")
 )
+
+// FileExistsError reports an upload-link target path that already holds a
+// node the link may not replace (artifactsd-m9e.1).
+type FileExistsError struct{ Path string }
+
+func (e *FileExistsError) Error() string {
+	return ErrUploadRequestFileExists.Error() + ": " + e.Path
+}
+
+// Is makes errors.Is(err, ErrUploadRequestFileExists) match.
+func (e *FileExistsError) Is(target error) bool { return target == ErrUploadRequestFileExists }

@@ -205,14 +205,19 @@ Create body (all fields except `collection` optional):
   "label": "Q2 Deliverables", "description": "PDF or DOCX please.",
   "file_metadata": { "access": { "visibility": "private" } },
   "allow_uploader_access": false, "single_use": false,
-  "use_submission_folders": true,
+  "use_submission_folders": true, "allow_overwrite": false,
   "max_files": 50, "max_file_size": 52428800,
   "expires_at": "2026-08-01T00:00:00Z" }
 ```
 
 The response includes the shareable `url` (`https://.../r/{request_id}`).
 `file_metadata` is applied to every uploaded file; `use_submission_folders`
-nests each submission under `{target_folder}/{submission_id}/`. **Closing**
+nests each submission under `{target_folder}/{submission_id}/`. Without
+submission folders, uploading a name that already exists is refused with `409`;
+`allow_overwrite: true` lets the link replace files **it uploaded itself** (never
+files from any other writer or link, and replacements don't count toward
+`max_files`). Every holder of the link can then replace the others' files, so
+prefer `use_submission_folders` for links shared with several people. **Closing**
 (`PATCH {"status":"closed"}`) stops new uploads and keeps the files;
 **revoking** (`DELETE`) is the permanent form and also escalates an
 already-closed link. Neither deletes uploaded files.

@@ -54,6 +54,10 @@ type Node struct {
 	// Denormalized (nil visibility = inherit):
 	Visibility *string
 	ExpiresAt  *time.Time
+	// UploadRequestID is the upload link that wrote this file, or nil when any
+	// other writer did (artifactsd-m9e.1). A link with allow_overwrite may only
+	// replace files carrying its own id.
+	UploadRequestID *int64
 }
 
 // Share is an unguessable-URL grant to a collection subtree (design/02 §2).
@@ -119,14 +123,17 @@ type UploadRequest struct {
 	AllowUploaderAccess  bool
 	SingleUse            bool
 	UseSubmissionFolders bool
-	MaxFiles             *int64
-	MaxFileSize          *int64
-	FilesUploaded        int64
-	Status               string
-	CreatedAt            time.Time
-	ExpiresAt            *time.Time
-	RevokedAt            *time.Time
-	LastUsedAt           *time.Time
+	// AllowOverwrite lets the link replace files it uploaded itself (never
+	// files from any other writer). Default false (artifactsd-m9e.1).
+	AllowOverwrite bool
+	MaxFiles       *int64
+	MaxFileSize    *int64
+	FilesUploaded  int64
+	Status         string
+	CreatedAt      time.Time
+	ExpiresAt      *time.Time
+	RevokedAt      *time.Time
+	LastUsedAt     *time.Time
 }
 
 // IsActive reports whether the request can accept new uploads.
