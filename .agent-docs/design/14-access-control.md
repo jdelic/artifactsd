@@ -126,6 +126,13 @@ completion), size limits. See [07](07-storage-uploads.md).
 ## 7. Admin authentication & authorization (decisions A1, D1)
 
 - **Admin UI is OIDC-gated** and additionally may use basic/htaccess.
+- **Authenticated but not an admin → 403** (artifactsd-m9e.16). The OIDC
+  callback only sets the session cookie for an identity `isAdmin` accepts;
+  anyone else gets a plain 403 ("Signed in as X, but this account is not
+  authorized for the admin UI.") and no cookie, because redirecting back to the
+  IdP would loop forever under SSO. A still-valid session whose identity is no
+  longer an admin (config changed) is likewise answered 403 and the cookie is
+  cleared. Logins are audited as `admin.login` / `admin.login_denied`.
 - **Authorization for admin is an any-of predicate** over two independent
   mechanisms — an identity is an admin if it satisfies **either**:
   - **Subject/email allowlist** (`ARTIFACTSD_ADMIN_SUBJECTS`, comma-separated):

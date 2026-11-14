@@ -55,6 +55,8 @@ type Server struct {
 	log       *slog.Logger
 	access    *audit.AccessLogger
 	db        *store.DB
+	store     *store.Store
+	audit     *audit.Recorder
 	limiter   *ratelimit.Limiter
 	proxies   *clientip.Resolver
 	http      *http.Server
@@ -100,6 +102,8 @@ func New(opts Options) *Server { //nolint:gocritic // Options is built once at c
 	}
 	s.initAdminAuth()
 	if opts.Store != nil {
+		s.store = opts.Store
+		s.audit = audit.NewRecorder(opts.Store.AuditSink(), opts.Logger)
 		s.janitor = janitor.New(janitor.Deps{
 			Store: opts.Store, Blob: opts.Blob, Logger: opts.Logger,
 			Audit:     audit.NewRecorder(opts.Store.AuditSink(), opts.Logger),

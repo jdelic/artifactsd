@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jdelic/artifactsd/internal/audit"
 	"github.com/jdelic/artifactsd/internal/auth"
 	"github.com/jdelic/artifactsd/internal/config"
 	"github.com/jdelic/artifactsd/internal/session"
@@ -135,18 +136,55 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.completeLogin(w, r, fs, result)
+}
+
+// completeLogin finishes an OIDC admin login once the IdP has authenticated
+// the user. Only an authorized admin gets a session: anyone else gets a 403
+// explanation and no cookie, instead of being sent back to the IdP, where SSO
+// would loop forever (artifactsd-m9e.16). Both outcomes are audited.
+func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, fs flowState, result *auth.LoginResult) {
 	id := &session.Identity{
 		Subject: result.Subject,
 		Email:   result.Email,
 		Groups:  result.Groups,
 		Expiry:  time.Now().Add(adminSessionTTL),
 	}
+	s.clearFlowCookie(w)
+	if !s.isAdmin(id) {
+		s.log.Warn("oidc login denied: identity is not an admin", "subject", id.Subject, "email", id.Email)
+		s.recordAdminLogin(r, audit.ActionAdminLoginDenied, id)
+		s.forbidNonAdmin(w, id)
+		return
+	}
 	if err := s.session.SetCookie(w, id); err != nil {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
 	}
-	s.clearFlowCookie(w)
+	s.recordAdminLogin(r, audit.ActionAdminLogin, id)
 	http.Redirect(w, r, fs.ReturnTo, http.StatusFound)
+}
+
+// forbidNonAdmin answers 403 for an authenticated identity that is not
+// authorized for the admin UI. http.Error sends text/plain with nosniff, so
+// the IdP-supplied name needs no further escaping.
+func (s *Server) forbidNonAdmin(w http.ResponseWriter, id *session.Identity) {
+	who := id.Email
+	if who == "" {
+		who = id.Subject
+	}
+	http.Error(w, "Signed in as "+who+", but this account is not authorized for the admin UI.", http.StatusForbidden)
+}
+
+func (s *Server) recordAdminLogin(r *http.Request, action string, id *session.Identity) {
+	if s.audit == nil {
+		return
+	}
+	who := id.Email
+	if who == "" {
+		who = id.Subject
+	}
+	_ = s.audit.Record(r.Context(), &audit.Entry{Action: action, Actor: "oidc:" + who, Target: "admin"})
 }
 
 func (s *Server) readFlowState(r *http.Request) (flowState, bool) {
@@ -197,12 +235,21 @@ func (s *Server) adminSecurityHeaders(next http.Handler) http.Handler {
 
 func (s *Server) adminGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if id, err := s.session.FromRequest(r); err == nil && s.isAdmin(id) {
+		id, err := s.session.FromRequest(r)
+		if err == nil && s.isAdmin(id) {
 			next.ServeHTTP(w, r.WithContext(session.NewContext(r.Context(), id)))
 			return
 		}
-		if id := s.checkAdminBasic(r); id != nil {
-			next.ServeHTTP(w, r.WithContext(session.NewContext(r.Context(), id)))
+		if bid := s.checkAdminBasic(r); bid != nil {
+			next.ServeHTTP(w, r.WithContext(session.NewContext(r.Context(), bid)))
+			return
+		}
+		if err == nil {
+			// A valid session whose identity is no longer authorized (the
+			// admin allowlist changed since login): explain, drop the cookie,
+			// and don't bounce through the IdP (artifactsd-m9e.16).
+			s.session.Clear(w)
+			s.forbidNonAdmin(w, id)
 			return
 		}
 		s.challengeAdmin(w, r)
