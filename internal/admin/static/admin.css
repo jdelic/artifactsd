@@ -580,3 +580,25 @@ body {
   border: 1px solid var(--nc-yellow);
   padding: 0 4px;
 }
+
+/* Restricted API tokens and their per-collection grants (artifactsd-m9e.29). */
+.nc-restricted {
+  color: var(--nc-cyan-bright);
+  border: 1px solid var(--nc-cyan-bright);
+  padding: 0 4px;
+  font-size: 0.85em;
+}
+.nc-grant {
+  margin-top: 4px;
+}
+.nc-grant-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+.nc-hint {
+  font-size: 0.85em;
+  color: var(--nc-grey);
+}

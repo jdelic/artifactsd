@@ -117,11 +117,14 @@ type APIToken struct {
 }
 
 // TokenGrant gives a restricted API token the listed scopes on one
-// collection (design/16 §2). CollectionName is filled on reads.
+// collection (design/16 §2). CollectionName, TokenName and TokenRevoked are
+// filled on reads.
 type TokenGrant struct {
 	TokenID        int64
 	CollectionID   int64
 	CollectionName string
+	TokenName      string
+	TokenRevoked   bool
 	Scopes         json.RawMessage
 	CreatedAt      time.Time
 }

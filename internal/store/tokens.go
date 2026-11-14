@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
 	"time"
 )
 
@@ -126,26 +127,43 @@ func (s *Store) DeleteTokenGrant(ctx context.Context, tokenID, collectionID int6
 // ListTokenGrants returns all grants keyed by token id, each with its
 // collection name, ordered by collection name.
 func (s *Store) ListTokenGrants(ctx context.Context) (map[int64][]*TokenGrant, error) {
-	return s.queryTokenGrants(ctx, 0)
+	return s.queryTokenGrants(ctx, 0, 0)
+}
+
+// CollectionGrants returns the grants on one collection, ordered by token
+// name (for the admin UI's per-collection view).
+func (s *Store) CollectionGrants(ctx context.Context, collectionID int64) ([]*TokenGrant, error) {
+	m, err := s.queryTokenGrants(ctx, 0, collectionID)
+	if err != nil {
+		return nil, err
+	}
+	var out []*TokenGrant
+	for _, gs := range m {
+		out = append(out, gs...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TokenName < out[j].TokenName })
+	return out, nil
 }
 
 // TokenGrants returns one token's grants, ordered by collection name.
 func (s *Store) TokenGrants(ctx context.Context, tokenID int64) ([]*TokenGrant, error) {
-	m, err := s.queryTokenGrants(ctx, tokenID)
+	m, err := s.queryTokenGrants(ctx, tokenID, 0)
 	if err != nil {
 		return nil, err
 	}
 	return m[tokenID], nil
 }
 
-// queryTokenGrants lists the grants of one token, or of all tokens when
-// tokenID is 0.
-func (s *Store) queryTokenGrants(ctx context.Context, tokenID int64) (map[int64][]*TokenGrant, error) {
+// queryTokenGrants lists grants keyed by token id, filtered to one token
+// and/or one collection (0 = no filter).
+func (s *Store) queryTokenGrants(ctx context.Context, tokenID, collectionID int64) (map[int64][]*TokenGrant, error) {
 	rows, err := s.db.sql.QueryContext(ctx,
-		`SELECT g.token_id, g.collection_id, c.name, g.scopes, g.created_at
-		 FROM token_grants g JOIN collections c ON c.id = g.collection_id
-		 WHERE ?1 = 0 OR g.token_id = ?1
-		 ORDER BY c.name`, tokenID)
+		`SELECT g.token_id, g.collection_id, c.name, t.name, t.revoked_at IS NOT NULL, g.scopes, g.created_at
+		 FROM token_grants g
+		 JOIN collections c ON c.id = g.collection_id
+		 JOIN api_tokens t ON t.id = g.token_id
+		 WHERE (?1 = 0 OR g.token_id = ?1) AND (?2 = 0 OR g.collection_id = ?2)
+		 ORDER BY c.name`, tokenID, collectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +176,7 @@ func (s *Store) queryTokenGrants(ctx context.Context, tokenID int64) (map[int64]
 			scopes  string
 			created string
 		)
-		if err := rows.Scan(&g.TokenID, &g.CollectionID, &g.CollectionName, &scopes, &created); err != nil {
+		if err := rows.Scan(&g.TokenID, &g.CollectionID, &g.CollectionName, &g.TokenName, &g.TokenRevoked, &scopes, &created); err != nil {
 			return nil, err
 		}
 		g.Scopes = []byte(scopes)

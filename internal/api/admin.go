@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -66,6 +67,7 @@ func scopeStrings(raw []byte) []string {
 	if out == nil {
 		out = []string{}
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -192,22 +194,6 @@ func validateTokenScopes(req *createTokenRequest) string {
 	return ""
 }
 
-// validateGrantScopes checks one grant's scope list; "" when valid.
-func validateGrantScopes(scopes []string) string {
-	if len(scopes) == 0 {
-		return "a grant needs at least one scope"
-	}
-	for _, s := range scopes {
-		if auth.Scope(s) == auth.ScopeAdmin {
-			return "admin cannot be granted per collection"
-		}
-		if !auth.IsGrantScope(auth.Scope(s)) {
-			return "unknown scope: " + s
-		}
-	}
-	return ""
-}
-
 // resolveGrants validates the grants of a token creation request and maps
 // collection names to ids. Writes a 400 and returns false on invalid input.
 func (h *Handler) resolveGrants(w http.ResponseWriter, r *http.Request, reqs []grantRequest) ([]*store.TokenGrant, bool) {
@@ -219,8 +205,8 @@ func (h *Handler) resolveGrants(w http.ResponseWriter, r *http.Request, reqs []g
 			return nil, false
 		}
 		seen[g.Collection] = true
-		if msg := validateGrantScopes(g.Scopes); msg != "" {
-			writeError(w, http.StatusBadRequest, CodeBadRequest, msg)
+		if err := auth.ValidateGrantScopes(g.Scopes); err != nil {
+			writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 			return nil, false
 		}
 		c, err := h.store.GetCollectionByName(r.Context(), g.Collection)
@@ -302,8 +288,8 @@ func (h *Handler) putTokenGrant(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if msg := validateGrantScopes(req.Scopes); msg != "" {
-		writeError(w, http.StatusBadRequest, CodeBadRequest, msg)
+	if err := auth.ValidateGrantScopes(req.Scopes); err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error())
 		return
 	}
 	scopes, err := scopesJSON(req.Scopes)

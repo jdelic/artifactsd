@@ -59,3 +59,29 @@ func TestClient_RevokeToken(t *testing.T) {
 		t.Fatalf("revoke token: %v", err)
 	}
 }
+
+func TestClient_TokenGrants(t *testing.T) {
+	var calls []string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodPut {
+			var body struct {
+				Scopes []string `json:"scopes"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewEncoder(w).Encode(Token{ID: 3, Restricted: true, Grants: []Grant{{Collection: "reports", Scopes: body.Scopes}}})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	tok, err := c.SetTokenGrant(context.Background(), 3, "reports", []string{"collections:read"})
+	if err != nil || !tok.Restricted || tok.Grants[0].Scopes[0] != "collections:read" {
+		t.Fatalf("SetTokenGrant = %+v, %v", tok, err)
+	}
+	if err := c.DeleteTokenGrant(context.Background(), 3, "reports"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0] != "PUT /api/v1/tokens/3/grants/reports" || calls[1] != "DELETE /api/v1/tokens/3/grants/reports" {
+		t.Errorf("calls = %v", calls)
+	}
+}

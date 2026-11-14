@@ -144,11 +144,14 @@ completion), size limits. See [07](07-storage-uploads.md).
 ## 6. Management API auth (decision D1)
 
 - `Authorization: Bearer tok_...` API tokens, minted by an admin, carrying
-  **scopes**: `admin`, `collections:read`, `collections:write`, `shares:read`,
-  `shares:write`. Token management, upload requests, audit, and maintenance
+  **scopes**: `admin`, `collections:read|write|delete`,
+  `shares:read|write|delete`. Token management, upload requests, audit, and maintenance
   are `admin`-only (a token-minting scope would be equivalent to `admin`).
   Stored as SHA-256.
 - Scope enforcement per endpoint ([04](04-http-api.md)).
+- **Restricted tokens** carry scopes per collection on grants and reach only
+  granted collections; anything else is a `404` ([16](16-token-scoping.md)).
+  An agent should get its own restricted token.
 - Tokens are created at runtime (API/CLI/admin UI), never via config.
 
 ## 7. Admin authentication & authorization (decisions A1, D1)

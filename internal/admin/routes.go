@@ -47,6 +47,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("GET /tokens", http.HandlerFunc(h.tokensList))
 	mux.Handle("POST /tokens", http.HandlerFunc(h.createToken))
 	mux.Handle("POST /tokens/{id}/revoke", http.HandlerFunc(h.revokeToken))
+	mux.Handle("POST /tokens/{id}/grants", http.HandlerFunc(h.grantToken))
+	mux.Handle("POST /tokens/{id}/grants/{collection}/remove", http.HandlerFunc(h.ungrantToken))
 
 	mux.Handle("GET /audit", http.HandlerFunc(h.auditLog))
 

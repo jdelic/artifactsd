@@ -14,6 +14,7 @@
       <span class="nc-scopes">
         {{range .KnownScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
       </span>
+      <label class="nc-scope" title="Reaches only the collections granted below; leave scopes unchecked"><input type="checkbox" name="restricted" value="1"> restricted</label>
       <button class="nc-button" type="submit">Create</button>
     </form>
     {{if .Error}}<div class="nc-error">{{.Error}}</div>{{end}}
@@ -26,11 +27,37 @@
   <div class="nc-panel" data-label="Tokens">
     <table class="nc-table">
       <tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Created</th><th>Status</th><th></th></tr>
-      {{range .Tokens}}
+      {{range $t := .Tokens}}
       <tr>
         <td>{{.Name}}</td>
         <td>{{.Prefix}}</td>
-        <td>{{.Scopes}}</td>
+        <td>
+          {{if .Restricted}}
+          <span class="nc-restricted">restricted</span>
+          {{range .Grants}}
+          <div class="nc-grant">
+            <b>{{.Collection}}</b>: {{.Scopes}}
+            {{if not $t.Revoked}}
+            <form class="nc-inline-form" hx-post="{{$.AdminPath}}/tokens/{{$t.ID}}/grants/{{.Collection}}/remove"
+                  hx-target="#tokens-panel" hx-swap="outerHTML" hx-confirm="Remove the grant on {{.Collection}}?">
+              <button class="nc-button" type="submit">Remove</button>
+            </form>
+            {{end}}
+          </div>
+          {{else}}
+          <div class="nc-grant">no grants: reaches nothing</div>
+          {{end}}
+          {{if and (not .Revoked) $.Collections}}
+          <form class="nc-form nc-grant-form" hx-post="{{$.AdminPath}}/tokens/{{.ID}}/grants" hx-target="#tokens-panel" hx-swap="outerHTML">
+            <select name="collection" aria-label="Collection">
+              {{range $.Collections}}<option value="{{.}}">{{.}}</option>{{end}}
+            </select>
+            {{range $.GrantScopes}}<label class="nc-scope"><input type="checkbox" name="scopes" value="{{.}}"> {{.}}</label>{{end}}
+            <button class="nc-button" type="submit">Grant</button>
+          </form>
+          {{end}}
+          {{else}}{{.Scopes}}{{end}}
+        </td>
         <td>{{.CreatedAt}}</td>
         <td>{{if .Revoked}}revoked{{else}}active{{end}}</td>
         <td>

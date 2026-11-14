@@ -1,7 +1,7 @@
 # 16 — Per-collection grants for API tokens
 
 > **Status: ACCEPTED** (owner decisions 2026-11-14, artifactsd-m9e.26).
-> Store, auth and API implemented in artifactsd-m9e.28; admin UI and CLI in
+> Implemented: store, auth and API in artifactsd-m9e.28; admin UI and CLI in
 > artifactsd-m9e.29.
 
 ## 1. Problem
@@ -118,10 +118,11 @@ flood the audit table.
 
 ## 7. Surfaces
 
-- **Admin UI:** the token form gets a "Restricted" switch and a grants editor
-  (collection picker + scope checkboxes per row; disabled for `admin`); the
-  token list shows restriction and grants; a collection's page lists the tokens
-  that hold grants on it.
+- **Admin UI:** the token form gets a "restricted" checkbox (scopes left
+  unchecked; `admin` refused); each restricted token's row lists its grants
+  with a Remove button and a grant form (collection picker + grant-scope
+  checkboxes, which replace an existing grant's scopes). A collection's Shares
+  screen lists the restricted tokens holding grants on it.
 - **CLI:** `artifactctl token create <name> --restricted --grant reports=collections:read,collections:write`
   (repeatable), `artifactctl token grant <id> <collection> --scope …`,
   `artifactctl token ungrant <id> <collection>`, `token list` shows grants.
