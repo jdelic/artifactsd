@@ -66,20 +66,46 @@ func TestRun_UnknownFlag(t *testing.T) {
 	}
 }
 
-// TestRun_HelpDocumentsConceptsAndEnv pins that --help names the environment
-// variables the client reads (so the token can be supplied without --token)
-// and explains the visibility levels and the flags that set access.
+// TestRun_HelpDocumentsConceptsAndEnv pins where the shared concepts are
+// documented: the root help stays a short orientation naming the environment
+// variables (so the token can be supplied without --token), and each concept
+// lives on the command a user reaches for it from.
 func TestRun_HelpDocumentsConceptsAndEnv(t *testing.T) {
-	code, out, _ := runCLI(t, "--help")
-	if code != exitOK {
-		t.Fatalf("--help exit = %d", code)
-	}
-	for _, want := range []string{
-		envBaseURL, envToken, envConfig,
-		"public", "unlisted", "protected", "private", "--bearer-token", "--crawlable",
+	for _, tc := range []struct {
+		args []string
+		want []string
+		not  []string
+	}{
+		{
+			args: []string{"--help"},
+			want: []string{envBaseURL, envToken, "artifactctl help config", "artifactctl token --help"},
+			not:  []string{"Visibility", "--crawlable", "Shares"},
+		},
+		{args: []string{"help", "config"}, want: []string{envBaseURL, envToken, envConfig, "current:", "--profile"}},
+		{args: []string{"token", "--help"}, want: []string{"ARTIFACTSD_BOOTSTRAP_TOKEN", "not the admin UI's login"}},
+		{
+			args: []string{"meta", "--help"},
+			want: []string{"public", "unlisted", "protected", "private", "--bearer-token", "--basic", "--crawlable", "--index", "meta explain"},
+		},
+		{args: []string{"share", "create", "--help"}, want: []string{"capability link", "artifactctl meta --help"}},
+		{args: []string{"collection", "create", "--help"}, want: []string{"artifactctl meta --help"}},
+		{args: []string{"put", "--help"}, want: []string{"artifactctl meta --help"}},
+		{args: []string{"put-tree", "--help"}, want: []string{"artifactctl meta --help"}},
+		{args: []string{"meta", "set", "--help"}, want: []string{"artifactctl meta --help"}},
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("--help output missing %q", want)
+		code, out, _ := runCLI(t, tc.args...)
+		if code != exitOK {
+			t.Fatalf("%v exit = %d", tc.args, code)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(out, want) {
+				t.Errorf("%v output missing %q", tc.args, want)
+			}
+		}
+		for _, not := range tc.not {
+			if strings.Contains(out, not) {
+				t.Errorf("%v output unexpectedly contains %q", tc.args, not)
+			}
 		}
 	}
 }

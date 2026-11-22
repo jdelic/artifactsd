@@ -23,6 +23,7 @@ func (a *app) newPutCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "put <collection>/<path> <localfile>",
 		Short: "Upload a file",
+		Long:  "Upload a file." + seeMetaHelp,
 		Args:  exactArgs(2, "<collection>/<path> <localfile>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()
@@ -195,6 +196,7 @@ func (a *app) newPutTreeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "put-tree <collection> <localdir>",
 		Short: "Upload a directory tree",
+		Long:  "Upload a directory tree." + seeMetaHelp,
 		Args:  exactArgs(2, "<collection> <localdir>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()

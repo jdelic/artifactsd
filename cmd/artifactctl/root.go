@@ -89,6 +89,7 @@ func newRootCmd(a *app) *cobra.Command {
 		a.newSkillCmd(),
 		a.newMCPCmd(),
 		a.newVersionCmd(),
+		newConfigHelpTopic(),
 	)
 	return root
 }

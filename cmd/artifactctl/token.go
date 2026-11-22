@@ -14,6 +14,7 @@ func (a *app) newTokenCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "token",
 		Short: "Manage API tokens",
+		Long:  tokenLong,
 	}
 	cmd.AddCommand(a.newTokenCreateCmd(), a.newTokenListCmd(), a.newTokenRevokeCmd(),
 		a.newTokenRestrictCmd(), a.newTokenGrantCmd(), a.newTokenUngrantCmd())

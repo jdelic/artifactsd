@@ -1,37 +1,58 @@
 package main
 
-// rootLong is the top-level help text. The concepts shared across commands
-// (connection, tokens, visibility, auth, listing/crawl flags, shares) are
-// explained once here and referenced from the flags that set them, rather
-// than repeated per command.
+import "github.com/spf13/cobra"
+
+// Help texts for concepts shared across commands. Each one lives on the
+// command where a user is looking for it (visibility and auth on "meta",
+// shares on "share create", tokens on "token", connection setup on the "config"
+// help topic) and flags elsewhere point there, so the root help stays a short
+// orientation instead of a manual.
+
+// rootLong is the top-level help text: what the tool is and how to connect.
 const rootLong = `artifactctl — command-line client for an artifactsd server.
 
-Connecting
-  Every server-backed command needs a base URL and a management API token.
-  Each is resolved in this order, highest precedence first:
+Every server-backed command needs the server's base URL and a management API
+token, e.g. from the environment:
 
-    1. flags          --base-url, --token
-    2. environment    ARTIFACTSD_BASE_URL, ARTIFACTSD_TOKEN
-    3. config file    the profile named by --profile, else the file's "current"
+  export ARTIFACTSD_BASE_URL=https://artifacts.example.com
+  export ARTIFACTSD_TOKEN=tok_...
 
-  The config file lives at $ARTIFACTCTL_CONFIG, else
-  $XDG_CONFIG_HOME/artifactctl/config.yaml, else
-  ~/.config/artifactctl/config.yaml:
+See "artifactctl help config" for flags, config file profiles, and
+precedence, and "artifactctl token --help" for where tokens come from.`
 
-    current: prod
-    profiles:
-      prod:
-        base_url: https://artifacts.example.com
-        token: tok_...
+// configLong documents connection setup (the "config" help topic).
+const configLong = `Every server-backed command needs a base URL and a management API token.
+Each is resolved in this order, highest precedence first:
 
-  Prefer ARTIFACTSD_TOKEN or the config file over --token, which leaves the
-  secret in shell history and the process list.
+  1. flags          --base-url, --token
+  2. environment    ARTIFACTSD_BASE_URL, ARTIFACTSD_TOKEN
+  3. config file    the profile named by --profile, else the file's "current"
 
-Tokens
-  The token is an API token, not the admin UI's login. The server seeds one
-  "admin"-scoped token from ARTIFACTSD_BOOTSTRAP_TOKEN at startup; mint narrower
-  ones with "artifactctl token create --scope ..." (its --help lists the
-  scopes).
+The config file lives at $ARTIFACTCTL_CONFIG, else
+$XDG_CONFIG_HOME/artifactctl/config.yaml, else
+~/.config/artifactctl/config.yaml:
+
+  current: prod
+  profiles:
+    prod:
+      base_url: https://artifacts.example.com
+      token: tok_...
+
+Prefer ARTIFACTSD_TOKEN or the config file over --token, which leaves the
+secret in shell history and the process list.`
+
+// tokenLong explains what management API tokens are.
+const tokenLong = `Manage management API tokens.
+
+The token artifactctl uses (--token, ARTIFACTSD_TOKEN, or a config profile) is
+an API token, not the admin UI's login. The server seeds one "admin"-scoped
+token from ARTIFACTSD_BOOTSTRAP_TOKEN at startup; mint narrower ones with
+"artifactctl token create --scope ..." (its --help lists the scopes).`
+
+// metaLong explains the metadata that controls access: visibility, object
+// auth, and the listing/crawl/index flags. The commands that set them
+// (collection create, put, put-tree, meta set) point here.
+const metaLong = `Read, update, or explain collection, folder, and file metadata.
 
 Visibility
   Every collection, folder, and file has metadata that controls who can fetch
@@ -73,12 +94,27 @@ Listing and crawl flags (all off by default)
   So a default public object is fetchable by its URL but not listed, crawled,
   or indexed.
 
-Shares
-  A share (/s/<id>/...) is an unguessable capability link to a collection,
-  folder, or file. Possessing the link grants access: private targets are
-  served through it (as unlisted). Auth configured on the target still
-  applies unless the share sets its own (--protected with an auth flag), and
-  expired objects stay 404.
-
 Use "artifactctl meta explain <collection>[/<path>]" to see the effective
 settings for an object and which layer each one came from.`
+
+// seeMetaHelp is appended to commands that take the visibility, auth, and
+// listing flags documented in metaLong.
+const seeMetaHelp = "\n\nVisibility, auth, and listing flags are explained in \"artifactctl meta --help\"."
+
+// shareCreateLong explains what a share grants.
+const shareCreateLong = `Create a share for a collection, folder, or file.
+
+A share (/s/<id>/...) is an unguessable capability link to its target.
+Possessing the link grants access: private targets are served through it (as
+unlisted). Auth configured on the target still applies unless the share sets
+its own (--protected with an auth flag), and expired objects stay 404.` + seeMetaHelp
+
+// newConfigHelpTopic is the "artifactctl help config" topic. It has no Run, so
+// cobra lists it under "Additional help topics" rather than as a command.
+func newConfigHelpTopic() *cobra.Command {
+	return &cobra.Command{
+		Use:   "config",
+		Short: "How artifactctl finds its server URL and token",
+		Long:  configLong,
+	}
+}
