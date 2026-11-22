@@ -1,0 +1,31 @@
+version: 2
+updates:
+  # Go modules. Minor and patch updates come as one grouped PR; major updates
+  # (new module paths, possible API breaks) come as separate PRs.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Actions used in .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Base images in the Dockerfile. The golang build image must keep up with
+  # the "go"/"toolchain" lines in go.mod, which gomod updates can raise.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker-images:
+        patterns: ["*"]
