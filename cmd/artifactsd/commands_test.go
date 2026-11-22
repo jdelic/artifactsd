@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 // execute runs the root command with args and captured stdin/stdout/stderr.
 func execute(t *testing.T, stdin string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	clearArtifactsdEnv(t)
 	cmd := newRootCmd()
 	var outBuf, errBuf bytes.Buffer
 	cmd.SetOut(&outBuf)
@@ -25,6 +27,20 @@ func execute(t *testing.T, stdin string, args ...string) (stdout, stderr string,
 	cmd.SetArgs(args)
 	err = cmd.Execute()
 	return outBuf.String(), errBuf.String(), err
+}
+
+// clearArtifactsdEnv blanks every ARTIFACTSD_* variable for the test, so the
+// commands only see the flags the test passes. A developer's shell often
+// exports ARTIFACTSD_BASE_URL/ARTIFACTSD_TOKEN for artifactctl; without this,
+// the missing-base-url tests would start a real server instead of failing
+// validation. Empty values are treated as unset by the config loader.
+func clearArtifactsdEnv(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "ARTIFACTSD_") {
+			t.Setenv(k, "")
+		}
+	}
 }
 
 func TestVersionCommand(t *testing.T) {

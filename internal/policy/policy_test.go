@@ -17,8 +17,8 @@ func req(headers map[string]string) *http.Request {
 	return r
 }
 
-func effective(vis string, auth []meta.AuthEntry) *meta.Effective {
-	return &meta.Effective{Visibility: vis, Auth: auth}
+func effective(vis string, entries []meta.AuthEntry) *meta.Effective {
+	return &meta.Effective{Visibility: vis, Auth: entries}
 }
 
 func TestDecide_PublicNoAuthServes(t *testing.T) {

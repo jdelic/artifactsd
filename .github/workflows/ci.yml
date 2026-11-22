@@ -21,14 +21,15 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
           cache: true
-
-      - name: Install dev tools (gofumpt, golangci-lint, govulncheck)
-        run: make tools
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+            tools/goreleaser/go.sum
 
       - name: Run full quality gate
         run: make check
@@ -45,11 +46,15 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
           cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+            tools/goreleaser/go.sum
 
       - name: Cross-compile
         env:

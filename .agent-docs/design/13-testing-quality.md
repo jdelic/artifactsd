@@ -9,14 +9,23 @@ before/with implementation, never skip quality gates.
 |------|------|-------|
 | Build | `go build ./...` | cross-compile linux/darwin amd64/arm64 (CGO permitted, decision B2; default pure-Go for build simplicity) |
 | Vet | `go vet ./...` | baseline |
-| Lint | `golangci-lint` | curated: govet, staticcheck, errcheck, gosec, revive, gocritic, ineffassign, misspell, bodyclose, sqlclosecheck |
-| Format | `gofumpt` (+ `goimports`) | enforced in CI |
+| Lint | `golangci-lint` v2 | curated: govet, staticcheck, errcheck, gosec, revive, gocritic, ineffassign, misspell, bodyclose, sqlclosecheck, unused |
+| Format | `gofumpt` + `goimports` | golangci-lint v2 formatters (`make fmt` / `make fmt-check`), enforced in CI |
 | Tests | `go test ./... -race` | race detector on |
 | Coverage | `go test -cover` | track; aim meaningful coverage on policy/meta/auth |
 | Vuln scan | `govulncheck ./...` | dependency CVEs |
-| Tidy | `go mod tidy -diff` | no drift |
+| Tidy | `go mod tidy -diff` | no drift, main and tool modules |
 
 A `Makefile`/`Taskfile` target `make check` runs the full set; CI runs the same.
+
+The tools are not installed globally. golangci-lint and govulncheck are
+`tool` dependencies of `tools/go.mod`, GoReleaser of `tools/goreleaser/go.mod`
+(its large dependency graph would otherwise shift the linters' dependencies).
+The Makefile and the release workflow run them via `go tool -modfile=...`,
+which builds them with the project's own toolchain, so a newer Go never
+outruns the linter build. Separate modules keep them out of the main
+`go.mod`, as golangci-lint recommends. Dependabot updates them like any other
+module.
 
 ## 2. Test strategy
 
@@ -71,8 +80,9 @@ tests. Use `t.TempDir()` for data dirs.
 - GitHub Actions (repo is on GitHub: `jdelic/artifactsd`): matrix build + `make
   check` + `govulncheck`. Cache modules. Block merge on red.
 - Dependabot (`.github/dependabot.yml`): weekly PRs for Go modules (minor and
-  patch grouped, majors separate), GitHub Actions, and the Dockerfile's base
-  images. The docker updates keep the `golang` build image in step with the
+  patch grouped, majors separate), the pinned dev tools in `tools/` (only the
+  tools themselves, not their dependencies), GitHub Actions, and the
+  Dockerfile's base images. The docker updates keep the `golang` build image in step with the
   `go`/`toolchain` lines in `go.mod`, which a module update can raise.
 - Beads workflow (AGENT_INSTRUCTIONS): file follow-up issues, run gates locally
   before push.

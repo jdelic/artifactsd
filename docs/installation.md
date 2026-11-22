@@ -41,9 +41,11 @@ $ go install github.com/jdelic/artifactsd/cmd/artifactctl@latest
 ```
 
 The repository's [`Makefile`](../Makefile) wraps the common build, test, and lint
-targets. `make release-snapshot` runs GoReleaser locally (`make release-tools`
-installs it) to produce the same archives as a real release, without
-publishing anything.
+targets. The developer tools (golangci-lint, govulncheck, GoReleaser) are
+pinned in [`tools/`](../tools) and run with `go tool`, which builds them on
+first use; there is nothing to install besides Go. `make release-snapshot`
+runs GoReleaser locally to produce the same archives as a real release,
+without publishing anything.
 
 ## Running the server
 

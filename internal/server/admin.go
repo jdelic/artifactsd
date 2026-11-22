@@ -104,6 +104,7 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(fs)
+	//nolint:gosec // G124: Secure follows the request scheme (s.Secure), so plain-HTTP dev setups still work.
 	http.SetCookie(w, &http.Cookie{
 		Name:     flowCookieName,
 		Value:    s.session.Sign(payload),
@@ -211,7 +212,7 @@ func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, fs *flowS
 		Groups:  result.Groups,
 		Expiry:  time.Now().Add(adminSessionTTL),
 	}
-	s.clearFlowCookie(w)
+	s.clearFlowCookie(w, r)
 	if !s.isAdmin(id) {
 		s.log.Warn("oidc login denied: identity is not an admin", "subject", id.Subject, "email", id.Email)
 		s.recordAdminLogin(r, audit.ActionAdminLoginDenied, id)
@@ -230,7 +231,7 @@ func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, fs *flowS
 // (never an admin session) and returns to the object. Whether this identity may
 // see that object is decided when it is served (artifactsd-m9e.22).
 func (s *Server) completeViewerLogin(w http.ResponseWriter, r *http.Request, fs *flowState, result *auth.LoginResult) {
-	s.clearFlowCookie(w)
+	s.clearFlowCookie(w, r)
 	rt, ok := viewerReturnTo(fs.ReturnTo)
 	if !ok {
 		http.Error(w, "invalid return_to", http.StatusBadRequest)
@@ -285,8 +286,19 @@ func (s *Server) readFlowState(r *http.Request) (flowState, bool) {
 	return fs, true
 }
 
-func (s *Server) clearFlowCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: flowCookieName, Value: "", Path: "/auth/oidc/", MaxAge: -1, HttpOnly: true})
+// clearFlowCookie expires the flow cookie with the same attributes it was set
+// with.
+func (s *Server) clearFlowCookie(w http.ResponseWriter, r *http.Request) {
+	//nolint:gosec // G124: Secure follows the request scheme (s.Secure), so plain-HTTP dev setups still work.
+	http.SetCookie(w, &http.Cookie{
+		Name:     flowCookieName,
+		Value:    "",
+		Path:     "/auth/oidc/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   s.Secure(r),
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // adminGate protects admin routes: a valid admin session (OIDC group) or the

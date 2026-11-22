@@ -18,11 +18,15 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
           cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+            tools/goreleaser/go.sum
 
       - name: Generate release notes
         env:
@@ -62,12 +66,11 @@ jobs:
           echo '----- release-notes.md -----'
           cat release-notes.md
 
+      # goreleaser is pinned in tools/goreleaser/go.mod (updated by
+      # Dependabot), so releases use the same version as `make
+      # release-snapshot`.
       - name: Run goreleaser
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean --release-notes=release-notes.md
+        run: go tool -modfile=tools/goreleaser/go.mod goreleaser release --clean --release-notes=release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

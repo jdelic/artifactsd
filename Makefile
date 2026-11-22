@@ -2,11 +2,13 @@
 # `make check` runs the full local quality gate; CI runs the same target.
 
 GO            ?= go
-GOBIN         := $(shell $(GO) env GOPATH)/bin
-GOLANGCI_LINT ?= $(GOBIN)/golangci-lint
-GOFUMPT       ?= $(GOBIN)/gofumpt
-GOVULNCHECK   ?= $(GOBIN)/govulncheck
-GORELEASER    ?= $(GOBIN)/goreleaser
+# Developer tools are pinned as `tool` dependencies in separate modules (kept
+# out of the main go.mod) and updated by Dependabot. `go tool` builds them with
+# the project's toolchain on first use and caches them; no install step.
+GOLANGCI_LINT ?= $(GO) tool -modfile=tools/go.mod golangci-lint
+GOVULNCHECK   ?= $(GO) tool -modfile=tools/go.mod govulncheck
+GORELEASER    ?= $(GO) tool -modfile=tools/goreleaser/go.mod goreleaser
+TOOL_MODULES  := tools tools/goreleaser
 
 PKGS          := ./...
 VERSION       ?= dev
@@ -27,15 +29,12 @@ build: ## Build both binaries into ./dist
 	$(GO) build -ldflags '$(LDFLAGS)' -o dist/artifactctl ./cmd/artifactctl
 
 .PHONY: fmt
-fmt: ## Format code with gofumpt
-	$(GOFUMPT) -w .
+fmt: ## Format code (gofumpt, via golangci-lint's formatters)
+	$(GOLANGCI_LINT) fmt
 
 .PHONY: fmt-check
-fmt-check: ## Fail if any file is not gofumpt-formatted
-	@out=$$($(GOFUMPT) -l .); \
-	if [ -n "$$out" ]; then \
-		echo "gofumpt: files need formatting:"; echo "$$out"; exit 1; \
-	fi
+fmt-check: ## Fail if any file is not formatted; prints the diff
+	$(GOLANGCI_LINT) fmt --diff
 
 .PHONY: vet
 vet: ## go vet
@@ -71,22 +70,14 @@ vulncheck: ## Scan dependencies for known vulnerabilities
 	$(GOVULNCHECK) $(PKGS)
 
 .PHONY: tidy
-tidy: ## go mod tidy
+tidy: ## go mod tidy (main and tool modules)
 	$(GO) mod tidy
+	for m in $(TOOL_MODULES); do $(GO) -C $$m mod tidy || exit 1; done
 
 .PHONY: tidy-check
-tidy-check: ## Fail if go.mod/go.sum are not tidy
+tidy-check: ## Fail if go.mod/go.sum (main and tool modules) are not tidy
 	$(GO) mod tidy -diff
-
-.PHONY: tools
-tools: ## Install the developer tools used by `make check`
-	$(GO) install mvdan.cc/gofumpt@latest
-	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
-	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
-
-.PHONY: release-tools
-release-tools: ## Install goreleaser, used by `make release-snapshot`
-	$(GO) install github.com/goreleaser/goreleaser/v2@latest
+	for m in $(TOOL_MODULES); do $(GO) -C $$m mod tidy -diff || exit 1; done
 
 .PHONY: clean
 clean: ## Remove build artifacts

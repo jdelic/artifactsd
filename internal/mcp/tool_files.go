@@ -35,20 +35,20 @@ type GetMetadataIn struct {
 }
 
 func (s *Server) getMetadata(ctx context.Context, _ *gosdk.CallToolRequest, in *GetMetadataIn) (*gosdk.CallToolResult, FileMetaOut, error) {
-	var meta *apiclient.FileMeta
+	var fm *apiclient.FileMeta
 	var err error
 	switch path, kind := metaPathKind(in.Path); kind {
 	case metaPathCollection:
-		meta, err = s.Client.GetCollectionMeta(ctx, in.Collection)
+		fm, err = s.Client.GetCollectionMeta(ctx, in.Collection)
 	case metaPathFolder:
-		meta, err = s.Client.GetFolderMeta(ctx, in.Collection, path)
+		fm, err = s.Client.GetFolderMeta(ctx, in.Collection, path)
 	default:
-		meta, err = s.Client.GetFileMeta(ctx, in.Collection, path)
+		fm, err = s.Client.GetFileMeta(ctx, in.Collection, path)
 	}
 	if err != nil {
 		return nil, FileMetaOut{}, MapError(err)
 	}
-	out, err := toFileMetaOut(meta)
+	out, err := toFileMetaOut(fm)
 	if err != nil {
 		return nil, FileMetaOut{}, err
 	}
@@ -91,22 +91,22 @@ func (s *Server) setMetadata(ctx context.Context, _ *gosdk.CallToolRequest, in *
 	if err != nil {
 		return nil, FileMetaOut{}, err
 	}
-	var meta *apiclient.FileMeta
+	var fm *apiclient.FileMeta
 	switch path, kind := metaPathKind(in.Path); kind {
 	case metaPathCollection:
 		if _, err = s.Client.PatchCollectionMeta(ctx, in.Collection, patch); err == nil {
 			// Re-read for the uniform {path, own, effective} shape.
-			meta, err = s.Client.GetCollectionMeta(ctx, in.Collection)
+			fm, err = s.Client.GetCollectionMeta(ctx, in.Collection)
 		}
 	case metaPathFolder:
-		meta, err = s.Client.PatchFolderMeta(ctx, in.Collection, path, patch)
+		fm, err = s.Client.PatchFolderMeta(ctx, in.Collection, path, patch)
 	default:
-		meta, err = s.Client.PatchFileMeta(ctx, in.Collection, path, patch)
+		fm, err = s.Client.PatchFileMeta(ctx, in.Collection, path, patch)
 	}
 	if err != nil {
 		return nil, FileMetaOut{}, MapError(err)
 	}
-	out, err := toFileMetaOut(meta)
+	out, err := toFileMetaOut(fm)
 	if err != nil {
 		return nil, FileMetaOut{}, err
 	}

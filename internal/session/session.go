@@ -144,6 +144,7 @@ func (m *Manager) SetCookie(w http.ResponseWriter, id *Identity) error {
 	if err != nil {
 		return err
 	}
+	//nolint:gosec // G124: Secure is configured (m.secure); off only for plain-HTTP deployments.
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cookieName,
 		Value:    value,
@@ -158,6 +159,7 @@ func (m *Manager) SetCookie(w http.ResponseWriter, id *Identity) error {
 
 // Clear expires the session cookie.
 func (m *Manager) Clear(w http.ResponseWriter) {
+	//nolint:gosec // G124: Secure is configured (m.secure); off only for plain-HTTP deployments.
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cookieName,
 		Value:    "",
