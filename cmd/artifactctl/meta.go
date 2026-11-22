@@ -47,6 +47,7 @@ func (a *app) newMetaCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "meta",
 		Short: "Read, update, or explain collection, folder, and file metadata",
+		Long:  metaLong,
 	}
 	cmd.AddCommand(a.newMetaGetCmd(), a.newMetaSetCmd(), a.newMetaExplainCmd())
 	return cmd
@@ -219,7 +220,7 @@ func (a *app) newMetaSetCmd() *cobra.Command {
 		Use:   "set <collection>[/<path>]",
 		Short: "Update an object's metadata",
 		Long: "Merge a metadata patch onto a collection (bare name), a folder (trailing\n" +
-			"slash; the folder is materialized if it does not exist yet), or a file.",
+			"slash; the folder is materialized if it does not exist yet), or a file." + seeMetaHelp,
 		Args: exactArgs(1, "<collection>[/<path>]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()

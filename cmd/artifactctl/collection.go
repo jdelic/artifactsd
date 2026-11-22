@@ -39,6 +39,7 @@ func (a *app) newCollectionCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a collection",
+		Long:  "Create a collection." + seeMetaHelp,
 		Args:  exactArgs(1, "<name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()

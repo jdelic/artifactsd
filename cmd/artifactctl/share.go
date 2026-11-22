@@ -31,6 +31,7 @@ func (a *app) newShareCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <collection>[/<path>]",
 		Short: "Create a share for a collection, folder, or file",
+		Long:  shareCreateLong,
 		Args:  exactArgs(1, "<collection>[/<path>]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := a.client()

@@ -32,15 +32,17 @@ Select one with `--profile staging`.
 Prefer `ARTIFACTSD_TOKEN` or a profile over `--token`, which leaves the secret
 in shell history and the process list. The token is a management API token
 (e.g. the `admin`-scoped one seeded from `ARTIFACTSD_BOOTSTRAP_TOKEN`), not the
-admin UI login. `artifactctl --help` repeats all of this, and
+admin UI login. `artifactctl help config` repeats all of this,
+`artifactctl token --help` explains where tokens come from, and
 `artifactctl token create --help` explains each scope.
 
 ## Visibility and access
 
-`artifactctl --help` explains the four visibility levels
+`artifactctl meta --help` explains the four visibility levels
 (`public`, `unlisted`, `protected`, `private`), object auth
-(`--bearer-token`/`--basic`), the listing/crawl/index flags, and how shares
-interact with them. In short:
+(`--bearer-token`/`--basic`), and the listing/crawl/index flags;
+`artifactctl share create --help` explains how shares interact with them. In
+short:
 
 | Visibility | Served on `/c/...` | Listed / in sitemap |
 |------------|--------------------|---------------------|
