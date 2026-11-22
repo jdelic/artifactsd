@@ -1,57 +1,69 @@
-# golangci-lint configuration for artifactsd (design/13 §1).
-# Curated linter set; run via `make lint` or `make check`.
+# golangci-lint v2 configuration for artifactsd (design/13 §1).
+# Curated linter set plus the gofumpt formatter. Run via `make lint`,
+# `make fmt` or `make check`; the version is pinned in tools/go.mod.
+version: "2"
+
 run:
-  timeout: 5m
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
-    - govet
-    - staticcheck
+    - bodyclose
     - errcheck
-    - gosec
-    - revive
     - gocritic
+    - gosec
+    - govet
     - ineffassign
     - misspell
-    - bodyclose
+    - revive
     - sqlclosecheck
+    - staticcheck
     - unused
-
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment # not worth the churn; readability over packing
-      - shadow # opt-in, noisy (esp. err/rec in tests); low real-bug yield
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-      - style
-    disabled-checks:
-      - whyNoLint
-      - unnamedResult # named multi-returns add shadow churn for little gain
-  misspell:
-    locale: US
-  gosec:
-    excludes:
-      - G115 # integer overflow conversions; noisy, handled case-by-case
-      - G101 # SQL column lists containing "token_hash" etc. are not credentials
-  revive:
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # not worth the churn; readability over packing
+        - shadow # opt-in, noisy (esp. err/rec in tests); low real-bug yield
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+      disabled-checks:
+        - whyNoLint
+        - unnamedResult # named multi-returns add shadow churn for little gain
+    misspell:
+      locale: US
+    gosec:
+      excludes:
+        - G115 # integer overflow conversions; noisy, handled case-by-case
+        - G101 # SQL column lists containing "token_hash" etc. are not credentials
+    revive:
+      rules:
+        - name: exported
+          disabled: true # doc.go comments cover packages; per-symbol enforced via go doc conventions
+  exclusions:
+    # No preset exclusions (v1: exclude-use-default: false).
     rules:
-      - name: exported
-        disabled: true # doc.go comments cover packages; per-symbol enforced via go doc conventions
+      # Test files: relax security/error checks that don't matter in tests.
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - errcheck
+          - gosec
 
 issues:
-  exclude-rules:
-    # Test files: relax security/error checks that don't matter in tests.
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
-        - bodyclose
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      # Own packages in a separate import group after third-party ones.
+      local-prefixes:
+        - github.com/jdelic/artifactsd

@@ -21,11 +21,15 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
           cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+            tools/goreleaser/go.sum
 
       - name: Spawn a real server and drive it via artifactctl + curl
         run: make smoke
