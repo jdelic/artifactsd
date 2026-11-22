@@ -11,6 +11,23 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
+  # Developer tools pinned as `tool` dependencies (tools/, tools/goreleaser/).
+  # Only the tools themselves are updated; their own dependencies follow the
+  # versions each tool release requires.
+  - package-ecosystem: "gomod"
+    directories:
+      - "/tools"
+      - "/tools/goreleaser"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-name: "github.com/golangci/golangci-lint/v2"
+      - dependency-name: "golang.org/x/vuln"
+      - dependency-name: "github.com/goreleaser/goreleaser/v2"
+    groups:
+      dev-tools:
+        patterns: ["*"]
+
   # Actions used in .github/workflows.
   - package-ecosystem: "github-actions"
     directory: "/"
