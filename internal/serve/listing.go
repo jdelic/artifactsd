@@ -302,9 +302,15 @@ func redirectToSlash(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	target := r.URL.EscapedPath() + "/"
+	// The /c/ and /s/ routes guarantee a single leading slash; refuse anything
+	// else so a "//host" path can never become a protocol-relative redirect.
+	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") {
+		return false
+	}
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
+	//nolint:gosec // G710: target is this request's own path (checked above) plus "/".
 	http.Redirect(w, r, target, http.StatusMovedPermanently)
 	return true
 }

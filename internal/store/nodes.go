@@ -220,14 +220,14 @@ func (s *Store) checkCapacity(ctx context.Context, q querier, collectionID int64
 }
 
 // CheckCollectionCapacity is an early, advisory check for request handlers:
-// it returns ErrCollectionFull when creating a NEW file at path would exceed
+// it returns ErrCollectionFull when creating a NEW file at nodePath would exceed
 // the cap. Replacing an existing file is always allowed. The authoritative
 // check happens again when the node is written.
-func (s *Store) CheckCollectionCapacity(ctx context.Context, collectionID int64, path string) error {
+func (s *Store) CheckCollectionCapacity(ctx context.Context, collectionID int64, nodePath string) error {
 	if s.MaxFilesPerCollection() == 0 {
 		return nil
 	}
-	existing, err := s.GetNode(ctx, collectionID, path)
+	existing, err := s.GetNode(ctx, collectionID, nodePath)
 	if err == nil && existing.Kind == KindFile {
 		return nil
 	}
@@ -238,13 +238,13 @@ func (s *Store) CheckCollectionCapacity(ctx context.Context, collectionID int64,
 }
 
 // GetNode returns a node by (collection, path).
-func (s *Store) GetNode(ctx context.Context, collectionID int64, path string) (*Node, error) {
-	return getNode(ctx, s.db.sql, collectionID, path)
+func (s *Store) GetNode(ctx context.Context, collectionID int64, nodePath string) (*Node, error) {
+	return getNode(ctx, s.db.sql, collectionID, nodePath)
 }
 
-func getNode(ctx context.Context, q querier, collectionID int64, path string) (*Node, error) {
+func getNode(ctx context.Context, q querier, collectionID int64, nodePath string) (*Node, error) {
 	row := q.QueryRowContext(ctx,
-		`SELECT `+nodeCols+` FROM nodes WHERE collection_id = ? AND path = ?`, collectionID, path)
+		`SELECT `+nodeCols+` FROM nodes WHERE collection_id = ? AND path = ?`, collectionID, nodePath)
 	n, err := scanNode(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
