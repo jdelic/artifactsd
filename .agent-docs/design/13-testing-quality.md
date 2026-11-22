@@ -70,6 +70,10 @@ tests. Use `t.TempDir()` for data dirs.
 
 - GitHub Actions (repo is on GitHub: `jdelic/artifactsd`): matrix build + `make
   check` + `govulncheck`. Cache modules. Block merge on red.
+- Dependabot (`.github/dependabot.yml`): weekly PRs for Go modules (minor and
+  patch grouped, majors separate), GitHub Actions, and the Dockerfile's base
+  images. The docker updates keep the `golang` build image in step with the
+  `go`/`toolchain` lines in `go.mod`, which a module update can raise.
 - Beads workflow (AGENT_INSTRUCTIONS): file follow-up issues, run gates locally
   before push.
 
